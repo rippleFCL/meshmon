@@ -1,0 +1,8 @@
+---
+networks:
+    - name: distomon
+      node_id: username
+      config_type: github
+      git_repo: https://github.com/rippleFCL/distmon-test.git
+
+login_password: password

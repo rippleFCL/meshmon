@@ -12,19 +12,19 @@ graph TB
     B -->|Monitors| C[Node C]
     C -->|Monitors| A
     A -->|Monitors| C
-    
+
     subgraph "Node A Components"
         A1[FastAPI Server]
         A2[Monitor Manager]
         A3[Store Manager]
         A4[Config Manager]
     end
-    
+
     subgraph "Network Config"
         N1[Local Config]
         N2[GitHub Config]
     end
-    
+
     N1 --> A1
     N2 --> A1
 ```
@@ -47,7 +47,7 @@ sequenceDiagram
     participant Server
     participant StoreManager
     participant MonitorManager
-    
+
     Client->>Server: POST /mon/{network_id}
     Server->>Server: Verify signature
     Server->>StoreManager: Update node data
@@ -104,7 +104,7 @@ classDiagram
         +datetime date
         +str version
     }
-    
+
     class SignedNodeData {
         +T data
         +str signature
@@ -112,19 +112,19 @@ classDiagram
         +new(signer, data)
         +verify(verifier)
     }
-    
+
     class SharedStore {
         +KeyMapping key_mapping
         +dict node_data
         +update(signed_data)
         +dump()
     }
-    
+
     class StoreManager {
         +dict stores
         +get_store(network_id)
     }
-    
+
     NodeData --> SignedNodeData
     SignedNodeData --> SharedStore
     SharedStore --> StoreManager
@@ -176,7 +176,7 @@ Provides Ed25519 signing and verification for secure message exchange.
 sequenceDiagram
     participant NodeA
     participant NodeB
-    
+
     Note over NodeA: Prepare monitoring data
     NodeA->>NodeA: Sign data with private key
     NodeA->>NodeB: Send signed data
@@ -201,7 +201,7 @@ flowchart LR
     F --> G[Update Local Store]
     G --> H[Sleep poll_rate]
     H --> A
-    
+
     D --> I[Request Failed]
     I --> J[Mark Node Offline]
     J --> H

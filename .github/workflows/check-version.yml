@@ -1,0 +1,31 @@
+name: Lint/Publish Ansible Collection
+
+on:
+  workflow_call:
+
+jobs:
+  publish_checks:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/server-v')
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Parse bws-cache version
+        id: bws_cache_version
+        run: |
+          echo "::set-output name=result::$(python3 server/version.py)"
+      - name: Parse git tag
+        id: git_tag
+        run: |
+          echo "::set-output name=result::${GITHUB_REF#refs/tags/server-v}"
+      - name: Assert bws-cache version matches tag
+        run: |
+          if [[ "${{ steps.bws_cache_version.outputs.result }}" != "${{ steps.git_tag.outputs.result }}" ]]; then
+            line=$(grep -no '^version:\s\d.*$' server/version.py | cut -d: -f1)
+            echo "::error file=server/version.py,line=${line}::Version in server/version.py does not match tag"
+            echo "❌ Version in server/version.py does not match git tag" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ Version in server/version.py matches git tag" >> $GITHUB_STEP_SUMMARY
+          fi
+

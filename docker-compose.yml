@@ -1,0 +1,37 @@
+services:
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      CONFIG_FILE_NAME: nodeconf.yml
+    volumes:
+      # Mount config directory if you want to modify configs without rebuilding
+      - ./src/config/:/app/src/config/
+    restart: unless-stopped
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      CONFIG_FILE_NAME: nodeconf1.yml
+    volumes:
+      # Mount config directory if you want to modify configs without rebuilding
+      - ./src/config/:/app/src/config/
+    restart: unless-stopped
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      CONFIG_FILE_NAME: nodeconf2.yml
+    volumes:
+      # Mount config directory if you want to modify configs without rebuilding
+      - ./src/config/:/app/src/config/
+    restart: unless-stopped

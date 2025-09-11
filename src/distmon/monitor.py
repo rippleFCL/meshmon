@@ -23,7 +23,11 @@ class DateTimeEncoder(json.JSONEncoder):
 
 class Monitor:
     def __init__(
-        self, store_manager: StoreManager[NodeData], net_id: str, remote_node: NetworkNodeInfo, local_node: NetworkNodeInfo
+        self,
+        store_manager: StoreManager[NodeData],
+        net_id: str,
+        remote_node: NetworkNodeInfo,
+        local_node: NetworkNodeInfo,
     ):
         self.store = store_manager
         self.net_id = net_id
@@ -33,19 +37,25 @@ class Monitor:
         self.stop_flag = Event()
         self.error_count = 0
 
-        logger.debug(f"Initialized monitor for network {net_id}: local={local_node.node_id} -> remote={remote_node.node_id}")
+        logger.debug(
+            f"Initialized monitor for network {net_id}: local={local_node.node_id} -> remote={remote_node.node_id}"
+        )
         logger.debug(
             f"Remote node URL: {remote_node.url}, poll rate: {remote_node.poll_rate}s, retry limit: {remote_node.retry}"
         )
 
     def monitor(self):
-        logger.debug(f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}")
+        logger.debug(
+            f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
+        )
         while not self.stop_flag.is_set():
             self.stop_flag.wait(self.remote_node.poll_rate)
             if self.stop_flag.is_set():
                 break
 
-            logger.debug(f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}")
+            logger.debug(
+                f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}"
+            )
             store = self.store.get_store(self.net_id)
             store_data = store.dump()
             enc_data = json.dumps(store_data, cls=DateTimeEncoder)
@@ -59,17 +69,25 @@ class Monitor:
             }
 
             try:
-                logger.debug(f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}")
+                logger.debug(
+                    f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}"
+                )
                 response = requests.post(
-                    f"{self.remote_node.url}/mon/{self.net_id}", json=data, headers={"Authorization": f"Bearer {b64_sig}"}
+                    f"{self.remote_node.url}/mon/{self.net_id}",
+                    json=data,
+                    headers={"Authorization": f"Bearer {b64_sig}"},
                 )
 
             except requests.RequestException as e:
-                logger.debug(f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}")
+                logger.debug(
+                    f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}"
+                )
                 self._handle_error()
                 continue
             if response.status_code != 200:
-                logger.warning(f"HTTP {response.status_code} response from {self.remote_node.node_id}: {response.text}")
+                logger.warning(
+                    f"HTTP {response.status_code} response from {self.remote_node.node_id}: {response.text}"
+                )
                 self._handle_error()
             else:
                 rtt = (time.time() - st) * 1000
@@ -81,16 +99,24 @@ class Monitor:
                 data = store.get()
                 if data:
                     data.ping_data[self.remote_node.node_id] = PingData(
-                        status=NodeStatus.ONLINE, req_time_outbound=req_time, req_time_rtt=rtt
+                        status=NodeStatus.ONLINE,
+                        req_time_outbound=req_time,
+                        req_time_rtt=rtt,
                     )
                     data.date = datetime.datetime.now(datetime.timezone.utc)
-                    logger.debug(f"Updated existing node data: {self.remote_node.node_id} is ONLINE")
+                    logger.debug(
+                        f"Updated existing node data: {self.remote_node.node_id} is ONLINE"
+                    )
                 else:
-                    logger.debug(f"Creating new node data: {self.remote_node.node_id} is ONLINE")
+                    logger.debug(
+                        f"Creating new node data: {self.remote_node.node_id} is ONLINE"
+                    )
                     data = NodeData(
                         ping_data={
                             self.remote_node.node_id: PingData(
-                                status=NodeStatus.ONLINE, req_time_outbound=req_time, req_time_rtt=rtt
+                                status=NodeStatus.ONLINE,
+                                req_time_outbound=req_time,
+                                req_time_rtt=rtt,
                             )
                         },
                         node_id=self.local_node.node_id,
@@ -99,26 +125,42 @@ class Monitor:
                     )
                 store.update(data)
 
-        logger.debug(f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}")
+        logger.debug(
+            f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
+        )
 
     def _handle_error(self):
-        logger.debug(f"Error count increased to {self.error_count} for {self.net_id} -> {self.remote_node.node_id}")
+        logger.debug(
+            f"Error count increased to {self.error_count} for {self.net_id} -> {self.remote_node.node_id}"
+        )
 
         store = self.store.get_store(self.net_id)
         if self.error_count >= self.remote_node.retry:
             current_node = store.get()
-            if current_node and (current_status := current_node.ping_data.get(self.remote_node.node_id)):
+            if current_node and (
+                current_status := current_node.ping_data.get(self.remote_node.node_id)
+            ):
                 if current_status.status != NodeStatus.OFFLINE:
-                    logger.info(f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE")
+                    logger.info(
+                        f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
+                    )
             data = store.get()
             if data:
-                data.ping_data[self.remote_node.node_id] = PingData(status=NodeStatus.OFFLINE)
+                data.ping_data[self.remote_node.node_id] = PingData(
+                    status=NodeStatus.OFFLINE
+                )
                 data.date = datetime.datetime.now(datetime.timezone.utc)
-                logger.debug(f"Updated existing node data: {self.remote_node.node_id} is OFFLINE")
+                logger.debug(
+                    f"Updated existing node data: {self.remote_node.node_id} is OFFLINE"
+                )
             else:
-                logger.debug(f"Creating new node data: {self.remote_node.node_id} is OFFLINE")
+                logger.debug(
+                    f"Creating new node data: {self.remote_node.node_id} is OFFLINE"
+                )
                 data = NodeData(
-                    ping_data={self.remote_node.node_id: PingData(status=NodeStatus.OFFLINE)},
+                    ping_data={
+                        self.remote_node.node_id: PingData(status=NodeStatus.OFFLINE)
+                    },
                     node_id=self.local_node.node_id,
                     date=datetime.datetime.now(datetime.timezone.utc),
                     version=VERSION,
@@ -127,7 +169,9 @@ class Monitor:
         self.error_count += 1
 
     def start(self):
-        logger.debug(f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}")
+        logger.debug(
+            f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
+        )
         self.thread.start()
 
     def stop(self):
@@ -138,7 +182,9 @@ class Monitor:
 
 
 class MonitorManager:
-    def __init__(self, store_manager: StoreManager[NodeData], config: NetworkConfigLoader):
+    def __init__(
+        self, store_manager: StoreManager[NodeData], config: NetworkConfigLoader
+    ):
         self.store_manager = store_manager
         self.config = config
         self.monitors: dict[str, Monitor] = self._initialize_monitors()

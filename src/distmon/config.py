@@ -58,7 +58,9 @@ class NetworkConfig:
 
 # Class to load only network config
 class NetworkConfigLoader:
-    def __init__(self, config_dir: Path | str = "config", file_name: str = "nodeconf.yml"):
+    def __init__(
+        self, config_dir: Path | str = "config", file_name: str = "nodeconf.yml"
+    ):
         """
         Loader for network configuration. Loads all network configs on initialization.
         """
@@ -93,7 +95,9 @@ class NetworkConfigLoader:
                         origin.pull()
                     except Exception as e:
                         # If pull fails, reclone
-                        logger.debug(f"Git pull failed for {network.name}, recloning: {e}")
+                        logger.debug(
+                            f"Git pull failed for {network.name}, recloning: {e}"
+                        )
                         shutil.rmtree(repo_dir)
                         Repo.clone_from(repo_url, str(repo_dir))
                 else:
@@ -117,7 +121,9 @@ class NetworkConfigLoader:
         verifier_ids = [node.node_id for node in root.node_config]
         verifiers = {}
         signer = Signer.by_id(net_cfg.node_id, root.network_id)
-        signer.get_verifier().save(net_cfg.node_id, pubkey_dir)  # Save public key if not exists
+        signer.get_verifier().save(
+            net_cfg.node_id, pubkey_dir
+        )  # Save public key if not exists
         for vid in verifier_ids:
             try:
                 verifiers[vid] = Verifier.by_id(vid, pubkey_dir)
@@ -127,7 +133,10 @@ class NetworkConfigLoader:
         logger.debug(f"Loaded {len(verifiers)} verifiers for network {net_cfg.name}")
 
         return NetworkConfig(
-            node_config=root.node_config, network_id=root.network_id, key_mapping=key_mapping, node_id=net_cfg.node_id
+            node_config=root.node_config,
+            network_id=root.network_id,
+            key_mapping=key_mapping,
+            node_id=net_cfg.node_id,
         )
 
     def _load_all_network_configs(self) -> dict[str, NetworkConfig]:
@@ -137,6 +146,7 @@ class NetworkConfigLoader:
         node_configs = self._load_node_config()
         net_configs = [self._load_network_config(cfg) for cfg in node_configs.networks]
         return {cfg.network_id: cfg for cfg in net_configs}
+
     def reload(self):
         """
         Reload all network configurations.
@@ -176,16 +186,22 @@ class NetworkConfigLoader:
 
                         # Check if there were any changes
                         if old_commit != new_commit:
-                            logger.info(f"Network {network.name} has updates: {old_commit[:8]} -> {new_commit[:8]}")
+                            logger.info(
+                                f"Network {network.name} has updates: {old_commit[:8]} -> {new_commit[:8]}"
+                            )
                             has_changes = True
                         else:
                             logger.debug(f"Network {network.name} is up to date")
 
                     except Exception as e:
-                        logger.warning(f"Failed to check updates for network {network.name}: {e}")
+                        logger.warning(
+                            f"Failed to check updates for network {network.name}: {e}"
+                        )
                         # If we can't check, assume no changes to avoid unnecessary reloads
                         continue
                 else:
-                    logger.debug(f"Network {network.name} repo directory does not exist")
+                    logger.debug(
+                        f"Network {network.name} repo directory does not exist"
+                    )
 
         return has_changes

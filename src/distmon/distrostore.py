@@ -1,5 +1,4 @@
 import base64
-import json
 from typing import Iterator
 from pydantic import BaseModel
 
@@ -28,11 +27,13 @@ class PingData(BaseModel):
     req_time_outbound: float = 0
     req_time_rtt: float = 0
 
+
 class NodeData(BaseNodeData):
     ping_data: dict[str, PingData] = {}
     node_id: str
     date: datetime.datetime
     version: str
+
 
 class NodeConfig:
     node_id: str
@@ -53,7 +54,9 @@ class SignedNodeData[T: BaseNodeData](BaseModel):
 
     def verify(self, verifier: Verifier) -> bool:
         logger.debug(f"Verifying signature for sig_id {self.sig_id}")
-        decoded = verifier.verify(self.data.model_dump_json().encode(), base64.b64decode(self.signature))
+        decoded = verifier.verify(
+            self.data.model_dump_json().encode(), base64.b64decode(self.signature)
+        )
         if decoded:
             logger.debug(f"Signature verified for sig_id {self.sig_id}")
         else:
@@ -81,16 +84,22 @@ class SharedStore[T: BaseNodeData]:
         sig_id = node_data.sig_id
         logger.debug(f"Attempting to update node for sig_id {sig_id}")
         if sig_id not in self.key_mapping.verifiers:
-            logger.warning(f"sig_id {sig_id} not in key_mapping.verifiers; skipping update.")
+            logger.warning(
+                f"sig_id {sig_id} not in key_mapping.verifiers; skipping update."
+            )
             return
         if not (sig_id not in self.store or node_data.date > self.store[sig_id].date):
-            logger.debug(f"No update needed for sig_id {sig_id}; existing data is newer or same.")
+            logger.debug(
+                f"No update needed for sig_id {sig_id}; existing data is newer or same."
+            )
             return
         if node_data.verify(self.key_mapping.verifiers[sig_id]):
             logger.debug(f"Node data updated for sig_id {sig_id}")
             self.store[sig_id] = node_data
         else:
-            logger.warning(f"Node data verification failed for sig_id {sig_id}; not updating store.")
+            logger.warning(
+                f"Node data verification failed for sig_id {sig_id}; not updating store."
+            )
 
     def __iter__(self) -> Iterator[tuple[str, SignedNodeData[T]]]:
         return iter(self.store.items())
@@ -108,7 +117,10 @@ class SharedStore[T: BaseNodeData]:
         return self.data_model.model_validate(data.data.model_dump())
 
     def dump(self):
-        data = {sig_id: node_data.model_dump(mode="json") for sig_id, node_data in self.store.items()}
+        data = {
+            sig_id: node_data.model_dump(mode="json")
+            for sig_id, node_data in self.store.items()
+        }
         return data
 
     def __getitem__(self, item: str) -> SignedNodeData[T]:
@@ -118,7 +130,9 @@ class SharedStore[T: BaseNodeData]:
         for node_data in self.store.values():
             verifier = self.key_mapping.verifiers.get(node_data.sig_id)
             if not verifier or not node_data.verify(verifier):
-                logger.warning(f"Node data validation failed for sig_id {node_data.sig_id}")
+                logger.warning(
+                    f"Node data validation failed for sig_id {node_data.sig_id}"
+                )
                 return False
         logger.info("All node data validated successfully.")
         return True
@@ -138,7 +152,6 @@ class StoreManager[T: BaseNodeData]:
 
     def reload(self):
         self.stores = self.load_stores()
-
 
     def get_store(self, network_id: str) -> SharedStore[T]:
         return self.stores[network_id]

@@ -1,18 +1,29 @@
 import base64
 import datetime
-from enum import Enum
 import json
 import os
 import time
 from fastapi import FastAPI, Depends, Header, HTTPException, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import (
+    HTTPBasic,
+    HTTPBasicCredentials,
+    HTTPBearer,
+    HTTPAuthorizationCredentials,
+)
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import secrets
 
-from distmon.distrostore import NodeData, PingData, SharedStore, SignedNodeData, StoreManager, NodeStatus
+from distmon.distrostore import (
+    NodeData,
+    PingData,
+    SharedStore,
+    SignedNodeData,
+    StoreManager,
+    NodeStatus,
+)
 from distmon.config import NetworkConfigLoader
 from distmon.monitor import MonitorManager
 from distmon.conman import ConfigManager
@@ -54,7 +65,9 @@ logger.info(f"Initialized store manager with {len(store_manager.stores)} stores"
 
 logger.info("Initializing monitor manager...")
 monitor_manager = MonitorManager(store_manager, config)
-logger.info(f"Initialized monitor manager with {len(monitor_manager.monitors)} monitors")
+logger.info(
+    f"Initialized monitor manager with {len(monitor_manager.monitors)} monitors"
+)
 
 logger.info("Initializing config manager...")
 config_manager = ConfigManager(config, store_manager, monitor_manager)
@@ -109,7 +122,9 @@ class ViewData(BaseModel):
             node = ViewNodeData(node_version=node_data.data.version)
             ping_data = node_data.data.ping_data
             for dest_node_id, ping_result in ping_data.items():
-                node.ping_data[dest_node_id] = ViewPingData.from_ping_data(ping_result, dest_node_id)
+                node.ping_data[dest_node_id] = ViewPingData.from_ping_data(
+                    ping_result, dest_node_id
+                )
             view_data.data[node_id] = node
         return view_data
 
@@ -133,14 +148,18 @@ def authenticate_user(username: str, password: str) -> None | str:
     return username
 
 
-def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] = None) -> str:
+def create_access_token(
+    data: dict, expires_delta: Optional[datetime.timedelta] = None
+) -> str:
     """Create a JWT access token."""
     logger.debug(f"Creating access token for data: {data}")
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.datetime.now(datetime.timezone.utc) + expires_delta
     else:
-        expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
+        expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+            minutes=15
+        )
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     logger.debug(f"Access token created, expires at: {expire}")
@@ -148,7 +167,9 @@ def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] 
 
 
 @app.post("/token", response_model=Token)
-async def login_for_access_token(credentials: HTTPBasicCredentials = Depends(security_basic)):
+async def login_for_access_token(
+    credentials: HTTPBasicCredentials = Depends(security_basic),
+):
     """Login endpoint that accepts HTTP Basic Auth and returns JWT token."""
     user = authenticate_user(credentials.username, credentials.password)
     if user is None:
@@ -158,11 +179,15 @@ async def login_for_access_token(credentials: HTTPBasicCredentials = Depends(sec
             headers={"WWW-Authenticate": "Basic"},
         )
     access_token_expires = datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(data={"sub": user}, expires_delta=access_token_expires)
+    access_token = create_access_token(
+        data={"sub": user}, expires_delta=access_token_expires
+    )
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> None:
+async def validate_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
+) -> None:
     """Get current user from JWT token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -170,7 +195,9 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
+        )
         username = payload.get("sub")
         if username is None or username != "admin":
             raise credentials_exception
@@ -183,7 +210,10 @@ def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
     logger.debug(f"Validating message for network {network_id}, sig_id: {body.sig_id}")
     if not authorization or not authorization.startswith("Bearer "):
         logger.warning(f"Invalid authorization header for network {network_id}")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid Bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid Bearer token",
+        )
 
     store = store_manager.get_store(network_id)
     if not store:
@@ -192,22 +222,34 @@ def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
 
     verifier = store.key_mapping.get_verifier(body.sig_id)
     if not verifier:
-        logger.warning(f"No verifier found for sig_id: {body.sig_id} in network {network_id}")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        logger.warning(
+            f"No verifier found for sig_id: {body.sig_id} in network {network_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        )
 
     header = authorization.removeprefix("Bearer ")
 
     if not verifier.verify(json.dumps(body.data).encode(), base64.b64decode(header)):
-        logger.warning(f"Signature verification failed for sig_id: {body.sig_id} in network {network_id}")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        logger.warning(
+            f"Signature verification failed for sig_id: {body.sig_id} in network {network_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        )
 
-    logger.debug(f"Message validation successful for {network_id}, sig_id: {body.sig_id}")
+    logger.debug(
+        f"Message validation successful for {network_id}, sig_id: {body.sig_id}"
+    )
     return body.data
 
 
 @app.post("/mon/{network_id}", response_model=StoreResponse)
 def mon(body: MonBody, network_id: str, authorization: str = Header()):
-    logger.debug(f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}")
+    logger.debug(
+        f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}"
+    )
     now = time.time()
     send_time = body.send_time
     diff = now - send_time
@@ -219,7 +261,9 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
 
     logger.debug(f"Successfully processed monitoring data for {network_id}")
     # Convert each value to SignedNodeData
-    return StoreResponse.model_validate({"store_data": raw, "ms_send_time": diff * 1000})
+    return StoreResponse.model_validate(
+        {"store_data": raw, "ms_send_time": diff * 1000}
+    )
 
 
 @app.get("/view/{network_id}", response_model=ViewData)

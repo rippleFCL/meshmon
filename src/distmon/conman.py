@@ -6,7 +6,12 @@ from .monitor import MonitorManager
 
 
 class ConfigManager:
-    def __init__(self, config: NetworkConfigLoader, stores: StoreManager, monitors: MonitorManager):
+    def __init__(
+        self,
+        config: NetworkConfigLoader,
+        stores: StoreManager,
+        monitors: MonitorManager,
+    ):
         self.config = config
         self.store_manager = stores
         self.monitor_manager = monitors

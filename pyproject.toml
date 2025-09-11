@@ -18,11 +18,13 @@ dependencies = [
     "python-jose[cryptography] (>=3.5.0,<4.0.0)",
     "passlib (>=1.7.4,<2.0.0)",
     "fastapi (>=0.116.1,<0.117.0)",
-    "bcrypt (==4.0.1)"
+    "bcrypt (==4.0.1)",
+    "pre-commit (>=4.3.0,<5.0.0)"
 ]
 
 [tool.poetry]
 package-mode = false
+
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.12"
@@ -30,3 +32,7 @@ ruff = "^0.12.12"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

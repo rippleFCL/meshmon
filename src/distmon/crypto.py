@@ -2,7 +2,10 @@
 import base64
 import os
 import logging
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 
@@ -58,7 +61,8 @@ class Verifier:
         with open(key_path, "wb") as f:
             f.write(
                 self.public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
                 )
             )
 
@@ -70,7 +74,7 @@ class Signer:
         self.public_key = private_key.public_key()
 
     @classmethod
-    def by_id(cls, peer_id: str, net_id: str,  key_dir: str = "config/.private_keys"):
+    def by_id(cls, peer_id: str, net_id: str, key_dir: str = "config/.private_keys"):
         logger.debug(f"Loading private key for peer: {peer_id}")
         os.makedirs(key_dir, exist_ok=True)
         key_path = os.path.join(key_dir, f"{peer_id}_{net_id}.key")
@@ -78,7 +82,9 @@ class Signer:
             logger.debug(f"Found existing private key for {peer_id}")
             with open(key_path, "rb") as f:
                 private_bytes = f.read()
-            private_key = serialization.load_pem_private_key(private_bytes, password=None)
+            private_key = serialization.load_pem_private_key(
+                private_bytes, password=None
+            )
             if not isinstance(private_key, Ed25519PrivateKey):
                 logger.error(f"Invalid key type for {peer_id}: not Ed25519")
                 raise ValueError("The loaded key is not an Ed25519 private key.")

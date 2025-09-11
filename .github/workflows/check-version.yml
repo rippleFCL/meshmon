@@ -6,7 +6,7 @@ on:
 jobs:
   publish_checks:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/server-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v5
 
@@ -17,7 +17,7 @@ jobs:
       - name: Parse git tag
         id: git_tag
         run: |
-          echo "::set-output name=result::${GITHUB_REF#refs/tags/server-v}"
+          echo "::set-output name=result::${GITHUB_REF#refs/tags/v}"
       - name: Assert bws-cache version matches tag
         run: |
           if [[ "${{ steps.bws_cache_version.outputs.result }}" != "${{ steps.git_tag.outputs.result }}" ]]; then

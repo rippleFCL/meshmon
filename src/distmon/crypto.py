@@ -52,7 +52,7 @@ class Verifier:
             logger.debug(f"Signature verification successful for peer: {self.vid}")
             return True
         except InvalidSignature:
-            logger.debug(f"Signature verification failed for peer: {self.vid}")
+            logger.warning(f"Signature verification failed for peer: {self.vid}")
             return False
 
     def save(self, peer_id: str, key_dir: str):

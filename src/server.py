@@ -112,7 +112,7 @@ class ViewNodeData(BaseModel):
     node_version: str
 
 
-class ViewData(BaseModel):
+class ViewNetwork(BaseModel):
     data: dict[str, ViewNodeData] = {}
 
     @classmethod
@@ -127,6 +127,10 @@ class ViewData(BaseModel):
                 )
             view_data.data[node_id] = node
         return view_data
+
+
+class ViewData(BaseModel):
+    networks: dict[str, ViewNetwork] = {}
 
 
 class Token(BaseModel):
@@ -266,9 +270,12 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
     )
 
 
-@app.get("/view/{network_id}", response_model=ViewData)
-def view(network_id: str, _: None = Depends(validate_token)):
+@app.get("/view", response_model=ViewData)
+def view(_: None = Depends(validate_token)):
     """Get network view data. Requires JWT authentication."""
-    logger.debug(f"View request for network: {network_id}")
-    mon_store = store_manager.get_store(network_id)
-    return ViewData.from_store(mon_store)
+    logger.debug("View request for networks")
+    networks = ViewData()
+    for network_id, store in store_manager.stores.items():
+        networks.networks[network_id] = ViewNetwork.from_store(store)
+
+    return networks

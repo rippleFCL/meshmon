@@ -144,6 +144,11 @@ class Monitor:
                     logger.info(
                         f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
                     )
+            else:
+                logger.info(
+                    f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
+                )
+
             data = store.get()
             if data:
                 data.ping_data[self.remote_node.node_id] = PingData(

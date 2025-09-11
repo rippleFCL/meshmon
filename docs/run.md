@@ -10,26 +10,30 @@ This guide explains how to run the distomon distributed monitoring system in dif
 ## Running Locally
 
 1. **Install dependencies:**
-    ```bash
-    poetry install
-    ```
-3. **Run the server:**
-    (Recommended for production or advanced local testing)
-    ```bash
-    poetry run uvicorn src.server:app --host 0.0.0.0 --port 8000 --reload
-    ```
-    - The `--reload` flag enables auto-reload on code changes (useful for development).
-    - Adjust `--host` and `--port` as needed.
+   ```bash
+   poetry install
+   ```
+2. **(Optional) Activate the virtual environment:**
+   ```bash
+   poetry shell
+   ```
+3. **Run the server with Uvicorn:**
+   (Recommended for production or advanced local testing)
+   ```bash
+   poetry run uvicorn src.server:app --host 0.0.0.0 --port 8000
+   ```
+   - The `--reload` flag enables auto-reload on code changes (useful for development).
+   - Adjust `--host` and `--port` as needed.
 
 ## Running with Docker
 
 1. **Build and start the service:**
     ```bash
-    docker compose -f compose.yml up --build
+    docker compose up --build
     ```
 2. **Stop the service:**
     ```bash
-    docker compose -f compose.yml down
+    docker compose down
     ```
 
 The Docker Compose file (`compose.yml`) mounts your local `conf` directory to `/app/src/config` in the container and sets the `CONFIG_FILE_NAME` environment variable. Example service:
@@ -68,16 +72,15 @@ login_password: password
 
 ## Useful Commands
 - **Update dependencies:**
-   ```bash
-   poetry update
-   ```
+  ```bash
+  poetry update
+  ```
 - **Run linting:**
-   ```bash
-   poetry run ruff src/
-   ```
+  ```bash
+  poetry run ruff src/
+  ```
 
 ## Troubleshooting
-See logs for errors, ensure dependencies are installed, and Docker is running if using containers.
 - Ensure all dependencies are installed and the correct Python version is used.
 - Check logs for errors (log level can be set with `LOG_LEVEL`).
 - For Docker issues, ensure Docker is running and you have permission to use it.

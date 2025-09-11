@@ -13,6 +13,10 @@ This guide explains how to run the distomon distributed monitoring system in dif
    ```bash
    poetry install
    ```
+2. **(Optional) Activate the virtual environment:**
+   ```bash
+   poetry shell
+   ```
 3. **Run the server with Uvicorn:**
    (Recommended for production or advanced local testing)
    ```bash

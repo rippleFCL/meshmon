@@ -1,7 +1,7 @@
 ---
 services:
   node:
-    image: ghcr.io/ripplefcl/distomon:latest
+    image: ghcr.io/ripplefcl/meshmon:latest
     ports:
       - 8000:8000
     volumes:

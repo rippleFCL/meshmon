@@ -12,7 +12,7 @@ FROM python:3.13-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     UVICORN_HOST=0.0.0.0 \
-    UVICORN_PORT=5000
+    UVICORN_PORT=8000
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN --mount=type=bind,from=reqs,source=/app/requirements.txt,target=/app/require
 
 COPY src/ .
 
-EXPOSE 5000
+EXPOSE 8000
 
 # HEALTHCHECK \
 #     --interval=15s \

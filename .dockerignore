@@ -1,4 +1,4 @@
-# Dockerignore file for multistress server
+# Dockerignore file for meshmon server
 # Python
 config/
 __pycache__/

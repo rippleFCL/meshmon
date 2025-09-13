@@ -13,7 +13,7 @@ jobs:
       - name: Parse bws-cache version
         id: bws_cache_version
         run: |
-          echo "::set-output name=result::$(python3 src/distmon/version.py)"
+          echo "::set-output name=result::$(python3 src/meshmon/version.py)"
       - name: Parse git tag
         id: git_tag
         run: |
@@ -21,11 +21,11 @@ jobs:
       - name: Assert bws-cache version matches tag
         run: |
           if [[ "${{ steps.bws_cache_version.outputs.result }}" != "${{ steps.git_tag.outputs.result }}" ]]; then
-            line=$(grep -no '^version:\s\d.*$' src/distmon/version.py | cut -d: -f1)
-            echo "::error file=src/distmon/version.py,line=${line}::Version in src/distmon/version.py does not match tag"
-            echo "❌ Version in src/distmon/version.py does not match git tag" >> $GITHUB_STEP_SUMMARY
+            line=$(grep -no '^version:\s\d.*$' src/meshmon/version.py | cut -d: -f1)
+            echo "::error file=src/meshmon/version.py,line=${line}::Version in src/meshmon/version.py does not match tag"
+            echo "❌ Version in src/meshmon/version.py does not match git tag" >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "✅ Version in src/distmon/version.py matches git tag" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Version in src/meshmon/version.py matches git tag" >> $GITHUB_STEP_SUMMARY
           fi
 

@@ -2,16 +2,14 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-
-from distmon.crypto import Signer, Verifier
-from .crypto import KeyMapping
+from .crypto import KeyMapping, Signer, Verifier
 import yaml
 from pydantic import BaseModel
 from git import Repo
 import shutil
 import logging
 
-logger = logging.getLogger("distromon.config")
+logger = logging.getLogger("meshmon.config")
 
 
 class ConfigTypes(Enum):
@@ -76,7 +74,7 @@ class NetworkConfigLoader:
         """
         nodeconf_path = self.config_dir / self.file_name
         logger.debug(f"Loading node config from: {nodeconf_path}")
-        with open(nodeconf_path, "r") as f:
+        with open(nodeconf_path, "r") as f:  # TODO: handle file not found
             data = yaml.safe_load(f)
         node_cfg = NodeCfg.model_validate(data)
         logger.debug(f"Loaded config for {len(node_cfg.networks)} networks")

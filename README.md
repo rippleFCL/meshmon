@@ -1,10 +1,10 @@
-# distomon
+# meshmon
 
 **Distributed Monitoring Solution by Ripple**
 
 ## Introduction
 
-distomon is a distributed monitoring solution designed to monitor, manage, and analyze distributed systems and services. Built by Ripple, it provides secure, scalable, and extensible monitoring for decentralized networks. The system leverages FastAPI, cryptographic signing, and a modular configuration system to ensure robust and secure operations across distributed nodes.
+meshmon is a distributed monitoring solution designed to monitor, manage, and analyze distributed systems and services. Built by Ripple, it provides secure, scalable, and extensible monitoring for decentralized networks. The system leverages FastAPI, cryptographic signing, and a modular configuration system to ensure robust and secure operations across distributed nodes.
 
 ## How It Works
 
@@ -33,7 +33,7 @@ The following environment variables are supported:
 src/
 	server.py         # Main FastAPI server, loads config, starts managers
 	test.py           # Test script for configuration and network loading
-	distmon/
+	meshmon/
 		config.py       # Configuration loader, supports local/GitHub
 		conman.py       # Configuration manager for runtime updates
 		crypto.py       # Signing, verification, key management

@@ -16,7 +16,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 import secrets
 
-from distmon.distrostore import (
+from meshmon.distrostore import (
     NodeData,
     PingData,
     SharedStore,
@@ -24,9 +24,9 @@ from distmon.distrostore import (
     StoreManager,
     NodeStatus,
 )
-from distmon.config import NetworkConfigLoader
-from distmon.monitor import MonitorManager
-from distmon.conman import ConfigManager
+from meshmon.config import NetworkConfigLoader
+from meshmon.monitor import MonitorManager
+from meshmon.conman import ConfigManager
 import logging
 
 # Configure logging
@@ -36,7 +36,7 @@ logging.basicConfig(
     format="%(asctime)s|%(name)s|%(levelname)s|%(filename)s:%(lineno)d|%(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("distromon.server")  # Create logger for this module
+logger = logging.getLogger("meshmon.server")  # Create logger for this module
 logger = logging.getLogger(__name__)
 passlib_logger = logging.getLogger("passlib")
 passlib_logger.setLevel(logging.ERROR)  # Suppress passlib debug/info logs

@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: distomon
+  IMAGE_NAME: meshmon
 
 jobs:
   lint:

@@ -1,5 +1,5 @@
 [project]
-name = "multistress"
+name = "meshmon"
 version = "0.1.0"
 description = "distrobuted cpu stresser"
 authors = [

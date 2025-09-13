@@ -1,20 +1,11 @@
 import base64
-import datetime
 import json
 import os
 import time
-from fastapi import FastAPI, Depends, Header, HTTPException, status
-from fastapi.security import (
-    HTTPBasic,
-    HTTPBasicCredentials,
-    HTTPBearer,
-    HTTPAuthorizationCredentials,
-)
+from fastapi import FastAPI, Header, HTTPException, status
+
 from pydantic import BaseModel
-from typing import Any, Dict, Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-import secrets
+from typing import Any, Dict
 
 from meshmon.distrostore import (
     NodeData,
@@ -38,22 +29,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("meshmon.server")  # Create logger for this module
 logger = logging.getLogger(__name__)
-passlib_logger = logging.getLogger("passlib")
-passlib_logger.setLevel(logging.ERROR)  # Suppress passlib debug/info logs
+
 # JWT Configuration
-SECRET_KEY = secrets.token_urlsafe(32)  # Generate a random secret key
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
 
 logger.info(f"Starting server initialization with config file: {CONFIG_FILE_NAME}")
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Security schemes
-security_basic = HTTPBasic()
-security_bearer = HTTPBearer()
 
 logger.info("Loading network configuration...")
 config = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
@@ -74,8 +55,6 @@ config_manager = ConfigManager(config, store_manager, monitor_manager)
 logger.info("Config manager initialized")
 
 # Get password from config and hash it
-LOGIN_PASSWORD = config.node_cfg.login_password
-HASHED_PASSWORD = pwd_context.hash(LOGIN_PASSWORD)
 logger.info("Server initialization complete")
 
 
@@ -131,82 +110,6 @@ class ViewNetwork(BaseModel):
 
 class ViewData(BaseModel):
     networks: dict[str, ViewNetwork] = {}
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-def authenticate_user(username: str, password: str) -> None | str:
-    """Authenticate a user by username and password."""
-    logger.debug(f"Authentication attempt for username: {username}")
-    # Only accept 'admin' username and check against hashed config password
-    if username != "admin":
-        logger.warning(f"Authentication failed: invalid username '{username}'")
-        return None
-    if not pwd_context.verify(password, HASHED_PASSWORD):
-        logger.warning(f"Authentication failed: invalid password for user '{username}'")
-        return None
-    logger.debug(f"Authentication successful for user: {username}")
-    return username
-
-
-def create_access_token(
-    data: dict, expires_delta: Optional[datetime.timedelta] = None
-) -> str:
-    """Create a JWT access token."""
-    logger.debug(f"Creating access token for data: {data}")
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.datetime.now(datetime.timezone.utc) + expires_delta
-    else:
-        expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
-            minutes=15
-        )
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    logger.debug(f"Access token created, expires at: {expire}")
-    return encoded_jwt
-
-
-@api.post("/token", response_model=Token)
-async def login_for_access_token(
-    credentials: HTTPBasicCredentials = Depends(security_basic),
-):
-    """Login endpoint that accepts HTTP Basic Auth and returns JWT token."""
-    user = authenticate_user(credentials.username, credentials.password)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    access_token_expires = datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
-
-
-async def validate_token(
-    credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
-) -> None:
-    """Get current user from JWT token."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(
-            credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM]
-        )
-        username = payload.get("sub")
-        if username is None or username != "admin":
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
 
 
 def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
@@ -271,7 +174,7 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
 
 
 @api.get("/view", response_model=ViewData)
-def view(_: None = Depends(validate_token)):
+def view():
     """Get network view data. Requires JWT authentication."""
     logger.debug("View request for networks")
     networks = ViewData()

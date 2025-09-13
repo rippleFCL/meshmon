@@ -2,6 +2,7 @@
 import base64
 import os
 import logging
+from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -76,8 +77,9 @@ class Signer:
     @classmethod
     def by_id(cls, peer_id: str, net_id: str, key_dir: str = "config/.private_keys"):
         logger.debug(f"Loading private key for peer: {peer_id}")
-        os.makedirs(key_dir, exist_ok=True)
-        key_path = os.path.join(key_dir, f"{peer_id}_{net_id}.key")
+        full_key_dir = Path(key_dir) / net_id
+        os.makedirs(full_key_dir, exist_ok=True)
+        key_path = full_key_dir / f"{peer_id}.key"
         if os.path.exists(key_path):
             logger.debug(f"Found existing private key for {peer_id}")
             with open(key_path, "rb") as f:

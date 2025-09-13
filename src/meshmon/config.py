@@ -18,7 +18,7 @@ class ConfigTypes(Enum):
 
 
 class NodeCfgNetwork(BaseModel):
-    name: str
+    directory: str
     node_id: str
     config_type: ConfigTypes = ConfigTypes.LOCAL
     git_repo: str | None = None
@@ -26,7 +26,6 @@ class NodeCfgNetwork(BaseModel):
 
 class NodeCfg(BaseModel):
     networks: list[NodeCfgNetwork]
-    login_password: str
 
 
 class NetworkNodeInfo(BaseModel):
@@ -81,54 +80,78 @@ class NetworkConfigLoader:
 
         for network in node_cfg.networks:
             # If the config is from GitHub, clone or pull the repo
+            network_dir = self.config_dir / "networks" / network.directory
             if network.config_type == ConfigTypes.GITHUB and network.git_repo:
                 # Use a temp directory for the repo
-                repo_dir = self.config_dir / "networks" / network.name
                 repo_url = network.git_repo
-                if repo_dir.exists():
+                if network_dir.exists():
                     # If already cloned, pull latest
                     try:
-                        repo = Repo(str(repo_dir))
+                        repo = Repo(str(network_dir))
                         origin = repo.remotes.origin
                         origin.pull()
                     except Exception as e:
                         # If pull fails, reclone
                         logger.debug(
-                            f"Git pull failed for {network.name}, recloning: {e}"
+                            f"Git pull failed for {network.directory}, recloning: {e}"
                         )
-                        shutil.rmtree(repo_dir)
-                        Repo.clone_from(repo_url, str(repo_dir))
+                        shutil.rmtree(network_dir)
+                        Repo.clone_from(repo_url, str(network_dir))
                 else:
-                    Repo.clone_from(repo_url, str(repo_dir))
+                    Repo.clone_from(repo_url, str(network_dir))
+            else:
+                # For local configs, ensure the directory exists
+                network_dir.mkdir(parents=True, exist_ok=True)
+                config_path = network_dir / "config.yml"
+                if not config_path.exists():
+                    example_data = NetworkRootConfig(
+                        node_config=[
+                            NetworkNodeInfo(node_id=network.node_id, url="<replace-me>")
+                        ],
+                        network_id=network.directory,
+                    )
+                    with open(config_path, "w") as f:
+                        yaml.safe_dump(
+                            example_data.model_dump(mode="json", exclude_defaults=True),
+                            f,
+                        )
         return node_cfg
 
     def _load_network_config(self, net_cfg: NodeCfgNetwork) -> NetworkConfig:
         """
         Load a single network's config and keys.
         """
-        logger.debug(f"Loading network config for: {net_cfg.name}")
+        logger.debug(f"Loading network config for: {net_cfg.directory}")
         # Load the root network config
-        net_config_path = self.config_dir / "networks" / net_cfg.name / "config.yml"
+        net_config_path = (
+            self.config_dir / "networks" / net_cfg.directory / "config.yml"
+        )
         with open(net_config_path, "r") as f:
             data = yaml.safe_load(f)
         root = NetworkRootConfig.model_validate(data)
-        logger.debug(f"Network {net_cfg.name} has {len(root.node_config)} nodes")
+        logger.debug(f"Network {net_cfg.directory} has {len(root.node_config)} nodes")
 
         # Load key mapping for this network
-        pubkey_dir = str(self.config_dir / "networks" / net_cfg.name / "pubkeys")
+        global_pubkey_dir = str(self.config_dir / ".public_keys" / net_cfg.directory)
+        pubkey_dir = str(self.config_dir / "networks" / net_cfg.directory / "pubkeys")
         verifier_ids = [node.node_id for node in root.node_config]
         verifiers = {}
         signer = Signer.by_id(net_cfg.node_id, root.network_id)
-        signer.get_verifier().save(
-            net_cfg.node_id, pubkey_dir
-        )  # Save public key if not exists
+        verifier = signer.get_verifier()
+        if net_cfg.config_type == ConfigTypes.LOCAL:
+            verifier.save(net_cfg.node_id, pubkey_dir)  # Save public key if not exists
+        else:
+            verifier.save(net_cfg.node_id, global_pubkey_dir)
+
         for vid in verifier_ids:
             try:
                 verifiers[vid] = Verifier.by_id(vid, pubkey_dir)
             except Exception as e:
                 logger.warning(f"Failed to load verifier {vid}: {e}")
         key_mapping = KeyMapping(signer=signer, verifiers=verifiers)
-        logger.debug(f"Loaded {len(verifiers)} verifiers for network {net_cfg.name}")
+        logger.debug(
+            f"Loaded {len(verifiers)} verifiers for network {net_cfg.directory}"
+        )
 
         return NetworkConfig(
             node_config=root.node_config,
@@ -167,7 +190,7 @@ class NetworkConfigLoader:
         for network in self.node_cfg.networks:
             # Only check GitHub-based networks
             if network.config_type == ConfigTypes.GITHUB and network.git_repo:
-                repo_dir = self.config_dir / "networks" / network.name
+                repo_dir = self.config_dir / "networks" / network.directory
 
                 if repo_dir.exists():
                     try:
@@ -185,21 +208,21 @@ class NetworkConfigLoader:
                         # Check if there were any changes
                         if old_commit != new_commit:
                             logger.info(
-                                f"Network {network.name} has updates: {old_commit[:8]} -> {new_commit[:8]}"
+                                f"Network {network.directory} has updates: {old_commit[:8]} -> {new_commit[:8]}"
                             )
                             has_changes = True
                         else:
-                            logger.debug(f"Network {network.name} is up to date")
+                            logger.debug(f"Network {network.directory} is up to date")
 
                     except Exception as e:
                         logger.warning(
-                            f"Failed to check updates for network {network.name}: {e}"
+                            f"Failed to check updates for network {network.directory}: {e}"
                         )
                         # If we can't check, assume no changes to avoid unnecessary reloads
                         continue
                 else:
                     logger.debug(
-                        f"Network {network.name} repo directory does not exist"
+                        f"Network {network.directory} repo directory does not exist"
                     )
 
         return has_changes

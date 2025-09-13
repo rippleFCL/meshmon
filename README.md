@@ -155,15 +155,12 @@ node_config:
 
 - **`network_id`** (required): Unique identifier for the monitoring network
   - Must be identical on all nodes in the network
-  - Should be descriptive (e.g., "production", "staging", "test")
 
 - **`node_config`** (required): Array of all nodes participating in this network
   - **`node_id`** (required): Unique identifier for each node within the network
     - Must match the `node_id` specified in the node's `nodeconf.yml`
   - **`url`** (required): Full URL where the node's meshmon instance can be reached
     - Format: `https://hostname:port` or `http://hostname:port`
-    - Use `replace_me` as a placeholder for nodes that need their URL configured
-    - Example: `https://monitoring.example.com:8000`
 
 **Important Notes:**
 - Each node in the network will monitor all other nodes listed in `node_config`
@@ -220,5 +217,4 @@ node_config:
 ## API Documentation
 
 Once running, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+- **Swagger UI**: `/docs`

@@ -193,19 +193,6 @@ your-meshmon-configs/
   - File names must match the `node_id` values in the config.yml
   - Keys are used for cryptographic verification of node communications
 
-**Example GitHub Repository:**
-```yaml
-# config.yml
-network_id: production
-node_config:
-  - node_id: node1
-    url: https://node1.example.com:8000
-  - node_id: node2
-    url: https://node2.example.com:8000
-  - node_id: node3
-    url: https://node3.example.com:8000
-```
-
 **GitHub Workflow:**
 1. Nodes clone the repository on startup when using `config_type: github`
 2. Background tasks periodically pull updates from the repository

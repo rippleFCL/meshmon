@@ -79,7 +79,7 @@ HASHED_PASSWORD = pwd_context.hash(LOGIN_PASSWORD)
 logger.info("Server initialization complete")
 
 
-app = FastAPI()
+api = FastAPI()
 
 
 class StoreResponse(BaseModel):
@@ -170,7 +170,7 @@ def create_access_token(
     return encoded_jwt
 
 
-@app.post("/token", response_model=Token)
+@api.post("/token", response_model=Token)
 async def login_for_access_token(
     credentials: HTTPBasicCredentials = Depends(security_basic),
 ):
@@ -249,7 +249,7 @@ def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
     return body.data
 
 
-@app.post("/mon/{network_id}", response_model=StoreResponse)
+@api.post("/mon/{network_id}", response_model=StoreResponse)
 def mon(body: MonBody, network_id: str, authorization: str = Header()):
     logger.debug(
         f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}"
@@ -270,7 +270,7 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
     )
 
 
-@app.get("/view", response_model=ViewData)
+@api.get("/view", response_model=ViewData)
 def view(_: None = Depends(validate_token)):
     """Get network view data. Requires JWT authentication."""
     logger.debug("View request for networks")

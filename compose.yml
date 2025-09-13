@@ -4,8 +4,6 @@ services:
     image: ghcr.io/ripplefcl/distomon:latest
     ports:
       - 8000:8000
-    environment:
-      CONFIG_FILE_NAME: nodeconf.yml
     volumes:
-      - ./conf:/app/src/config
+      - ./config:/app/config
     restart: unless-stopped

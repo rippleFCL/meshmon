@@ -19,12 +19,12 @@
 ### Key Benefits
 
 - **Secure**: Ed25519 cryptographic signing ensures data authenticity
-- **Distributed**: No single point of failure - nodes monitor each other
-- **Flexible**: Support for local and remote GitHub-based configurations
+- **Mesh Architecture**: No single point of failure - nodes monitor each other
+- **Flexible**: Support for local and remote Git-based configurations
 
 ## How It Works
 
-1. **Node Initialization**: Each node loads its configuration and generates/loads cryptographic keys
+1. **Node Initialisation**: Each node loads its configuration and generates/loads cryptographic keys
 2. **Network Joining**: Nodes join one or more monitoring networks based on configuration
 3. **Mutual Monitoring**: Nodes exchange signed health and status information with peers
 4. **Verification**: All data is cryptographically verified to ensure authenticity
@@ -33,8 +33,8 @@
 
 ### Prerequisites
 
-- **Docker** and **Docker Compose** (recommended)
-- **Python 3.13+** (for local development)
+- **Docker**
+- **Docker Compose** (recommended)
 
 ### Docker Deployment
 
@@ -86,14 +86,14 @@
 
 ### Node Configuration
 
-Inside your config directory, meshmon will look for a `nodeconf.yml`. This contains configuration specific to the individual node.
+Inside the config directory, meshmon will look for a `nodeconf.yml`. This contains configuration specific to the individual node.
 
 **Example `nodeconf.yml`:**
 ```yaml
 networks:
   - directory: my-network
     node_id: my-node
-    # config_type: github
+    # config_type: git
     # git_repo: https://github.com/your-org/meshmon-configs.git
 ```
 
@@ -104,13 +104,13 @@ networks:
   - **`node_id`** (required): Unique identifier for this node within the network
   - **`config_type`** (optional): Configuration source type
     - `local` (default): Use local configuration files
-    - `github`: Load configuration from a GitHub repository
-  - **`git_repo`** (optional): GitHub repository URL when using `config_type: github`
+    - `git`: Load configuration from a Git repository
+  - **`git_repo`** (optional): Git repository URL when using `config_type: git`
     - Example: `https://github.com/gituser/repo.git`
 
 ### Network Configuration
 
-The network config outlined in this section must be present and identical on all nodes. There are two types of network config: `local` or `github`.
+The network config outlined in this section must be present and identical on all nodes. There are two types of network config: `local` or `git`.
 
 #### Configuration Modes
 
@@ -119,8 +119,8 @@ The network config outlined in this section must be present and identical on all
 - After generation, you need to edit `config/networks/<directory>/config.yml`
 - Generated Public keys are automatically placed in the local `pubkeys/` directory
 
-**2. GitHub Mode**
-- If no folder exists locally, it is pulled from GitHub
+**2. Git Mode**
+- If no folder exists locally, it is pulled from Git
 - A background task periodically syncs configuration from the remote repository
 - Generated Public keys are placed in `config/.public_keys/<network_name>/<node_id>.pub` (since meshmon cannot edit the remote config)
 
@@ -168,9 +168,9 @@ node_config:
 - When first generated, URLs will be set to `replace_me` and need manual configuration
 
 
-#### GitHub Repository Structure
+#### Git Repository Structure
 
-When using `config_type: github`, meshmon expects a specific repository structure to manage network configurations centrally.
+When using `config_type: git`, meshmon expects a specific repository structure to manage network configurations centrally.
 
 **Repository Structure:**
 ```
@@ -193,8 +193,8 @@ your-meshmon-configs/
   - File names must match the `node_id` values in the config.yml
   - Keys are used for cryptographic verification of node communications
 
-**GitHub Workflow:**
-1. Nodes clone the repository on startup when using `config_type: github`
+**Git Workflow:**
+1. Nodes clone the repository on startup when using `config_type: git`
 2. Background tasks periodically pull updates from the repository
 3. Public keys and network topology are automatically synchronized
 4. Configuration changes are distributed to all nodes automatically
@@ -203,5 +203,4 @@ your-meshmon-configs/
 
 ## API Documentation
 
-Once running, visit:
-- **Swagger UI**: `/docs`
+Once running, visit the **Swagger UI** at `/docs`

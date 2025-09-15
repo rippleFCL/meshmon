@@ -13,7 +13,7 @@ logger = logging.getLogger("meshmon.config")
 
 
 class ConfigTypes(Enum):
-    GITHUB = "github"
+    GIT = "git"
     LOCAL = "local"
 
 
@@ -79,9 +79,9 @@ class NetworkConfigLoader:
         logger.debug(f"Loaded config for {len(node_cfg.networks)} networks")
 
         for network in node_cfg.networks:
-            # If the config is from GitHub, clone or pull the repo
+            # If the config is from Git, clone or pull the repo
             network_dir = self.config_dir / "networks" / network.directory
-            if network.config_type == ConfigTypes.GITHUB and network.git_repo:
+            if network.config_type == ConfigTypes.GIT and network.git_repo:
                 # Use a temp directory for the repo
                 repo_url = network.git_repo
                 if network_dir.exists():
@@ -182,14 +182,14 @@ class NetworkConfigLoader:
 
     def needs_reload(self):
         """
-        Check if any GitHub-based network configurations have updates.
+        Check if any Git-based network configurations have updates.
         Returns True if any repos had changes, False otherwise.
         """
         has_changes = False
 
         for network in self.node_cfg.networks:
-            # Only check GitHub-based networks
-            if network.config_type == ConfigTypes.GITHUB and network.git_repo:
+            # Only check Git-based networks
+            if network.config_type == ConfigTypes.GIT and network.git_repo:
                 repo_dir = self.config_dir / "networks" / network.directory
 
                 if repo_dir.exists():

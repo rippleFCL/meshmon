@@ -172,6 +172,7 @@ class NetworkConfigLoader:
         """
         Reload all network configurations.
         """
+        self.node_cfg = self._load_node_config()
         self.networks = self._load_all_network_configs()
 
     def get_network(self, network_id: str) -> NetworkConfig | None:

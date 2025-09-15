@@ -19,7 +19,7 @@
             "request": "launch",
             "module": "uvicorn",
             "args": [
-                "server:app",
+                "server:api",
                 "--reload",
                 "--host",
                 "0.0.0.0",

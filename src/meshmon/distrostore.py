@@ -1,5 +1,6 @@
 import base64
-from typing import Iterator
+import json
+from typing import Iterator, Literal, overload
 from pydantic import BaseModel
 
 from .config import NetworkConfigLoader
@@ -18,8 +19,9 @@ class NodeStatus(Enum):
     UNKNOWN = "unknown"
 
 
-class BaseNodeData(BaseModel):
-    date: datetime.datetime
+class DateEvalType(Enum):
+    OLDER = "OLDER"
+    NEWER = "NEWER"
 
 
 class PingData(BaseModel):
@@ -27,130 +29,366 @@ class PingData(BaseModel):
     req_time_rtt: float = 0
 
 
-class NodeData(BaseNodeData):
-    ping_data: dict[str, PingData] = {}
-    node_id: str
-    date: datetime.datetime
+class NodeInfo(BaseModel):
+    status: NodeStatus
     version: str
 
 
-class NodeConfig:
-    node_id: str
-    pub_key: str
+class NodeDataRetention(BaseModel):
+    date: datetime.datetime
 
 
-class SignedNodeData[T: BaseNodeData](BaseModel):
-    data: T
+class SignedBlockSignature(BaseModel):
+    date: datetime.datetime
+    data: dict
+    block_id: str
+    replacement_type: DateEvalType
+
+
+class SignedBlockData(BaseModel):
+    data: dict
+    date: datetime.datetime
+    block_id: str
+    replacement_type: DateEvalType
     signature: str
-    sig_id: str
 
     @classmethod
-    def new(cls, signer: Signer, data: T) -> "SignedNodeData[T]":
-        model_data = data.model_dump_json().encode()
-        encoded = base64.b64encode(signer.sign(model_data)).decode()
-        logger.debug(f"Creating new SignedNodeData for signer {signer.sid}")
-        return cls(data=data, signature=encoded, sig_id=signer.sid)
-
-    def verify(self, verifier: Verifier) -> bool:
-        logger.debug(f"Verifying signature for sig_id {self.sig_id}")
-        decoded = verifier.verify(
-            self.data.model_dump_json().encode(), base64.b64decode(self.signature)
+    def new(
+        cls, signer: Signer, data: BaseModel, block_id: str, rep_type: DateEvalType
+    ) -> "SignedBlockData":
+        model_data = data.model_dump(mode="json")
+        date = datetime.datetime.now(datetime.timezone.utc)
+        data_sig_str = (
+            SignedBlockSignature(
+                data=model_data, date=date, block_id=block_id, replacement_type=rep_type
+            )
+            .model_dump_json()
+            .encode()
         )
-        if decoded:
-            logger.debug(f"Signature verified for sig_id {self.sig_id}")
+        encoded = base64.b64encode(signer.sign(data_sig_str)).decode()
+        logger.debug(f"Creating new SignedNodeData for signer {signer.node_id}")
+        return cls(
+            data=model_data,
+            signature=encoded,
+            date=date,
+            block_id=block_id,
+            replacement_type=rep_type,
+        )
+
+    def verify(self, verifier: Verifier, block_id: str) -> bool:
+        logger.debug(f"Verifying signature for sig_id {verifier.node_id}")
+        data_sig_str = SignedBlockSignature(
+            data=self.data,
+            date=self.date,
+            block_id=self.block_id,
+            replacement_type=self.replacement_type,
+        ).model_dump_json()
+        verified = (
+            verifier.verify(data_sig_str.encode(), base64.b64decode(self.signature))
+            and self.block_id == block_id
+        )
+        if verified:
+            logger.debug(f"Signature verified for sig_id {verifier.node_id}")
         else:
-            logger.warning(f"Signature verification failed for sig_id {self.sig_id}")
-        return decoded
-
-    @property
-    def date(self) -> datetime.datetime:
-        return self.data.date
+            logger.warning(
+                f"Signature verification failed for sig_id {verifier.node_id}"
+            )
+        return verified
 
 
-class SharedStore[T: BaseNodeData]:
-    def __init__(self, key_mapping: KeyMapping, data_model: type[T]):
-        self.store: dict[str, SignedNodeData[T]] = {}
+class StoreContextData(BaseModel):
+    data: dict[str, SignedBlockData] = {}
+    date: datetime.datetime
+    context_name: str
+    sig: str
+
+    @classmethod
+    def new(cls, signer: Signer, context_name: str):
+        date = datetime.datetime.now(datetime.timezone.utc)
+        sig_str = json.dumps(
+            {"context_name": context_name, "date": date.isoformat()}
+        ).encode()
+        sig = base64.b64encode(signer.sign(sig_str)).decode()
+        return cls(data={}, date=date, context_name=context_name, sig=sig)
+
+    def verify(self, verifier: Verifier, context_name: str) -> bool:
+        sig_str = json.dumps(
+            {"context_name": self.context_name, "date": self.date.isoformat()}
+        ).encode()
+        verified = (
+            verifier.verify(sig_str, base64.b64decode(self.sig))
+            and self.context_name == context_name
+        )
+        if verified:
+            logger.debug(f"Context signature verified for context {self.context_name}")
+        else:
+            logger.warning(
+                f"Context signature verification failed for context {self.context_name}"
+            )
+        return verified
+
+    def update(self, context_data: "StoreContextData", verifier: Verifier):
+        for key, value in context_data.data.items():
+            if key not in self.data:
+                if value.verify(verifier, key):
+                    self.data[key] = value
+            elif (
+                value.replacement_type == DateEvalType.NEWER
+                and value.date > self.data[key].date
+            ):
+                if value.verify(verifier, key):
+                    self.data[key] = value
+            elif (
+                value.replacement_type == DateEvalType.OLDER
+                and value.date < self.data[key].date
+            ):
+                if value.verify(verifier, key):
+                    self.data[key] = value
+
+
+class StoreNodeData(BaseModel):
+    contexts: dict[str, StoreContextData] = {}
+    values: dict[str, SignedBlockData] = {}
+
+    def update(self, node_data: "StoreNodeData", verifier: Verifier):
+        for context_name, context_data in node_data.contexts.items():
+            if context_name not in self.contexts:
+                if context_data.verify(verifier, context_name):
+                    new_ctx = StoreContextData(
+                        date=context_data.date,
+                        context_name=context_name,
+                        sig=context_data.sig,
+                    )
+                    new_ctx.update(context_data, verifier)
+                    self.contexts[context_name] = new_ctx
+            else:
+                current_ctx = self.contexts[context_name]
+                if not (
+                    context_data.context_name
+                    == current_ctx.context_name
+                    == context_name
+                ):
+                    logger.warning(
+                        f"Context name mismatch: {current_ctx.context_name} vs {context_name}"
+                    )
+                    continue
+                current_ctx.update(context_data, verifier)
+                if context_data.date > current_ctx.date:
+                    current_ctx.date = context_data.date
+                    current_ctx.sig = context_data.sig
+        for key, value in node_data.values.items():
+            if key not in self.values:
+                self.values[key] = value
+            elif (
+                self.values[key].replacement_type == DateEvalType.NEWER
+                and value.date > self.values[key].date
+            ):
+                self.values[key] = value
+            elif (
+                self.values[key].replacement_type == DateEvalType.OLDER
+                and value.date < self.values[key].date
+            ):
+                self.values[key] = value
+
+
+class StoreData(BaseModel):
+    nodes: dict[str, StoreNodeData] = {}
+
+    def update(self, store_data: "StoreData", key_mapping: KeyMapping):
+        for node_id, node_data in store_data.nodes.items():
+            if node_id not in key_mapping.verifiers:
+                logger.warning(
+                    f"Node ID {node_id} not in key mapping verifiers; skipping update."
+                )
+                continue
+            if node_id not in self.nodes:
+                new_node = StoreNodeData()
+                new_node.update(node_data, key_mapping.verifiers[node_id])
+                self.nodes[node_id] = new_node
+            else:
+                current_node = self.nodes[node_id]
+                current_node.update(node_data, key_mapping.verifiers[node_id])
+
+
+class StoreCtxView[T: BaseModel]:
+    def __init__(
+        self,
+        store: StoreData,
+        node_id: str,
+        context_name: str,
+        model: type[T],
+        signer: Signer,
+    ):
+        self.store = store
+        self.node_id = node_id
+        self.context_name = context_name
+        self.model = model
+        self.signer = signer
+
+    def _get_ctx_data(self) -> StoreContextData:
+        return self.store.nodes[self.node_id].contexts[self.context_name]
+
+    def __iter__(self) -> Iterator[str]:
+        ctx_data = self._get_ctx_data()
+        for value in ctx_data.data:
+            yield value
+
+    def __contains__(self, key: str) -> bool:
+        ctx_data = self._get_ctx_data()
+        return key in ctx_data.data
+
+    def get(self, key: str) -> T | None:
+        ctx_data = self._get_ctx_data()
+        if key in ctx_data.data:
+            return self.model.model_validate(ctx_data.data[key].data)
+        return None
+
+
+class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
+    def __init__(
+        self,
+        store: StoreData,
+        node_id: str,
+        context_name: str,
+        model: type[T],
+        signer: Signer,
+    ):
+        super().__init__(store, node_id, context_name, model, signer)
+
+    def set(self, key: str, data: T, rep_type: DateEvalType = DateEvalType.NEWER):
+        ctx_data = self._get_ctx_data()
+        signed_data = SignedBlockData.new(
+            self.signer, data, block_id=key, rep_type=rep_type
+        )
+        ctx_data.data[key] = signed_data
+
+
+class SharedStore:
+    def __init__(self, key_mapping: KeyMapping):
+        self.store: StoreData = StoreData()
         self.key_mapping = key_mapping
-        self.data_model = data_model
+        self.load()
         logger.debug("SharedStore initialized.")
 
-    def update_from_dump(self, dump: dict):
-        logger.debug(f"Updating store from dump with {len(dump)} entries.")
-        for node_data in dump.values():
-            self.update_node(SignedNodeData[self.data_model].model_validate(node_data))
+    def values(self, node_id: str | None = None) -> Iterator[str]:
+        node_data = self.store.nodes.get(node_id or self.key_mapping.signer.node_id)
+        if node_data:
+            for value_id in node_data.values:
+                yield value_id
 
-    def update_node(self, node_data: SignedNodeData[T]):
-        sig_id = node_data.sig_id
-        logger.debug(f"Attempting to update node for sig_id {sig_id}")
-        if sig_id not in self.key_mapping.verifiers:
-            logger.warning(
-                f"sig_id {sig_id} not in key_mapping.verifiers; skipping update."
+    def contexts(self, node_id: str | None = None) -> Iterator[str]:
+        node_data = self.store.nodes.get(node_id or self.key_mapping.signer.node_id)
+        if node_data:
+            for context_name in node_data.contexts:
+                yield context_name
+
+    def get_value[T: BaseModel](
+        self, value_id: str, model: type[T], node_id: str | None = None
+    ) -> T | None:
+        if node_data := self.store.nodes.get(
+            node_id or self.key_mapping.signer.node_id
+        ):
+            if value_data := node_data.values.get(value_id):
+                return model.model_validate(value_data.data)
+
+    def set_value(
+        self,
+        value_id: str,
+        data: BaseModel,
+        req_type: DateEvalType = DateEvalType.NEWER,
+    ):
+        node_data = self.store.nodes.setdefault(
+            self.key_mapping.signer.node_id, StoreNodeData()
+        )
+
+        signed_data = SignedBlockData.new(
+            self.key_mapping.signer, data, block_id=value_id, rep_type=req_type
+        )
+        node_data.values[value_id] = signed_data
+
+    @overload
+    def _get_ctx(
+        self, context_name: str, node_id: str, create_if_missing: Literal[True]
+    ) -> StoreContextData: ...
+
+    @overload
+    def _get_ctx(
+        self, context_name: str, node_id: str, create_if_missing: Literal[False] = False
+    ) -> StoreContextData | None: ...
+
+    def _get_ctx(
+        self, context_name: str, node_id: str, create_if_missing: bool = False
+    ) -> StoreContextData | None:
+        node_data = self.store.nodes.get(node_id)
+        if node_data:
+            ctx_data = node_data.contexts.get(context_name)
+            if ctx_data or not create_if_missing:
+                return ctx_data
+        if create_if_missing:
+            node_data = self.store.nodes.setdefault(node_id, StoreNodeData())
+            ctx_data = StoreContextData.new(self.key_mapping.signer, context_name)
+            node_data.contexts[context_name] = ctx_data
+            return ctx_data
+        return None
+
+    @overload
+    def get_context[T: BaseModel](
+        self, context_name: str, model: type[T], node_id: str
+    ) -> StoreCtxView[T] | None: ...
+
+    @overload
+    def get_context[T: BaseModel](
+        self, context_name: str, model: type[T]
+    ) -> MutableStoreCtxView[T]: ...
+
+    def get_context[T: BaseModel](
+        self, context_name: str, model: type[T], node_id: str | None = None
+    ) -> StoreCtxView[T] | MutableStoreCtxView[T] | None:
+        if node_id is None:
+            node_id = self.key_mapping.signer.node_id
+            ctx_data = self._get_ctx(context_name, node_id, create_if_missing=True)
+            return MutableStoreCtxView(
+                self.store, node_id, context_name, model, self.key_mapping.signer
             )
-            return
-        if not (sig_id not in self.store or node_data.date > self.store[sig_id].date):
-            logger.debug(
-                f"No update needed for sig_id {sig_id}; existing data is newer or same."
-            )
-            return
-        if node_data.verify(self.key_mapping.verifiers[sig_id]):
-            logger.debug(f"Node data updated for sig_id {sig_id}")
-            self.store[sig_id] = node_data
         else:
-            logger.warning(
-                f"Node data verification failed for sig_id {sig_id}; not updating store."
+            ctx_data = self._get_ctx(context_name, node_id)
+            if ctx_data is None:
+                return None
+            return StoreCtxView(
+                self.store, node_id, context_name, model, self.key_mapping.signer
             )
 
-    def __iter__(self) -> Iterator[tuple[str, SignedNodeData[T]]]:
-        return iter(self.store.items())
-
-    def update(self, data: T):
-        new_data = SignedNodeData[T].new(self.key_mapping.signer, data)
-        self.update_node(new_data)
-
-    def get(self, sig_id: str | None = None) -> T | None:
-        if sig_id is None:
-            sig_id = self.key_mapping.signer.sid
-        data = self.store.get(sig_id)
-        if data is None:
-            return None
-        return self.data_model.model_validate(data.data.model_dump())
+    def update_from_dump(self, dump: dict):
+        store_update = StoreData.model_validate(dump)
+        self.store.update(store_update, self.key_mapping)
 
     def dump(self):
-        data = {
-            sig_id: node_data.model_dump(mode="json")
-            for sig_id, node_data in self.store.items()
-        }
-        return data
+        return self.store.model_dump(mode="json")
 
-    def __getitem__(self, item: str) -> SignedNodeData[T]:
-        return self.store[item]
+    def load(self):
+        for node_id in self.key_mapping.verifiers:
+            if node_id not in self.store.nodes:
+                self.store.nodes[node_id] = StoreNodeData()
+        self.store.nodes[self.key_mapping.signer.node_id] = StoreNodeData()
 
-    def validate(self):
-        for node_data in self.store.values():
-            verifier = self.key_mapping.verifiers.get(node_data.sig_id)
-            if not verifier or not node_data.verify(verifier):
-                logger.warning(
-                    f"Node data validation failed for sig_id {node_data.sig_id}"
-                )
-                return False
-        logger.info("All node data validated successfully.")
-        return True
+    # @property
+    # def nodes(self) -> list[str]:
+    #     return list(self.key_mapping.verifiers.keys())
 
 
-class StoreManager[T: BaseNodeData]:
-    def __init__(self, config: NetworkConfigLoader, model: type[T]):
+class StoreManager:
+    def __init__(self, config: NetworkConfigLoader):
         self.config = config
-        self.model = model
         self.stores = self.load_stores()
 
     def load_stores(self):
         stores: dict[str, SharedStore] = {}
         for network in self.config.networks.values():
-            stores[network.network_id] = SharedStore(network.key_mapping, self.model)
+            stores[network.network_id] = SharedStore(network.key_mapping)
         return stores
 
     def reload(self):
         self.stores = self.load_stores()
 
-    def get_store(self, network_id: str) -> SharedStore[T]:
+    def get_store(self, network_id: str):
         return self.stores[network_id]

@@ -5,8 +5,7 @@ from threading import Thread, Event
 import time
 
 from .config import NetworkConfigLoader, NetworkNodeInfo
-from .distrostore import NodeStatus, StoreManager, NodeData, PingData
-from .version import VERSION
+from .distrostore import MutableStoreCtxView, NodeStatus, StoreManager, PingData
 import requests
 import json
 
@@ -24,7 +23,7 @@ class DateTimeEncoder(json.JSONEncoder):
 class Monitor:
     def __init__(
         self,
-        store_manager: StoreManager[NodeData],
+        store_manager: StoreManager,
         net_id: str,
         remote_node: NetworkNodeInfo,
         local_node: NetworkNodeInfo,
@@ -44,99 +43,85 @@ class Monitor:
             f"Remote node URL: {remote_node.url}, poll rate: {remote_node.poll_rate}s, retry limit: {remote_node.retry}"
         )
 
+    def setup(self):
+        store = self.store.get_store(self.net_id)
+        ctx = store.get_context("ping_data", PingData)
+        ctx.set(
+            self.remote_node.node_id,
+            PingData(status=NodeStatus.UNKNOWN, req_time_rtt=-1),
+        )
+
+    def _sent_ping(self):
+        store = self.store.get_store(self.net_id)
+        ctx = store.get_context("ping_data", PingData)
+        self.stop_flag.wait(self.remote_node.poll_rate)
+        logger.debug(
+            f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}"
+        )
+        store = self.store.get_store(self.net_id)
+        store_data = store.dump()
+        enc_data = json.dumps(store_data, cls=DateTimeEncoder)
+        sig = store.key_mapping.signer.sign(enc_data.encode())
+        b64_sig = base64.b64encode(sig).decode("utf-8")
+        data = {
+            "data": store_data,
+            "sig_id": self.local_node.node_id,
+        }
+
+        try:
+            logger.debug(
+                f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}"
+            )
+            st = time.time()
+            response = requests.post(
+                f"{self.remote_node.url}/mon/{self.net_id}",
+                json=data,
+                headers={"Authorization": f"Bearer {b64_sig}"},
+            )
+
+        except requests.RequestException as e:
+            logger.debug(
+                f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}"
+            )
+            self._handle_error(ctx)
+            return
+        if response.status_code != 200:
+            logger.warning(
+                f"HTTP {response.status_code} response from {self.remote_node.node_id}: {response.text}"
+            )
+            self._handle_error(ctx)
+        else:
+            rtt = (time.time() - st) * 1000
+            logger.debug(f"Successful response from {self.remote_node.node_id}")
+            response_data = response.json()
+            store.update_from_dump(response_data)
+            self.error_count = 0
+            ctx.set(
+                self.remote_node.node_id,
+                PingData(status=NodeStatus.ONLINE, req_time_rtt=rtt),
+            )
+
     def monitor(self):
         logger.debug(
             f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
         )
+        self.setup()
         while not self.stop_flag.is_set():
-            self.stop_flag.wait(self.remote_node.poll_rate)
-            if self.stop_flag.is_set():
-                break
-
-            logger.debug(
-                f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}"
-            )
-            store = self.store.get_store(self.net_id)
-            store_data = store.dump()
-            enc_data = json.dumps(store_data, cls=DateTimeEncoder)
-            sig = store.key_mapping.signer.sign(enc_data.encode())
-            b64_sig = base64.b64encode(sig).decode("utf-8")
-            st = time.time()
-            data = {
-                "data": store_data,
-                "sig_id": self.local_node.node_id,
-            }
-
-            try:
-                logger.debug(
-                    f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}"
-                )
-                response = requests.post(
-                    f"{self.remote_node.url}/mon/{self.net_id}",
-                    json=data,
-                    headers={"Authorization": f"Bearer {b64_sig}"},
-                )
-
-            except requests.RequestException as e:
-                logger.debug(
-                    f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}"
-                )
-                self._handle_error()
-                continue
-            if response.status_code != 200:
-                logger.warning(
-                    f"HTTP {response.status_code} response from {self.remote_node.node_id}: {response.text}"
-                )
-                self._handle_error()
-            else:
-                rtt = (time.time() - st) * 1000
-                logger.debug(f"Successful response from {self.remote_node.node_id}")
-                response_data = response.json()
-                store.update_from_dump(response_data["store_data"])
-                self.error_count = 0
-                data = store.get()
-                if data:
-                    data.ping_data[self.remote_node.node_id] = PingData(
-                        status=NodeStatus.ONLINE,
-                        req_time_rtt=rtt,
-                    )
-                    data.date = datetime.datetime.now(datetime.timezone.utc)
-                    logger.debug(
-                        f"Updated existing node data: {self.remote_node.node_id} is ONLINE"
-                    )
-                else:
-                    logger.debug(
-                        f"Creating new node data: {self.remote_node.node_id} is ONLINE"
-                    )
-                    data = NodeData(
-                        ping_data={
-                            self.remote_node.node_id: PingData(
-                                status=NodeStatus.ONLINE,
-                                req_time_rtt=rtt,
-                            )
-                        },
-                        node_id=self.local_node.node_id,
-                        date=datetime.datetime.now(datetime.timezone.utc),
-                        version=VERSION,
-                    )
-                store.update(data)
-
+            time.sleep(self.remote_node.poll_rate)
+            self._sent_ping()
+        self._sent_ping()
         logger.debug(
             f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
         )
 
-    def _handle_error(self):
+    def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
         logger.debug(
             f"Error count increased to {self.error_count} for {self.net_id} -> {self.remote_node.node_id}"
         )
-
-        store = self.store.get_store(self.net_id)
         if self.error_count >= self.remote_node.retry:
-            current_node = store.get()
-            if current_node and (
-                current_status := current_node.ping_data.get(self.remote_node.node_id)
-            ):
-                if current_status.status != NodeStatus.OFFLINE:
+            current_node = ctx.get(self.remote_node.node_id)
+            if current_node:
+                if current_node.status != NodeStatus.OFFLINE:
                     logger.info(
                         f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
                     )
@@ -145,28 +130,10 @@ class Monitor:
                     f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
                 )
 
-            data = store.get()
-            if data:
-                data.ping_data[self.remote_node.node_id] = PingData(
-                    status=NodeStatus.OFFLINE
-                )
-                data.date = datetime.datetime.now(datetime.timezone.utc)
-                logger.debug(
-                    f"Updated existing node data: {self.remote_node.node_id} is OFFLINE"
-                )
-            else:
-                logger.debug(
-                    f"Creating new node data: {self.remote_node.node_id} is OFFLINE"
-                )
-                data = NodeData(
-                    ping_data={
-                        self.remote_node.node_id: PingData(status=NodeStatus.OFFLINE)
-                    },
-                    node_id=self.local_node.node_id,
-                    date=datetime.datetime.now(datetime.timezone.utc),
-                    version=VERSION,
-                )
-            store.update(data)
+            ctx.set(
+                self.remote_node.node_id,
+                PingData(status=NodeStatus.OFFLINE, req_time_rtt=-1),
+            )
         self.error_count += 1
 
     def start(self):
@@ -183,9 +150,7 @@ class Monitor:
 
 
 class MonitorManager:
-    def __init__(
-        self, store_manager: StoreManager[NodeData], config: NetworkConfigLoader
-    ):
+    def __init__(self, store_manager: StoreManager, config: NetworkConfigLoader):
         self.store_manager = store_manager
         self.config = config
         self.monitors: dict[str, Monitor] = self._initialize_monitors()
@@ -233,3 +198,10 @@ class MonitorManager:
         logger.debug("Reinitializing monitors with new configuration")
         self.monitors = self._initialize_monitors()
         logger.info("MonitorManager reload completed")
+
+    def stop(self):
+        logger.info("Stopping all monitors in MonitorManager")
+        for monitor_key, monitor in self.monitors.items():
+            logger.debug(f"Stopping monitor: {monitor_key}")
+            monitor.stop()
+        logger.info("All monitors stopped")

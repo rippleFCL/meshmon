@@ -1,23 +1,25 @@
 import base64
+from contextlib import asynccontextmanager
+import datetime
 import json
 import os
-import time
 from fastapi import FastAPI, Header, HTTPException, status
 
 from pydantic import BaseModel
-from typing import Any, Dict
 
 from meshmon.distrostore import (
-    NodeData,
+    DateEvalType,
+    NodeInfo,
     PingData,
-    SharedStore,
-    SignedNodeData,
+    StoreData,
     StoreManager,
     NodeStatus,
+    NodeDataRetention,
 )
 from meshmon.config import NetworkConfigLoader
 from meshmon.monitor import MonitorManager
 from meshmon.conman import ConfigManager
+from meshmon.version import VERSION
 import logging
 
 # Configure logging
@@ -41,7 +43,8 @@ config = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
 logger.info(f"Loaded {len(config.networks)} network configurations")
 
 logger.info("Initializing store manager...")
-store_manager = StoreManager(config, NodeData)
+store_manager = StoreManager(config)
+
 logger.info(f"Initialized store manager with {len(store_manager.stores)} stores")
 
 logger.info("Initializing monitor manager...")
@@ -58,18 +61,29 @@ logger.info("Config manager initialized")
 logger.info("Server initialization complete")
 
 
-api = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting up the server...")
+    for store in store_manager.stores.values():
+        node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
+        store.set_value("node_info", node_info)
+        data_retention = NodeDataRetention(
+            date=datetime.datetime.now(datetime.timezone.utc)
+        )
+        store.set_value("data_retention", data_retention, DateEvalType.OLDER)
+    yield
+    for store in store_manager.stores.values():
+        node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)
+        store.set_value("node_info", node_info)
+    monitor_manager.stop()
 
 
-class StoreResponse(BaseModel):
-    store_data: Dict[str, SignedNodeData[Any]]
-    ms_send_time: float
+api = FastAPI(lifespan=lifespan)
 
 
 class MonBody(BaseModel):
     data: dict
     sig_id: str
-    send_time: float
 
 
 class ViewPingData(BaseModel):
@@ -82,32 +96,6 @@ class ViewPingData(BaseModel):
             status=data.status,
             response_time_rtt=data.req_time_rtt,
         )
-
-
-class ViewNodeData(BaseModel):
-    ping_data: dict[str, ViewPingData] = {}
-    node_version: str
-
-
-class ViewNetwork(BaseModel):
-    data: dict[str, ViewNodeData] = {}
-
-    @classmethod
-    def from_store(cls, store: SharedStore[NodeData]):
-        view_data = cls()
-        for node_id, node_data in store:
-            node = ViewNodeData(node_version=node_data.data.version)
-            ping_data = node_data.data.ping_data
-            for dest_node_id, ping_result in ping_data.items():
-                node.ping_data[dest_node_id] = ViewPingData.from_ping_data(
-                    ping_result, dest_node_id
-                )
-            view_data.data[node_id] = node
-        return view_data
-
-
-class ViewData(BaseModel):
-    networks: dict[str, ViewNetwork] = {}
 
 
 def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
@@ -150,25 +138,29 @@ def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
     return body.data
 
 
-@api.post("/mon/{network_id}", response_model=StoreResponse)
+@api.post("/mon/{network_id}", response_model=StoreData)
 def mon(body: MonBody, network_id: str, authorization: str = Header()):
-    logger.debug(f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}")
+    logger.debug(
+        f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}"
+    )
     msg = validate_msg(body, network_id, authorization)
     mon_store = store_manager.get_store(network_id)
     mon_store.update_from_dump(msg)
-    raw = mon_store.dump()
 
     logger.debug(f"Successfully processed monitoring data for {network_id}")
     # Convert each value to SignedNodeData
-    return StoreResponse.model_validate({"store_data": raw})
+    return mon_store.store
 
 
-@api.get("/view", response_model=ViewData)
+class ViewNetwork(BaseModel):
+    networks: dict[str, StoreData] = {}
+
+
+@api.get("/view")
 def view():
     """Get network view data. Requires JWT authentication."""
     logger.debug("View request for networks")
-    networks = ViewData()
+    networks = ViewNetwork()
     for network_id, store in store_manager.stores.items():
-        networks.networks[network_id] = ViewNetwork.from_store(store)
-
+        networks.networks[network_id] = store.store
     return networks

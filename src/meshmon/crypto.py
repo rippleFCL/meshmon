@@ -15,7 +15,7 @@ logger = logging.getLogger("distmon.crypto")
 
 class Verifier:
     def __init__(self, peer_id: str, public_key: Ed25519PublicKey):
-        self.vid = peer_id
+        self.node_id = peer_id
         self.public_key = public_key
 
     @classmethod
@@ -50,10 +50,10 @@ class Verifier:
         """
         try:
             self.public_key.verify(signature, message)
-            logger.debug(f"Signature verification successful for peer: {self.vid}")
+            logger.debug(f"Signature verification successful for peer: {self.node_id}")
             return True
         except InvalidSignature:
-            logger.warning(f"Signature verification failed for peer: {self.vid}")
+            logger.warning(f"Signature verification failed for peer: {self.node_id}")
             return False
 
     def save(self, peer_id: str, key_dir: str):
@@ -70,7 +70,7 @@ class Verifier:
 
 class Signer:
     def __init__(self, peer_id: str, private_key: Ed25519PrivateKey):
-        self.sid = peer_id
+        self.node_id = peer_id
         self.private_key = private_key
         self.public_key = private_key.public_key()
 
@@ -116,7 +116,7 @@ class Signer:
         return self.private_key.sign(message)
 
     def get_verifier(self) -> Verifier:
-        return Verifier(self.sid, self.public_key)
+        return Verifier(self.node_id, self.public_key)
 
 
 class KeyMapping:

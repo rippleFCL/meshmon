@@ -65,7 +65,6 @@ class Monitor:
             data = {
                 "data": store_data,
                 "sig_id": self.local_node.node_id,
-                "send_time": time.time(),
             }
 
             try:
@@ -94,13 +93,11 @@ class Monitor:
                 logger.debug(f"Successful response from {self.remote_node.node_id}")
                 response_data = response.json()
                 store.update_from_dump(response_data["store_data"])
-                req_time = response_data["ms_send_time"]
                 self.error_count = 0
                 data = store.get()
                 if data:
                     data.ping_data[self.remote_node.node_id] = PingData(
                         status=NodeStatus.ONLINE,
-                        req_time_outbound=req_time,
                         req_time_rtt=rtt,
                     )
                     data.date = datetime.datetime.now(datetime.timezone.utc)
@@ -115,7 +112,6 @@ class Monitor:
                         ping_data={
                             self.remote_node.node_id: PingData(
                                 status=NodeStatus.ONLINE,
-                                req_time_outbound=req_time,
                                 req_time_rtt=rtt,
                             )
                         },

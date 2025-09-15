@@ -24,7 +24,6 @@ class BaseNodeData(BaseModel):
 
 class PingData(BaseModel):
     status: NodeStatus
-    req_time_outbound: float = 0
     req_time_rtt: float = 0
 
 

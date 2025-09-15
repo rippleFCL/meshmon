@@ -74,14 +74,12 @@ class MonBody(BaseModel):
 
 class ViewPingData(BaseModel):
     status: NodeStatus
-    response_time: float
     response_time_rtt: float
 
     @classmethod
     def from_ping_data(cls, data: PingData, node_id: str):
         return cls(
             status=data.status,
-            response_time=data.req_time_outbound,
             response_time_rtt=data.req_time_rtt,
         )
 
@@ -154,13 +152,7 @@ def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
 
 @api.post("/mon/{network_id}", response_model=StoreResponse)
 def mon(body: MonBody, network_id: str, authorization: str = Header()):
-    logger.debug(
-        f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}"
-    )
-    now = time.time()
-    send_time = body.send_time
-    diff = now - send_time
-    logger.debug(f"Request processing delay: {diff * 1000:.2f}ms")
+    logger.debug(f"Received monitoring data for network: {network_id}, sig_id: {body.sig_id}")
     msg = validate_msg(body, network_id, authorization)
     mon_store = store_manager.get_store(network_id)
     mon_store.update_from_dump(msg)
@@ -168,9 +160,7 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
 
     logger.debug(f"Successfully processed monitoring data for {network_id}")
     # Convert each value to SignedNodeData
-    return StoreResponse.model_validate(
-        {"store_data": raw, "ms_send_time": diff * 1000}
-    )
+    return StoreResponse.model_validate({"store_data": raw})
 
 
 @api.get("/view", response_model=ViewData)

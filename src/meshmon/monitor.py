@@ -145,8 +145,15 @@ class Monitor:
     def stop(self):
         logger.info(f"Stopping monitor for {self.net_id} -> {self.remote_node.node_id}")
         self.stop_flag.set()
+        logger.debug(
+            f"Monitor stopping for {self.net_id} -> {self.remote_node.node_id}"
+        )
+
+    def join(self):
         self.thread.join()
-        logger.debug(f"Monitor stopped for {self.net_id} -> {self.remote_node.node_id}")
+        logger.debug(
+            f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
+        )
 
 
 class MonitorManager:
@@ -193,6 +200,8 @@ class MonitorManager:
         for monitor_key, monitor in self.monitors.items():
             logger.debug(f"Stopping monitor: {monitor_key}")
             monitor.stop()
+        for monitor in self.monitors.values():
+            monitor.join()
 
         # Reinitialize monitors with new configuration
         logger.debug("Reinitializing monitors with new configuration")
@@ -204,4 +213,6 @@ class MonitorManager:
         for monitor_key, monitor in self.monitors.items():
             logger.debug(f"Stopping monitor: {monitor_key}")
             monitor.stop()
+        for monitor in self.monitors.values():
+            monitor.join()
         logger.info("All monitors stopped")

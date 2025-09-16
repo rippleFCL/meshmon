@@ -195,12 +195,7 @@ class MonitorManager:
         logger.info("Reloading MonitorManager configuration")
         # Stop all existing monitors
         logger.debug(f"Stopping {len(self.monitors)} existing monitors")
-        for monitor_key, monitor in self.monitors.items():
-            logger.debug(f"Stopping monitor: {monitor_key}")
-            monitor.stop()
-        for monitor in self.monitors.values():
-            monitor.join()
-
+        self.stop()
         # Reinitialize monitors with new configuration
         logger.debug("Reinitializing monitors with new configuration")
         self.monitors = self._initialize_monitors()
@@ -213,4 +208,6 @@ class MonitorManager:
             monitor.stop()
         for monitor in self.monitors.values():
             monitor.join()
+        self.monitors.clear()
+
         logger.info("All monitors stopped")

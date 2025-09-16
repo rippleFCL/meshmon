@@ -22,6 +22,7 @@ class ConfigManager:
         while True:
             time.sleep(10)
             if self.config.needs_reload():
+                self.monitor_manager.stop()
                 self.config.reload()
                 self.store_manager.reload()
                 self.monitor_manager.reload()

@@ -384,7 +384,14 @@ class StoreManager:
     def load_stores(self):
         stores: dict[str, SharedStore] = {}
         for network in self.config.networks.values():
-            stores[network.network_id] = SharedStore(network.key_mapping)
+            new_store = SharedStore(network.key_mapping)
+            if network.network_id in stores:
+                logger.info(
+                    f"Network ID {network.network_id} already exists; loading data from existing store."
+                )
+                new_store.update_from_dump(stores[network.network_id].dump())
+            stores[network.network_id] = new_store
+            logger.debug(f"Loaded store for network ID {network.network_id}")
         return stores
 
     def reload(self):

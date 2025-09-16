@@ -71,6 +71,10 @@ async def lifespan(app: FastAPI):
             date=datetime.datetime.now(datetime.timezone.utc)
         )
         store.set_value("data_retention", data_retention, DateEvalType.OLDER)
+    for network_id, network in config.networks.items():
+        store = store_manager.get_store(network_id)
+        ctx = store.get_context("ping_data", PingData)
+        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
     yield
     for store in store_manager.stores.values():
         node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)

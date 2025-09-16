@@ -10,7 +10,7 @@ import requests
 import json
 
 # Set up logger for this module
-logger = logging.getLogger("distromon.monitor")
+logger = logging.getLogger("meshmon.monitor")
 
 
 class DateTimeEncoder(json.JSONEncoder):

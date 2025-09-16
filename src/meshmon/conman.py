@@ -1,5 +1,7 @@
 import threading
 import time
+
+from server import PingData
 from .config import NetworkConfigLoader
 from .distrostore import StoreManager
 from .monitor import MonitorManager
@@ -25,4 +27,8 @@ class ConfigManager:
                 self.monitor_manager.stop()
                 self.config.reload()
                 self.store_manager.reload()
+                for network_id, network in self.config.networks.items():
+                    store = self.store_manager.get_store(network_id)
+                    ctx = store.get_context("ping_data", PingData)
+                    ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
                 self.monitor_manager.reload()

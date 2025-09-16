@@ -10,7 +10,7 @@ from enum import Enum
 import logging
 
 
-logger = logging.getLogger("distromon.distrostore")
+logger = logging.getLogger("meshmon.distrostore")
 
 
 class NodeStatus(Enum):
@@ -100,20 +100,39 @@ class StoreContextData(BaseModel):
     data: dict[str, SignedBlockData] = {}
     date: datetime.datetime
     context_name: str
+    allowed_keys: list[str]
     sig: str
 
     @classmethod
-    def new(cls, signer: Signer, context_name: str):
+    def new(
+        cls, signer: Signer, context_name: str, allowed_keys: list[str] | None = None
+    ) -> "StoreContextData":
+        if allowed_keys is None:
+            allowed_keys = []
         date = datetime.datetime.now(datetime.timezone.utc)
         sig_str = json.dumps(
-            {"context_name": context_name, "date": date.isoformat()}
+            {
+                "context_name": context_name,
+                "date": date.isoformat(),
+                "allowed_keys": allowed_keys,
+            }
         ).encode()
         sig = base64.b64encode(signer.sign(sig_str)).decode()
-        return cls(data={}, date=date, context_name=context_name, sig=sig)
+        return cls(
+            data={},
+            date=date,
+            context_name=context_name,
+            sig=sig,
+            allowed_keys=allowed_keys,
+        )
 
     def verify(self, verifier: Verifier, context_name: str) -> bool:
         sig_str = json.dumps(
-            {"context_name": self.context_name, "date": self.date.isoformat()}
+            {
+                "context_name": self.context_name,
+                "date": self.date.isoformat(),
+                "allowed_keys": self.allowed_keys,
+            }
         ).encode()
         verified = (
             verifier.verify(sig_str, base64.b64decode(self.sig))
@@ -127,8 +146,34 @@ class StoreContextData(BaseModel):
             )
         return verified
 
-    def update(self, context_data: "StoreContextData", verifier: Verifier):
+    def update(
+        self, context_data: "StoreContextData", verifier: Verifier, context_name: str
+    ):
+        if not (context_data.context_name == self.context_name == context_name):
+            logger.warning(
+                f"Context name mismatch: {self.context_name} vs {context_data.context_name}"
+            )
+            return
+        if not context_data.verify(verifier, context_name):
+            logger.warning(
+                f"New context data signature verification failed for context {self.context_name}"
+            )
+            return
+        if context_data.date > self.date:
+            self.date = context_data.date
+            self.sig = context_data.sig
+            self.allowed_keys = context_data.allowed_keys
+            self.context_name = context_data.context_name
+
         for key, value in context_data.data.items():
+            if self.allowed_keys and key not in self.allowed_keys:
+                logger.info(f"Key {key} not allowed in context {self.context_name}")
+                if key in self.data:
+                    logger.info(
+                        f"Removing disallowed key {key} from context {self.context_name}"
+                    )
+                    del self.data[key]
+                continue
             if key not in self.data:
                 if value.verify(verifier, key):
                     self.data[key] = value
@@ -158,24 +203,12 @@ class StoreNodeData(BaseModel):
                         date=context_data.date,
                         context_name=context_name,
                         sig=context_data.sig,
+                        allowed_keys=context_data.allowed_keys,
                     )
-                    new_ctx.update(context_data, verifier)
+                    new_ctx.update(context_data, verifier, context_name)
                     self.contexts[context_name] = new_ctx
             else:
-                current_ctx = self.contexts[context_name]
-                if not (
-                    context_data.context_name
-                    == current_ctx.context_name
-                    == context_name
-                ):
-                    logger.warning(
-                        f"Context name mismatch: {current_ctx.context_name} vs {context_name}"
-                    )
-                    continue
-                current_ctx.update(context_data, verifier)
-                if context_data.date > current_ctx.date:
-                    current_ctx.date = context_data.date
-                    current_ctx.sig = context_data.sig
+                self.contexts[context_name].update(context_data, verifier, context_name)
         for key, value in node_data.values.items():
             if key not in self.values:
                 self.values[key] = value
@@ -242,6 +275,17 @@ class StoreCtxView[T: BaseModel]:
         if key in ctx_data.data:
             return self.model.model_validate(ctx_data.data[key].data)
         return None
+
+    @property
+    def allowed_keys(self) -> list[str]:
+        ctx_data = self._get_ctx_data()
+        return ctx_data.allowed_keys.copy()
+
+    @allowed_keys.setter
+    def allowed_keys(self, keys: list[str]):
+        new_ctx = StoreContextData.new(self.signer, self.context_name, keys)
+        ctx_data = self._get_ctx_data()
+        ctx_data.update(new_ctx, self.signer.get_verifier(), self.context_name)
 
 
 class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
@@ -379,23 +423,24 @@ class SharedStore:
 class StoreManager:
     def __init__(self, config: NetworkConfigLoader):
         self.config = config
-        self.stores = self.load_stores()
+        self.load_stores()
 
     def load_stores(self):
-        stores: dict[str, SharedStore] = {}
+        self.stores: dict[str, SharedStore] = {}
         for network in self.config.networks.values():
             new_store = SharedStore(network.key_mapping)
-            if network.network_id in stores:
+            if network.network_id in self.stores:
                 logger.info(
                     f"Network ID {network.network_id} already exists; loading data from existing store."
                 )
-                new_store.update_from_dump(stores[network.network_id].dump())
-            stores[network.network_id] = new_store
+                new_store.update_from_dump(self.stores[network.network_id].dump())
+            else:
+                logger.info(f"Creating new store for network ID {network.network_id}.")
+            self.stores[network.network_id] = new_store
             logger.debug(f"Loaded store for network ID {network.network_id}")
-        return stores
 
     def reload(self):
-        self.stores = self.load_stores()
+        self.load_stores()
 
     def get_store(self, network_id: str):
         return self.stores[network_id]

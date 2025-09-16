@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 
-logger = logging.getLogger("distmon.crypto")
+logger = logging.getLogger("meshmon.crypto")
 
 
 class Verifier:

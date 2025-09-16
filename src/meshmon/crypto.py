@@ -58,6 +58,9 @@ class Verifier:
     def save(self, peer_id: str, key_dir: str):
         os.makedirs(key_dir, exist_ok=True)
         key_path = os.path.join(key_dir, f"{peer_id}.pub")
+        if os.path.exists(key_path):
+            logger.debug(f"Public key file already exists: {key_path}")
+            return
         with open(key_path, "wb") as f:
             f.write(
                 self.public_key.public_bytes(

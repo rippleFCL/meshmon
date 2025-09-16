@@ -139,7 +139,9 @@ class NetworkConfigLoader:
         pubkey_dir = str(self.config_dir / "networks" / net_cfg.directory / "pubkeys")
         verifier_ids = [node.node_id for node in root.node_config]
         verifiers = {}
-        signer = Signer.by_id(net_cfg.node_id, root.network_id)
+        signer = Signer.by_id(
+            net_cfg.node_id, str(self.config_dir / ".private_keys" / net_cfg.directory)
+        )
         verifier = signer.get_verifier()
         if net_cfg.config_type == ConfigTypes.LOCAL:
             verifier.save(net_cfg.node_id, pubkey_dir)  # Save public key if not exists

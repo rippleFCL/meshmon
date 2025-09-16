@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import os
 from pathlib import Path
 
 from .crypto import KeyMapping, Signer, Verifier
@@ -65,6 +66,7 @@ class NetworkConfigLoader:
         self.file_name = file_name
         self.node_cfg = self._load_node_config()
         self.networks: dict[str, NetworkConfig] = self._load_all_network_configs()
+        self.latest_mtime = self.get_latest_mtime()
 
     def _load_node_config(self) -> NodeCfg:
         """
@@ -181,6 +183,21 @@ class NetworkConfigLoader:
         """
         return self.networks.get(network_id)
 
+    def get_latest_mtime(self) -> float:
+        """
+        Get the latest access time of all config files.
+        Used to detect changes for reloads.
+        """
+        latest_mtime = 0.0
+        for root, _, files in os.walk(self.config_dir / "networks"):
+            for file in files:
+                file_path = Path(root) / file
+                mtime = file_path.stat().st_mtime
+                if mtime > latest_mtime:
+                    latest_mtime = mtime
+        file_mtime = (self.config_dir / self.file_name).stat().st_mtime
+        return max(latest_mtime, file_mtime)
+
     def needs_reload(self):
         """
         Check if any Git-based network configurations have updates.
@@ -225,5 +242,8 @@ class NetworkConfigLoader:
                     logger.debug(
                         f"Network {network.directory} repo directory does not exist"
                     )
-
+        if self.get_latest_mtime() > self.latest_mtime:
+            logger.info("Configuration files have been modified, reloading")
+            has_changes = True
+            self.latest_mtime = self.get_latest_mtime()
         return has_changes

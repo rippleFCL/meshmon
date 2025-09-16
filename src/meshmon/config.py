@@ -176,6 +176,7 @@ class NetworkConfigLoader:
         """
         self.node_cfg = self._load_node_config()
         self.networks = self._load_all_network_configs()
+        self.latest_mtime = self.get_latest_mtime()
 
     def get_network(self, network_id: str) -> NetworkConfig | None:
         """
@@ -245,5 +246,4 @@ class NetworkConfigLoader:
         if self.get_latest_mtime() > self.latest_mtime:
             logger.info("Configuration files have been modified, reloading")
             has_changes = True
-            self.latest_mtime = self.get_latest_mtime()
         return has_changes

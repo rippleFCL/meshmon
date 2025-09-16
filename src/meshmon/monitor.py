@@ -145,9 +145,7 @@ class Monitor:
     def stop(self):
         logger.info(f"Stopping monitor for {self.net_id} -> {self.remote_node.node_id}")
         self.stop_flag.set()
-        logger.debug(
-            f"Monitor stopping for {self.net_id} -> {self.remote_node.node_id}"
-        )
+        logger.info(f"Monitor stopping for {self.net_id} -> {self.remote_node.node_id}")
 
     def join(self):
         self.thread.join()

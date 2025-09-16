@@ -2,10 +2,11 @@ from dataclasses import dataclass
 from enum import Enum
 import os
 from pathlib import Path
+from typing import Annotated
 
 from .crypto import KeyMapping, Signer, Verifier
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 from git import Repo
 import shutil
 import logging
@@ -20,7 +21,7 @@ class ConfigTypes(Enum):
 
 class NodeCfgNetwork(BaseModel):
     directory: str
-    node_id: str
+    node_id: Annotated[str, StringConstraints(to_lower=True)]
     config_type: ConfigTypes = ConfigTypes.LOCAL
     git_repo: str | None = None
 
@@ -30,7 +31,7 @@ class NodeCfg(BaseModel):
 
 
 class NetworkNodeInfo(BaseModel):
-    node_id: str
+    node_id: Annotated[str, StringConstraints(to_lower=True)]
     url: str
     poll_rate: int = 10
     retry: int = 2
@@ -38,7 +39,7 @@ class NetworkNodeInfo(BaseModel):
 
 class NetworkRootConfig(BaseModel):
     node_config: list[NetworkNodeInfo]
-    network_id: str
+    network_id: Annotated[str, StringConstraints(to_lower=True)]
 
 
 @dataclass

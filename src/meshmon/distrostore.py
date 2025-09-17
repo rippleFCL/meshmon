@@ -432,10 +432,10 @@ class StoreManager:
     ):
         self.config = config
         self.store_prefiller = store_prefiller
+        self.stores: dict[str, SharedStore] = {}
         self.load_stores()
 
     def load_stores(self):
-        self.stores: dict[str, SharedStore] = {}
         for network in self.config.networks.values():
             new_store = SharedStore(network.key_mapping)
             if network.network_id in self.stores:
@@ -448,6 +448,10 @@ class StoreManager:
                 self.store_prefiller(new_store)
             self.stores[network.network_id] = new_store
             logger.debug(f"Loaded store for network ID {network.network_id}")
+        for network_id in list(self.stores.keys()):
+            if network_id not in self.config.networks:
+                logger.info(f"Removing store for obsolete network ID {network_id}.")
+                del self.stores[network_id]
 
     def reload(self):
         self.load_stores()

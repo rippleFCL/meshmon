@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.4] - 2025-09-17
+### :bug: Bug Fixes
+- [`6029e4c`](https://github.com/rippleFCL/meshmon/commit/6029e4c4bd435899c65e03f5b05901f32c02510b) - node status was calculated wrong *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`079c766`](https://github.com/rippleFCL/meshmon/commit/079c766b10cb5c599795ddf39a14636914f31047) - increct logging level in analysis *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`5dd9b15`](https://github.com/rippleFCL/meshmon/commit/5dd9b158e67afb60f37bdb966a8aed0624139c21) - bump version *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v1.0.1] - 2025-09-17
 ### :bug: Bug Fixes
 - [`8e264ca`](https://github.com/rippleFCL/meshmon/commit/8e264cae101845317461958b4ec7bc025e69a76e) - store callback to prefill on creation *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -55,3 +64,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v0.4.0]: https://github.com/rippleFCL/meshmon/compare/v0.3.0...v0.4.0
 [v1.0.0]: https://github.com/rippleFCL/meshmon/compare/v0.4.0...v1.0.0
 [v1.0.1]: https://github.com/rippleFCL/meshmon/compare/v1.0.0...v1.0.1
+[v1.0.4]: https://github.com/rippleFCL/meshmon/compare/v1.0.3...v1.0.4

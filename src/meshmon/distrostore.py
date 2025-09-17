@@ -1,6 +1,6 @@
 import base64
 import json
-from typing import Iterator, Literal, overload
+from typing import Callable, Iterator, Literal, overload
 from pydantic import BaseModel
 
 from .config import NetworkConfigLoader
@@ -425,8 +425,13 @@ class SharedStore:
 
 
 class StoreManager:
-    def __init__(self, config: NetworkConfigLoader):
+    def __init__(
+        self,
+        config: NetworkConfigLoader,
+        store_prefiller: Callable[[SharedStore], None],
+    ):
         self.config = config
+        self.store_prefiller = store_prefiller
         self.load_stores()
 
     def load_stores(self):
@@ -440,6 +445,7 @@ class StoreManager:
                 new_store.update_from_dump(self.stores[network.network_id].dump())
             else:
                 logger.info(f"Creating new store for network ID {network.network_id}.")
+                self.store_prefiller(new_store)
             self.stores[network.network_id] = new_store
             logger.debug(f"Loaded store for network ID {network.network_id}")
 

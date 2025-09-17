@@ -16,6 +16,7 @@ from meshmon.distrostore import (
     StoreManager,
     NodeStatus,
     NodeDataRetention,
+    SharedStore,
 )
 from meshmon.config import NetworkConfigLoader
 from meshmon.monitor import MonitorManager
@@ -38,6 +39,18 @@ logger = logging.getLogger(__name__)
 # JWT Configuration
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
 
+
+def prefill_store(store: SharedStore):
+    node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
+    store.set_value("node_info", node_info)
+    data_retention = NodeDataRetention(
+        date=datetime.datetime.now(datetime.timezone.utc)
+    )
+    store.set_value("data_retention", data_retention, DateEvalType.OLDER)
+    ctx = store.get_context("ping_data", PingData)
+    ctx.allowed_keys = list(store.key_mapping.verifiers.keys())
+
+
 logger.info(f"Starting server initialization with config file: {CONFIG_FILE_NAME}")
 
 
@@ -46,7 +59,7 @@ config = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
 logger.info(f"Loaded {len(config.networks)} network configurations")
 
 logger.info("Initializing store manager...")
-store_manager = StoreManager(config)
+store_manager = StoreManager(config, prefill_store)
 
 logger.info(f"Initialized store manager with {len(store_manager.stores)} stores")
 
@@ -67,17 +80,6 @@ logger.info("Server initialization complete")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up the server...")
-    for store in store_manager.stores.values():
-        node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
-        store.set_value("node_info", node_info)
-        data_retention = NodeDataRetention(
-            date=datetime.datetime.now(datetime.timezone.utc)
-        )
-        store.set_value("data_retention", data_retention, DateEvalType.OLDER)
-    for network_id, network in config.networks.items():
-        store = store_manager.get_store(network_id)
-        ctx = store.get_context("ping_data", PingData)
-        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
     yield
     for store in store_manager.stores.values():
         node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)

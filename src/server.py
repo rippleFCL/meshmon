@@ -82,6 +82,7 @@ logger.info("Server initialization complete")
 async def lifespan(app: FastAPI):
     logger.info("Starting up the server...")
     yield
+    monitor_manager.stop_manager()
     for store in store_manager.stores.values():
         node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)
         store.set_value("node_info", node_info)

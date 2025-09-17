@@ -4,8 +4,16 @@ import logging
 from threading import Thread, Event
 import time
 
+from .version import VERSION
+
 from .config import NetworkConfigLoader, NetworkNodeInfo
-from .distrostore import MutableStoreCtxView, NodeStatus, StoreManager, PingData
+from .distrostore import (
+    MutableStoreCtxView,
+    NodeInfo,
+    NodeStatus,
+    StoreManager,
+    PingData,
+)
 import requests
 import json
 
@@ -230,7 +238,17 @@ class MonitorManager:
         self.store_manager = store_manager
         self.config = config
         self.monitors: dict[str, Monitor] = self._initialize_monitors()
+        self.stop_flag = Event()
+        self.thread = Thread(target=self.manager, daemon=True)
+        self.thread.start()
         logger.debug(f"MonitorManager initialized with {len(self.monitors)} monitors")
+
+    def manager(self):
+        while not self.stop_flag.is_set():
+            time.sleep(5)
+            for store in self.store_manager.stores.values():
+                node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
+                store.set_value("node_info", node_info)
 
     def _initialize_monitors(self) -> dict[str, Monitor]:
         logger.debug("Initializing monitors from network configuration")
@@ -282,3 +300,9 @@ class MonitorManager:
         self.monitors.clear()
 
         logger.info("All monitors stopped")
+
+    def stop_manager(self):
+        logger.info("Stopping MonitorManager")
+        self.stop_flag.set()
+        self.thread.join()
+        logger.info("MonitorManager stopped")

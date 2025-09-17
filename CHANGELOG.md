@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.5] - 2025-09-17
+### :bug: Bug Fixes
+- [`972a18a`](https://github.com/rippleFCL/meshmon/commit/972a18a7409feb08bcf38c13d90a7d10af771ac4) - didnt account for timeout in interval *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`904eabc`](https://github.com/rippleFCL/meshmon/commit/904eabc095767747228a7978e25aeceb926b2b08) - dont dump store on reload *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`576da71`](https://github.com/rippleFCL/meshmon/commit/576da71d0bcca5bfc054c93fe5132c6018ccd461) - bump version *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v1.0.4] - 2025-09-17
 ### :bug: Bug Fixes
 - [`6029e4c`](https://github.com/rippleFCL/meshmon/commit/6029e4c4bd435899c65e03f5b05901f32c02510b) - node status was calculated wrong *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -65,3 +74,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v1.0.0]: https://github.com/rippleFCL/meshmon/compare/v0.4.0...v1.0.0
 [v1.0.1]: https://github.com/rippleFCL/meshmon/compare/v1.0.0...v1.0.1
 [v1.0.4]: https://github.com/rippleFCL/meshmon/compare/v1.0.3...v1.0.4
+[v1.0.5]: https://github.com/rippleFCL/meshmon/compare/v1.0.4...v1.0.5

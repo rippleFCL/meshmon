@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.7] - 2025-09-17
+### :bug: Bug Fixes
+- [`078552f`](https://github.com/rippleFCL/meshmon/commit/078552f5a14d0e68796b8c6bbc06505596426c28) - update date formatting to use localeString and fix the "node details" font colour *(commit by [@vellfire](https://github.com/vellfire))*
+- [`fcc73b4`](https://github.com/rippleFCL/meshmon/commit/fcc73b4beb095a2c391d4614f51faf9a57c1f9c4) - make dates more consistent *(commit by [@vellfire](https://github.com/vellfire))*
+- [`374d29a`](https://github.com/rippleFCL/meshmon/commit/374d29a65ded073bf5a228918fbfc19c661d8ad9) - cutoff too high ping times *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`3248fa5`](https://github.com/rippleFCL/meshmon/commit/3248fa5556ffaa3b214ad85a1ce76e6ad470a616) - bump version v1.0.7 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v1.0.5] - 2025-09-17
 ### :bug: Bug Fixes
 - [`972a18a`](https://github.com/rippleFCL/meshmon/commit/972a18a7409feb08bcf38c13d90a7d10af771ac4) - didnt account for timeout in interval *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -75,3 +85,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v1.0.1]: https://github.com/rippleFCL/meshmon/compare/v1.0.0...v1.0.1
 [v1.0.4]: https://github.com/rippleFCL/meshmon/compare/v1.0.3...v1.0.4
 [v1.0.5]: https://github.com/rippleFCL/meshmon/compare/v1.0.4...v1.0.5
+[v1.0.7]: https://github.com/rippleFCL/meshmon/compare/v1.0.6...v1.0.7

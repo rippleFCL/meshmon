@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { meshmonApi } from '../api'
+import { useRefresh } from '../contexts/RefreshContext'
 import {
     NetworkAnalysis,
     NodeAnalysis,
@@ -218,36 +219,82 @@ export default function NetworkDetail() {
     const { networkId } = useParams<{ networkId: string }>()
     const navigate = useNavigate()
     const { isDark } = useTheme()
+    const { registerRefreshCallback } = useRefresh()
     const [network, setNetwork] = useState<NetworkAnalysis | null>(null)
     const [loading, setLoading] = useState(true)
+    const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
 
-    const fetchData = async () => {
+    const fetchData = async (isInitialLoad = false) => {
         try {
-            setLoading(true)
+            if (isInitialLoad) {
+                setLoading(true)
+            } else {
+                setRefreshing(true)
+            }
+
             const response = await meshmonApi.getViewData()
 
             if (networkId && response.data.networks[networkId]) {
                 setNetwork(response.data.networks[networkId])
+                setError(null)
             } else {
                 setError(`Network "${networkId}" not found`)
             }
-
-            setError(null)
         } catch (err) {
             setError('Failed to fetch network data')
             console.error('Error fetching data:', err)
         } finally {
-            setLoading(false)
+            if (isInitialLoad) {
+                setLoading(false)
+            } else {
+                setRefreshing(false)
+            }
         }
     }
 
     useEffect(() => {
-        fetchData()
-        const interval = setInterval(fetchData, 30000) // Refresh every 30 seconds
-        return () => clearInterval(interval)
-    }, [networkId])
+        const fetchData = async (isInitialLoad = false) => {
+            try {
+                if (isInitialLoad) {
+                    setLoading(true)
+                } else {
+                    setRefreshing(true)
+                }
+
+                const response = await meshmonApi.getViewData()
+
+                if (networkId && response.data.networks[networkId]) {
+                    setNetwork(response.data.networks[networkId])
+                    setError(null)
+                } else {
+                    setError(`Network "${networkId}" not found`)
+                }
+            } catch (err) {
+                setError('Failed to fetch network data')
+                console.error('Error fetching data:', err)
+            } finally {
+                if (isInitialLoad) {
+                    setLoading(false)
+                } else {
+                    setRefreshing(false)
+                }
+            }
+        }
+
+        const handleRefresh = () => fetchData(false)
+
+        fetchData(true) // Initial load
+        const cleanup = registerRefreshCallback(handleRefresh) // Register refresh callback
+
+        const interval = setInterval(() => fetchData(false), 10000) // Background refresh every 10 seconds
+
+        return () => {
+            clearInterval(interval)
+            cleanup()
+        }
+    }, [networkId, registerRefreshCallback])
 
     const toggleNode = (nodeId: string) => {
         const newExpanded = new Set(expandedNodes)
@@ -308,7 +355,7 @@ export default function NetworkDetail() {
                     <div className={`text-center ${isDark ? 'text-red-400' : 'text-red-600'}`}>
                         <p>{error || 'Network not found'}</p>
                         <button
-                            onClick={fetchData}
+                            onClick={() => fetchData(true)}
                             className="btn btn-primary mt-4"
                         >
                             Retry
@@ -343,6 +390,12 @@ export default function NetworkDetail() {
                     </div>
                 </div>
                 <div className="flex items-center space-x-3">
+                    {refreshing && (
+                        <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+                            <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                            <span>Updating...</span>
+                        </div>
+                    )}
                     <button
                         onClick={expandAll}
                         className={`px-3 py-2 text-sm rounded transition-colors duration-200 ${isDark
@@ -361,18 +414,11 @@ export default function NetworkDetail() {
                     >
                         Collapse All
                     </button>
-                    <button
-                        onClick={fetchData}
-                        className="btn btn-primary flex items-center space-x-2"
-                    >
-                        <RefreshCw className="h-4 w-4" />
-                        <span>Refresh</span>
-                    </button>
                 </div>
             </div>
 
             {/* Network Overview */}
-            <div className="card p-6">
+            <div className="card p-6 data-fade">
                 <div className="flex items-center justify-between mb-6">
                     <h3 className={`text-lg font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>Network Overview</h3>
                     <span className={`px-3 py-1 text-sm font-medium rounded-full ${statusColor}`}>
@@ -381,19 +427,19 @@ export default function NetworkDetail() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center stats-update ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}>
                         <div className={`text-3xl font-bold mb-2 ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{network.total_nodes}</div>
                         <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Nodes</div>
                     </div>
-                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center ${isDark ? 'bg-green-900/20' : 'bg-green-50'}`}>
+                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center stats-update ${isDark ? 'bg-green-900/20' : 'bg-green-50'}`}>
                         <div className={`text-3xl font-bold mb-2 ${isDark ? 'text-green-400' : 'text-green-600'}`}>{network.online_nodes}</div>
                         <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Online Nodes</div>
                     </div>
-                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center ${isDark ? 'bg-red-900/20' : 'bg-red-50'}`}>
+                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center stats-update ${isDark ? 'bg-red-900/20' : 'bg-red-50'}`}>
                         <div className={`text-3xl font-bold mb-2 ${isDark ? 'text-red-400' : 'text-red-600'}`}>{network.offline_nodes}</div>
                         <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Offline Nodes</div>
                     </div>
-                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center ${isDark ? 'bg-blue-900/20' : 'bg-blue-50'}`}>
+                    <div className={`text-center p-6 rounded-lg flex flex-col justify-center stats-update ${isDark ? 'bg-blue-900/20' : 'bg-blue-50'}`}>
                         <div className={`text-xl font-bold mb-2 ${isDark ? 'text-blue-400' : 'text-blue-600'} leading-tight`}>
                             {(() => {
                                 const oldestDate = Object.values(network.node_analyses).reduce((oldest, node) => {
@@ -419,7 +465,7 @@ export default function NetworkDetail() {
             </div>
 
             {/* Node Details */}
-            <div>
+            <div className="data-fade">
                 <h3 className="text-lg font-medium text-gray-900 mb-3">Node Details</h3>
                 <div className="space-y-2">
                     {Object.entries(network.node_analyses).map(([nodeId, node]) => (

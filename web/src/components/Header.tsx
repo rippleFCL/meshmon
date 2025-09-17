@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { RefreshCw, Wifi, WifiOff, Sun, Moon, LayoutDashboard, Network } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
+import { useRefresh } from '../contexts/RefreshContext'
 
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -11,10 +12,11 @@ const navigation = [
 export default function Header() {
     const [isConnected] = useState(true)
     const { isDark, toggleTheme } = useTheme()
+    const { triggerRefresh, isRefreshing } = useRefresh()
     const location = useLocation()
 
     const handleRefresh = () => {
-        window.location.reload()
+        triggerRefresh()
     }
 
     return (
@@ -72,10 +74,11 @@ export default function Header() {
 
                         <button
                             onClick={handleRefresh}
-                            className="btn btn-secondary flex items-center space-x-2"
+                            disabled={isRefreshing}
+                            className="btn btn-secondary flex items-center space-x-2 disabled:opacity-50"
                         >
-                            <RefreshCw className="h-4 w-4" />
-                            <span>Refresh</span>
+                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
                         </button>
 
                         <div className="flex items-center space-x-2">

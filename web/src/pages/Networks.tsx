@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { meshmonApi } from '../api'
+import { useRefresh } from '../contexts/RefreshContext'
 import {
     MultiNetworkAnalysis,
     NetworkAnalysis
@@ -25,7 +26,7 @@ interface NetworkCardProps {
 
     return (
         <div
-            className="card p-6 cursor-pointer hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200"
+            className="card p-6 cursor-pointer hover:shadow-lg dark:hover:shadow-gray-900/20 transition-all duration-200 data-fade"
             onClick={handleNetworkClick}
         >
             <div className="flex items-center justify-between mb-4">
@@ -60,13 +61,20 @@ interface NetworkCardProps {
 }
 
 export default function Networks() {
+    const { registerRefreshCallback } = useRefresh()
     const [data, setData] = useState<MultiNetworkAnalysis | null>(null)
     const [loading, setLoading] = useState(true)
+    const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
-    const fetchData = async () => {
+    const fetchData = async (isInitialLoad = false) => {
         try {
-            setLoading(true)
+            if (isInitialLoad) {
+                setLoading(true)
+            } else {
+                setRefreshing(true)
+            }
+
             const response = await meshmonApi.getViewData()
             setData(response.data)
             setError(null)
@@ -74,15 +82,50 @@ export default function Networks() {
             setError('Failed to fetch network data')
             console.error('Error fetching data:', err)
         } finally {
-            setLoading(false)
+            if (isInitialLoad) {
+                setLoading(false)
+            } else {
+                setRefreshing(false)
+            }
         }
     }
 
     useEffect(() => {
-        fetchData()
-        const interval = setInterval(fetchData, 30000) // Refresh every 30 seconds
-        return () => clearInterval(interval)
-    }, [])
+        const fetchData = async (isInitialLoad = false) => {
+            try {
+                if (isInitialLoad) {
+                    setLoading(true)
+                } else {
+                    setRefreshing(true)
+                }
+
+                const response = await meshmonApi.getViewData()
+                setData(response.data)
+                setError(null)
+            } catch (err) {
+                setError('Failed to fetch network data')
+                console.error('Error fetching data:', err)
+            } finally {
+                if (isInitialLoad) {
+                    setLoading(false)
+                } else {
+                    setRefreshing(false)
+                }
+            }
+        }
+
+        const handleRefresh = () => fetchData(false)
+
+        fetchData(true) // Initial load
+        const cleanup = registerRefreshCallback(handleRefresh) // Register refresh callback
+
+        const interval = setInterval(() => fetchData(false), 10000) // Background refresh every 10 seconds
+
+        return () => {
+            clearInterval(interval)
+            cleanup()
+        }
+    }, [registerRefreshCallback])
 
     if (loading) {
         return (
@@ -109,7 +152,7 @@ export default function Networks() {
                     <div className="text-red-600 dark:text-red-400 text-center">
                         <p>{error}</p>
                         <button
-                            onClick={fetchData}
+                            onClick={() => fetchData(true)}
                             className="btn btn-primary mt-4"
                         >
                             Retry
@@ -141,15 +184,15 @@ export default function Networks() {
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Networks</h1>
                     <p className="text-gray-600 dark:text-gray-400">Monitor your mesh networks and node connections</p>
                 </div>
-                <button
-                    onClick={fetchData}
-                    className="btn btn-primary"
-                >
-                    Refresh
-                </button>
+                {refreshing && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                        <span>Updating...</span>
+                    </div>
+                )}
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 gap-6 data-fade">
                 {Object.entries(data.networks).map(([networkId, network]) => (
                     <NetworkCard
                         key={networkId}

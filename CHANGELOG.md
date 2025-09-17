@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.1] - 2025-09-17
+### :bug: Bug Fixes
+- [`8e264ca`](https://github.com/rippleFCL/meshmon/commit/8e264cae101845317461958b4ec7bc025e69a76e) - store callback to prefill on creation *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`d29b200`](https://github.com/rippleFCL/meshmon/commit/d29b200f411666016bd994520eebe54b7a1ce835) - config reload loop *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`56ebe04`](https://github.com/rippleFCL/meshmon/commit/56ebe04f12b0b3f9a6a98d2d871178d3aa99f411) - off by one error *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`402f078`](https://github.com/rippleFCL/meshmon/commit/402f078a283e8948d97815c98a66c95b1683f2ad) - bump version *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v1.0.0] - 2025-09-17
 ### :sparkles: New Features
 - [`fd8ecbe`](https://github.com/rippleFCL/meshmon/commit/fd8ecbefb1991e7a8d94e489ded5623190dd00c7) - added network analysis *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -44,3 +54,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v0.2.0]: https://github.com/rippleFCL/distomon/compare/v0.1.0...v0.2.0
 [v0.4.0]: https://github.com/rippleFCL/meshmon/compare/v0.3.0...v0.4.0
 [v1.0.0]: https://github.com/rippleFCL/meshmon/compare/v0.4.0...v1.0.0
+[v1.0.1]: https://github.com/rippleFCL/meshmon/compare/v1.0.0...v1.0.1

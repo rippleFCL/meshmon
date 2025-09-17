@@ -89,7 +89,7 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
             logger.info(
                 f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {ping.ping_rate * 2} seconds."
             )
-            if time_since_last_ping > ping.ping_rate * ping.max_retries:
+            if time_since_last_ping > ping.ping_rate * (ping.max_retries + 1):
                 node_statuses[node_id] = NodeStatus.OFFLINE
                 break
         else:

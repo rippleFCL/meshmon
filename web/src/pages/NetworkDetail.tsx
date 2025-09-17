@@ -120,6 +120,7 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
         try {
             const date = new Date(dateString)
             return date.toLocaleString('en-US', {
+                year: 'numeric',
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',

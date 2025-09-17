@@ -26,7 +26,11 @@ class DateEvalType(Enum):
 
 class PingData(BaseModel):
     status: NodeStatus
-    req_time_rtt: float = 0
+    req_time_rtt: float
+    date: datetime.datetime
+    current_retry: int
+    max_retrys: int
+    ping_rate: int
 
 
 class NodeInfo(BaseModel):
@@ -415,9 +419,9 @@ class SharedStore:
                 self.store.nodes[node_id] = StoreNodeData()
         self.store.nodes[self.key_mapping.signer.node_id] = StoreNodeData()
 
-    # @property
-    # def nodes(self) -> list[str]:
-    #     return list(self.key_mapping.verifiers.keys())
+    @property
+    def nodes(self) -> list[str]:
+        return list(self.key_mapping.verifiers.keys())
 
 
 class StoreManager:

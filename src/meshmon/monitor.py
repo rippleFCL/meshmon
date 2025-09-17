@@ -48,13 +48,17 @@ class Monitor:
         ctx = store.get_context("ping_data", PingData)
         ctx.set(
             self.remote_node.node_id,
-            PingData(status=NodeStatus.UNKNOWN, req_time_rtt=-1),
+            PingData(
+                status=NodeStatus.UNKNOWN,
+                req_time_rtt=-1,
+                date=datetime.datetime.now(datetime.timezone.utc),
+                current_retry=0,
+                max_retrys=self.remote_node.retry,
+                ping_rate=self.remote_node.poll_rate,
+            ),
         )
 
-    def _sent_ping(self):
-        store = self.store.get_store(self.net_id)
-        ctx = store.get_context("ping_data", PingData)
-        self.stop_flag.wait(self.remote_node.poll_rate)
+    def _sync_store(self):
         logger.debug(
             f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}"
         )
@@ -72,13 +76,34 @@ class Monitor:
             logger.debug(
                 f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}"
             )
-            st = time.time()
             response = requests.post(
                 f"{self.remote_node.url}/mon/{self.net_id}",
                 json=data,
                 headers={"Authorization": f"Bearer {b64_sig}"},
             )
+        except requests.RequestException:
+            return
+        if response.status_code != 200:
+            logger.warning(
+                f"HTTP {response.status_code} response from {self.remote_node.node_id} during store sync:  {response.text}"
+            )
+        else:
+            data = response.json()
+            try:
+                store.update_from_dump(data)
+            except Exception as e:
+                logger.error(
+                    f"Failed to update store from dump received from {self.remote_node.node_id}: {e}"
+                )
 
+    def _sent_ping(self):
+        store = self.store.get_store(self.net_id)
+        ctx = store.get_context("ping_data", PingData)
+        try:
+            st = time.time()
+            response = requests.get(
+                f"{self.remote_node.url}/health",
+            )
         except requests.RequestException as e:
             logger.debug(
                 f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}"
@@ -93,12 +118,17 @@ class Monitor:
         else:
             rtt = (time.time() - st) * 1000
             logger.debug(f"Successful response from {self.remote_node.node_id}")
-            response_data = response.json()
-            store.update_from_dump(response_data)
             self.error_count = 0
             ctx.set(
                 self.remote_node.node_id,
-                PingData(status=NodeStatus.ONLINE, req_time_rtt=rtt),
+                PingData(
+                    status=NodeStatus.ONLINE,
+                    req_time_rtt=rtt,
+                    date=datetime.datetime.now(datetime.timezone.utc),
+                    current_retry=0,
+                    max_retrys=self.remote_node.retry,
+                    ping_rate=self.remote_node.poll_rate,
+                ),
             )
 
     def monitor(self):
@@ -109,7 +139,8 @@ class Monitor:
         while not self.stop_flag.is_set():
             time.sleep(self.remote_node.poll_rate)
             self._sent_ping()
-        self._sent_ping()
+            self._sync_store()
+        self._sync_store()
         logger.debug(
             f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
         )
@@ -118,8 +149,8 @@ class Monitor:
         logger.debug(
             f"Error count increased to {self.error_count} for {self.net_id} -> {self.remote_node.node_id}"
         )
+        current_node = ctx.get(self.remote_node.node_id)
         if self.error_count >= self.remote_node.retry:
-            current_node = ctx.get(self.remote_node.node_id)
             if current_node:
                 if current_node.status != NodeStatus.OFFLINE:
                     logger.info(
@@ -132,13 +163,50 @@ class Monitor:
 
             ctx.set(
                 self.remote_node.node_id,
-                PingData(status=NodeStatus.OFFLINE, req_time_rtt=-1),
+                PingData(
+                    status=NodeStatus.OFFLINE,
+                    req_time_rtt=-1,
+                    date=datetime.datetime.now(datetime.timezone.utc),
+                    current_retry=self.remote_node.retry,
+                    max_retrys=self.remote_node.retry,
+                    ping_rate=self.remote_node.poll_rate,
+                ),
             )
+        else:
+            if current_node:
+                logger.debug(f"Incrementing retry count for {self.remote_node.node_id}")
+                current_node.current_retry += 1
+                ctx.set(
+                    self.remote_node.node_id,
+                    PingData(
+                        status=current_node.status,
+                        req_time_rtt=current_node.req_time_rtt,
+                        date=datetime.datetime.now(datetime.timezone.utc),
+                        current_retry=current_node.current_retry,
+                        max_retrys=self.remote_node.retry,
+                        ping_rate=self.remote_node.poll_rate,
+                    ),
+                )
+            else:
+                logger.debug(
+                    f"Setting initial UNKNOWN status for {self.remote_node.node_id}"
+                )
+                ctx.set(
+                    self.remote_node.node_id,
+                    PingData(
+                        status=NodeStatus.UNKNOWN,
+                        req_time_rtt=-1,
+                        date=datetime.datetime.now(datetime.timezone.utc),
+                        current_retry=0,
+                        max_retrys=self.remote_node.retry,
+                        ping_rate=self.remote_node.poll_rate,
+                    ),
+                )
         self.error_count += 1
 
-    def start(self):
-        logger.debug(
-            f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
+    def start(self) -> None:
+        logger.info(
+            f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id} at interval {self.remote_node.poll_rate}s"
         )
         self.thread.start()
 

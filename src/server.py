@@ -20,6 +20,7 @@ from meshmon.config import NetworkConfigLoader
 from meshmon.monitor import MonitorManager
 from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
+from analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 import logging
 
 # Configure logging
@@ -160,11 +161,26 @@ class ViewNetwork(BaseModel):
     networks: dict[str, StoreData] = {}
 
 
-@api.get("/view")
+@api.get("/view", response_model=MultiNetworkAnalysis)
 def view():
     """Get network view data. Requires JWT authentication."""
     logger.debug("View request for networks")
-    networks = ViewNetwork()
-    for network_id, store in store_manager.stores.items():
-        networks.networks[network_id] = store.store
+    networks = analyze_all_networks(store_manager)
     return networks
+
+
+@api.get("/raw/{network_id}", response_model=StoreData)
+def raw(network_id: str):
+    """Get raw store data for a specific network."""
+    logger.debug(f"Raw data request for network: {network_id}")
+    store = store_manager.get_store(network_id)
+    if not store:
+        logger.warning(f"Network not found: {network_id}")
+        raise HTTPException(status_code=404, detail="Network not found")
+    return store.store
+
+
+@api.get("/health")
+def health():
+    """Health check endpoint."""
+    return {"status": "ok", "version": VERSION}

@@ -110,7 +110,12 @@ class Monitor:
             )
             self._handle_error(ctx)
             return
-        if response.status_code != 200:
+        if rtt > 9500:
+            logger.warning(
+                f"High RTT detected for {self.net_id} -> {self.remote_node.node_id}: {rtt}ms"
+            )
+            self._handle_error(ctx)
+        elif response.status_code != 200:
             logger.warning(
                 f"HTTP {response.status_code} response from {self.remote_node.node_id}: {response.text}"
             )

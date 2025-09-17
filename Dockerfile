@@ -1,5 +1,5 @@
 
-FROM node:18-alpine AS web-builder
+FROM node:24-alpine AS web-builder
 
 WORKDIR /app/web
 
@@ -15,7 +15,7 @@ COPY web/ ./
 # Build the React app
 RUN npm run build
 
-FROM python:3.13-slim-bookworm AS reqs
+FROM python:3.13-slim-trixie AS reqs
 
 WORKDIR /app
 
@@ -25,14 +25,14 @@ COPY ./pyproject.toml ./poetry.lock /app/
 
 RUN poetry export --without-hashes -f requirements.txt --output requirements.txt
 
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-trixie
 
 ENV PYTHONUNBUFFERED=1 \
     UVICORN_HOST=0.0.0.0 \
-    UVICORN_PORT=8000
+    UVICORN_PORT=8000 \
+    ENV=production
 
 WORKDIR /app
-
 
 RUN --mount=type=bind,from=reqs,source=/app/requirements.txt,target=/app/requirements.txt \
     pip install --no-cache-dir -r requirements.txt && \
@@ -48,12 +48,6 @@ COPY src/ .
 COPY --from=web-builder /app/web/dist ./static
 
 EXPOSE 8000
-
-# HEALTHCHECK \
-#     --interval=15s \
-#     --timeout=10s \
-#     --start-period=15s \
-#     CMD curl -fs http://localhost:5000/healthcheck
 
 USER 1000:1000
 

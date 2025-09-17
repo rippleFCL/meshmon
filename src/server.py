@@ -193,5 +193,7 @@ api.mount("/assets", StaticFiles(directory="static/assets", html=True), name="st
 
 
 @api.get("/{full_path:path}")
-async def catch_all(full_path: str):
+async def catch_all(full_path: str, accept: str = Header(default="")):
+    if accept and "text/html" not in accept:
+        return HTTPException(status_code=404, detail="Not Found")
     return FileResponse("static/index.html")

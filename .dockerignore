@@ -1,5 +1,6 @@
 # Dockerignore file for meshmon server
 # Python
+static/
 config/
 __pycache__/
 *.py[cod]

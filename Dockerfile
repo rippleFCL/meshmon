@@ -1,3 +1,20 @@
+
+FROM node:18-alpine AS web-builder
+
+WORKDIR /app/web
+
+# Copy package files
+COPY web/package.json web/package-lock.json* ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY web/ ./
+
+# Build the React app
+RUN npm run build
+
 FROM python:3.13-slim-bookworm AS reqs
 
 WORKDIR /app
@@ -26,6 +43,9 @@ RUN --mount=type=bind,from=reqs,source=/app/requirements.txt,target=/app/require
     rm -rf /var/lib/{apt,dpkg,cache,log}
 
 COPY src/ .
+
+# Copy built React app from web-builder stage
+COPY --from=web-builder /app/web/dist ./static
 
 EXPOSE 8000
 

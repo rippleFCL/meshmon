@@ -77,7 +77,7 @@ class Monitor:
                 f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}"
             )
             response = requests.post(
-                f"{self.remote_node.url}/mon/{self.net_id}",
+                f"{self.remote_node.url}/api/mon/{self.net_id}",
                 json=data,
                 headers={"Authorization": f"Bearer {b64_sig}"},
             )
@@ -102,7 +102,7 @@ class Monitor:
         try:
             st = time.time()
             response = requests.get(
-                f"{self.remote_node.url}/health",
+                f"{self.remote_node.url}/api/health",
             )
         except requests.RequestException as e:
             logger.debug(

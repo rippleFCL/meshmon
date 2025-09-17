@@ -29,10 +29,10 @@ FROM python:3.13-slim-trixie
 
 ENV PYTHONUNBUFFERED=1 \
     UVICORN_HOST=0.0.0.0 \
-    UVICORN_PORT=8000
+    UVICORN_PORT=8000 \
+    ENV=production
 
 WORKDIR /app
-
 
 RUN --mount=type=bind,from=reqs,source=/app/requirements.txt,target=/app/requirements.txt \
     pip install --no-cache-dir -r requirements.txt && \
@@ -50,7 +50,5 @@ COPY --from=web-builder /app/web/dist ./static
 EXPOSE 8000
 
 USER 1000:1000
-
-ENV ENV=production
 
 ENTRYPOINT [ "uvicorn", "server:api" ]

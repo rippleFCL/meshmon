@@ -86,7 +86,7 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
             time_since_last_ping = (
                 datetime.datetime.now(datetime.timezone.utc) - last_ping
             ).total_seconds()
-            logger.info(
+            logger.debug(
                 f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {ping.ping_rate * 2} seconds."
             )
             if time_since_last_ping > (

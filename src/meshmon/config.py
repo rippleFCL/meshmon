@@ -67,7 +67,7 @@ class NetworkConfigLoader:
         self.file_name = file_name
         self.node_cfg = self._load_node_config()
         self.networks: dict[str, NetworkConfig] = self._load_all_network_configs()
-        self.latest_mtime = self.get_latest_mtime()
+        self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
 
     def _load_node_config(self) -> NodeCfg:
         """
@@ -179,7 +179,7 @@ class NetworkConfigLoader:
         """
         self.node_cfg = self._load_node_config()
         self.networks = self._load_all_network_configs()
-        self.latest_mtime = self.get_latest_mtime()
+        self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
 
     def get_network(self, network_id: str) -> NetworkConfig | None:
         """
@@ -187,13 +187,13 @@ class NetworkConfigLoader:
         """
         return self.networks.get(network_id)
 
-    def get_latest_mtime(self) -> float:
+    def get_latest_mtime(self, network_path: Path) -> float:
         """
         Get the latest access time of all config files.
         Used to detect changes for reloads.
         """
         latest_mtime = 0.0
-        for root, _, files in os.walk(self.config_dir / "networks"):
+        for root, _, files in os.walk(network_path):
             for file in files:
                 file_path = Path(root) / file
                 mtime = file_path.stat().st_mtime
@@ -211,12 +211,11 @@ class NetworkConfigLoader:
 
         for network in self.node_cfg.networks:
             # Only check Git-based networks
+            network_path = self.config_dir / "networks" / network.directory
             if network.config_type == ConfigTypes.GIT and network.git_repo:
-                repo_dir = self.config_dir / "networks" / network.directory
-
-                if repo_dir.exists():
+                if network_path.exists():
                     try:
-                        repo = Repo(str(repo_dir))
+                        repo = Repo(str(network_path))
                         # Get current commit hash before pulling
                         old_commit = repo.head.commit.hexsha
 
@@ -246,7 +245,7 @@ class NetworkConfigLoader:
                     logger.debug(
                         f"Network {network.directory} repo directory does not exist"
                     )
-        if self.get_latest_mtime() > self.latest_mtime:
-            logger.info("Configuration files have been modified, reloading")
-            has_changes = True
+            elif self.get_latest_mtime(network_path) > self.latest_mtime:
+                logger.info("Configuration files have been modified, reloading")
+                has_changes = True
         return has_changes

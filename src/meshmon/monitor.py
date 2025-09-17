@@ -80,6 +80,7 @@ class Monitor:
                 f"{self.remote_node.url}/api/mon/{self.net_id}",
                 json=data,
                 headers={"Authorization": f"Bearer {b64_sig}"},
+                timeout=5,
             )
         except requests.RequestException:
             return
@@ -101,9 +102,7 @@ class Monitor:
         ctx = store.get_context("ping_data", PingData)
         try:
             st = time.time()
-            response = requests.get(
-                f"{self.remote_node.url}/api/health",
-            )
+            response = requests.get(f"{self.remote_node.url}/api/health", timeout=5)
         except requests.RequestException as e:
             logger.debug(
                 f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}"

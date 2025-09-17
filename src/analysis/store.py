@@ -104,7 +104,15 @@ def get_network_data(store_manager: StoreManager) -> MeshmonData:
 
                 # Create NodeData for this node
                 nodes[node_id] = NodeData(ping_data=ping_data, node_info=node_info)
-
+            else:
+                nodes[node_id] = NodeData(
+                    ping_data=ping_data,
+                    node_info=NodeInfo(
+                        status=NodeStatus.OFFLINE,
+                        version="unknown",
+                        data_retention=datetime.datetime.now(datetime.timezone.utc),
+                    ),
+                )
         # Create NetworkData for this network
         networks[network_id] = NetworkData(nodes=nodes)
 

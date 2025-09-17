@@ -5,7 +5,7 @@ import json
 import os
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-
+from starlette.responses import FileResponse
 from pydantic import BaseModel
 
 from meshmon.distrostore import (
@@ -24,6 +24,7 @@ from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
 from analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 import logging
+
 from fastapi.staticfiles import StaticFiles
 
 # Configure logging
@@ -188,4 +189,9 @@ def health():
     return {"status": "ok", "version": VERSION}
 
 
-api.mount("/", StaticFiles(directory="./static", html=True), name="static")
+api.mount("/assets", StaticFiles(directory="static/assets", html=True), name="static")
+
+
+@api.get("/{full_path:path}")
+async def catch_all(full_path: str):
+    return FileResponse("static/index.html")

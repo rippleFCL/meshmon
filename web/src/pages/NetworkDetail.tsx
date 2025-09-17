@@ -119,12 +119,13 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
     const formatDataRetention = (dateString: string) => {
         try {
             const date = new Date(dateString)
-            return date.toLocaleDateString('en-US', {
+            return date.toLocaleString('en-US', {
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',
-                minute: '2-digit'
-            })
+                minute: '2-digit',
+                hour12: false
+            }).replace(/,/g, '')
         } catch {
             return dateString
         }
@@ -448,12 +449,14 @@ export default function NetworkDetail() {
                                 }, new Date())
 
                                 try {
-                                    return oldestDate.toLocaleDateString('en-US', {
+                                    return oldestDate.toLocaleString('en-US', {
                                         year: 'numeric',
                                         month: 'short',
                                         day: 'numeric',
-                                        hour: '2-digit'
-                                    })
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        hour12: false
+                                    }).replace(/,/g, '')
                                 } catch {
                                     return 'N/A'
                                 }
@@ -466,7 +469,7 @@ export default function NetworkDetail() {
 
             {/* Node Details */}
             <div className="data-fade">
-                <h3 className="text-lg font-medium text-gray-900 mb-3">Node Details</h3>
+                <h3 className="text-lg font-medium text-gray-100 mb-3">Node Details</h3>
                 <div className="space-y-2">
                     {Object.entries(network.node_analyses).map(([nodeId, node]) => (
                         <NodeDetailCard

@@ -145,31 +145,31 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
                 </div>
 
                 <div className={`flex items-center gap-6 text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    <div className="text-center">
+                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">Node</div>
                         <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(node.node_status)}`}>
                             {node.node_status}
                         </div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">Conn</div>
                         <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(connectionStatus)}`}>
                             {connectionStatus}
                         </div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">RTT</div>
                         <div className="font-mono text-sm">{avgRtt.toFixed(1)}ms</div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">In</div>
                         <div className="font-mono text-sm">{node.inbound_status.online_connections}/{node.inbound_status.total_connections}</div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">Out</div>
                         <div className="font-mono text-sm">{node.outbound_status.online_connections}/{node.outbound_status.total_connections}</div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">Ver</div>
                         <div className={`text-xs px-1.5 py-0.5 rounded ${isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-700'}`}>
                             {node.node_info.version}

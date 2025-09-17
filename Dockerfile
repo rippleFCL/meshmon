@@ -15,7 +15,7 @@ COPY web/ ./
 # Build the React app
 RUN npm run build
 
-FROM python:3.13-slim-bookworm AS reqs
+FROM python:3.13-slim-trixie AS reqs
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ COPY ./pyproject.toml ./poetry.lock /app/
 
 RUN poetry export --without-hashes -f requirements.txt --output requirements.txt
 
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-trixie
 
 ENV PYTHONUNBUFFERED=1 \
     UVICORN_HOST=0.0.0.0 \

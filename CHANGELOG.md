@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.8] - 2025-09-17
+### :bug: Bug Fixes
+- [`197e7d3`](https://github.com/rippleFCL/meshmon/commit/197e7d332f1233d572c6cdc9aa158a20ec5efcaf) - going cloud native. fixed multi node setups *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`c1c4033`](https://github.com/rippleFCL/meshmon/commit/c1c4033e62d2acb0dbea5edc7944382b40833ce6) - bump version to 1.0.8 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v1.0.7] - 2025-09-17
 ### :bug: Bug Fixes
 - [`078552f`](https://github.com/rippleFCL/meshmon/commit/078552f5a14d0e68796b8c6bbc06505596426c28) - update date formatting to use localeString and fix the "node details" font colour *(commit by [@vellfire](https://github.com/vellfire))*
@@ -86,3 +94,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v1.0.4]: https://github.com/rippleFCL/meshmon/compare/v1.0.3...v1.0.4
 [v1.0.5]: https://github.com/rippleFCL/meshmon/compare/v1.0.4...v1.0.5
 [v1.0.7]: https://github.com/rippleFCL/meshmon/compare/v1.0.6...v1.0.7
+[v1.0.8]: https://github.com/rippleFCL/meshmon/compare/v1.0.7...v1.0.8

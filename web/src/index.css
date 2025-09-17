@@ -4,16 +4,16 @@
 
 @layer base {
   * {
-    @apply border-gray-200;
+    @apply border-gray-200 dark:border-gray-700;
   }
   body {
-    @apply bg-gray-50 text-gray-900 font-sans;
+    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200;
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors duration-200;
+    @apply inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition-colors duration-200;
   }
 
   .btn-primary {
@@ -21,7 +21,7 @@
   }
 
   .btn-secondary {
-    @apply text-gray-700 bg-white border-gray-300 hover:bg-gray-50 focus:ring-primary-500;
+    @apply text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-primary-500;
   }
 
   .btn-danger {
@@ -29,18 +29,18 @@
   }
 
   .card {
-    @apply bg-white shadow rounded-lg border border-gray-200;
+    @apply bg-white dark:bg-gray-800 shadow rounded-lg border border-gray-200 dark:border-gray-700 transition-colors duration-200;
   }
 
   .status-online {
-    @apply text-green-600 bg-green-100;
+    @apply text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30;
   }
 
   .status-offline {
-    @apply text-red-600 bg-red-100;
+    @apply text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30;
   }
 
   .status-warning {
-    @apply text-yellow-600 bg-yellow-100;
+    @apply text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/30;
   }
 }

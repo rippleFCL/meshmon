@@ -15,9 +15,9 @@ interface NetworkCardProps {
     const networkStatus = network.offline_nodes === 0 ? 'Healthy' :
         network.online_nodes > 0 ? 'Degraded' : 'Offline'
 
-    const statusColor = network.offline_nodes === 0 ? 'text-green-600 bg-green-100' :
-        network.online_nodes > 0 ? 'text-yellow-600 bg-yellow-100' :
-            'text-red-600 bg-red-100'
+    const statusColor = network.offline_nodes === 0 ? 'status-online' :
+        network.online_nodes > 0 ? 'status-warning' :
+            'status-offline'
 
     const handleNetworkClick = () => {
         navigate(`/networks/${networkId}`)
@@ -25,13 +25,13 @@ interface NetworkCardProps {
 
     return (
         <div
-            className="card p-6 cursor-pointer hover:shadow-lg transition-shadow duration-200"
+            className="card p-6 cursor-pointer hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200"
             onClick={handleNetworkClick}
         >
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    <h3 className="text-lg font-medium text-gray-900">{networkId}</h3>
-                    <p className="text-gray-600">Click to view detailed network information</p>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{networkId}</h3>
+                    <p className="text-gray-600 dark:text-gray-400">Click to view detailed network information</p>
                 </div>
 
                 <div className="flex items-center space-x-4">
@@ -42,17 +42,17 @@ interface NetworkCardProps {
             </div>
 
             <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-2xl font-bold text-gray-900">{network.total_nodes}</div>
-                    <div className="text-sm text-gray-600">Total Nodes</div>
+                <div className="text-center p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{network.total_nodes}</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Nodes</div>
                 </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600">{network.online_nodes}</div>
-                    <div className="text-sm text-gray-600">Online</div>
+                <div className="text-center p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">{network.online_nodes}</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Online</div>
                 </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-2xl font-bold text-red-600">{network.offline_nodes}</div>
-                    <div className="text-sm text-gray-600">Offline</div>
+                <div className="text-center p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">{network.offline_nodes}</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Offline</div>
                 </div>
             </div>
         </div>
@@ -88,11 +88,11 @@ export default function Networks() {
         return (
             <div className="space-y-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Networks</h1>
-                    <p className="text-gray-600">Monitor your mesh networks and node connections</p>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Networks</h1>
+                    <p className="text-gray-600 dark:text-gray-400">Monitor your mesh networks and node connections</p>
                 </div>
                 <div className="flex justify-center items-center h-64">
-                    <div className="text-gray-600">Loading network data...</div>
+                    <div className="text-gray-600 dark:text-gray-400">Loading network data...</div>
                 </div>
             </div>
         )
@@ -102,15 +102,15 @@ export default function Networks() {
         return (
             <div className="space-y-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Networks</h1>
-                    <p className="text-gray-600">Monitor your mesh networks and node connections</p>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Networks</h1>
+                    <p className="text-gray-600 dark:text-gray-400">Monitor your mesh networks and node connections</p>
                 </div>
                 <div className="card p-6">
-                    <div className="text-red-600 text-center">
+                    <div className="text-red-600 dark:text-red-400 text-center">
                         <p>{error}</p>
                         <button
                             onClick={fetchData}
-                            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                            className="btn btn-primary mt-4"
                         >
                             Retry
                         </button>
@@ -138,18 +138,18 @@ export default function Networks() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Networks</h1>
-                    <p className="text-gray-600">Monitor your mesh networks and node connections</p>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Networks</h1>
+                    <p className="text-gray-600 dark:text-gray-400">Monitor your mesh networks and node connections</p>
                 </div>
                 <button
                     onClick={fetchData}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    className="btn btn-primary"
                 >
                     Refresh
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
                 {Object.entries(data.networks).map(([networkId, network]) => (
                     <NetworkCard
                         key={networkId}

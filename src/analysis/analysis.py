@@ -43,6 +43,11 @@ class AggregatedConnectionDetail(BaseModel):
     status: AggregateStatus
 
 
+class NodeInfo(BaseModel):
+    version: str
+    data_retention: datetime.datetime
+
+
 class NodeAnalysis(BaseModel):
     """Complete analysis of a node's connectivity status"""
 
@@ -51,6 +56,7 @@ class NodeAnalysis(BaseModel):
     outbound_info: dict[str, NodeConnectionDetail]
     inbound_status: AggregatedConnectionDetail
     outbound_status: AggregatedConnectionDetail
+    node_info: NodeInfo
 
 
 class NetworkAnalysis(BaseModel):
@@ -83,12 +89,11 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
             logger.info(
                 f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {ping.ping_rate * 2} seconds."
             )
-            if time_since_last_ping < ping.ping_rate * ping.max_retries:
+            if time_since_last_ping > ping.ping_rate * ping.max_retries:
+                node_statuses[node_id] = NodeStatus.OFFLINE
                 break
         else:
-            node_statuses[node_id] = NodeStatus.OFFLINE
-            continue
-        node_statuses[node_id] = NodeStatus.ONLINE
+            node_statuses[node_id] = NodeStatus.ONLINE
     return node_statuses
 
 
@@ -119,26 +124,27 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
         outbound_info: dict[str, NodeConnectionDetail] = {}
 
         # Analyze inbound connections
-        for other_node_id, other_node_data in network_data.nodes.items():
-            if other_node_id == node_id:
-                continue
+        if node_status == NodeStatus.ONLINE:
+            for other_node_id, other_node_data in network_data.nodes.items():
+                if other_node_id == node_id:
+                    continue
 
-            if ping := other_node_data.ping_data.get(node_id):
+                if ping := other_node_data.ping_data.get(node_id):
+                    status = status_map[ping.status]
+                    if node_statuses[other_node_id] == NodeStatus.OFFLINE:
+                        status = PingStatus.NODE_DOWN
+                    inbound_info[other_node_id] = NodeConnectionDetail(
+                        status=status, rtt=ping.rtt
+                    )
+
+            # Analyze outbound connections
+            for other_node_id, ping in node_data.ping_data.items():
                 status = status_map[ping.status]
-                if node_statuses[other_node_id] == NodeStatus.OFFLINE:
+                if node_statuses.get(other_node_id) == NodeStatus.OFFLINE:
                     status = PingStatus.NODE_DOWN
-                inbound_info[other_node_id] = NodeConnectionDetail(
+                outbound_info[other_node_id] = NodeConnectionDetail(
                     status=status, rtt=ping.rtt
                 )
-
-        # Analyze outbound connections
-        for other_node_id, ping in node_data.ping_data.items():
-            status = status_map[ping.status]
-            if node_status == NodeStatus.OFFLINE:
-                status = PingStatus.NODE_DOWN
-            outbound_info[other_node_id] = NodeConnectionDetail(
-                status=status, rtt=ping.rtt
-            )
 
         online_inbound = sum(
             1 for info in inbound_info.values() if info.status == PingStatus.ONLINE
@@ -174,7 +180,7 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
                     for info in inbound_info.values()
                     if info.status == PingStatus.ONLINE
                 )
-                / online_inbound,
+                / (online_inbound or 1),
                 status=inbound_status,
             ),
             outbound_status=AggregatedConnectionDetail(
@@ -186,11 +192,16 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
                     for info in outbound_info.values()
                     if info.status == PingStatus.ONLINE
                 )
-                / online_outbound,
+                / (online_outbound or 1),
                 status=outbound_status,
+            ),
+            node_info=NodeInfo(
+                version=node_data.node_info.version,
+                data_retention=node_data.node_info.data_retention,
             ),
         )
         node_analyses[node_id] = node_analysis
+
     return NetworkAnalysis(
         total_nodes=len(network_data.nodes),
         online_nodes=sum(

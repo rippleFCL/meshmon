@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Network, Server, Activity, AlertTriangle } from 'lucide-react'
 import { meshmonApi } from '../api'
 import { MultiNetworkAnalysis } from '../types'
+import { useTheme } from '../contexts/ThemeContext'
 
 interface DashboardStats {
     totalNetworks: number
@@ -13,6 +14,7 @@ interface DashboardStats {
 
 export default function Dashboard() {
     const navigate = useNavigate()
+    const { isDark } = useTheme()
     const [stats, setStats] = useState<DashboardStats>({
         totalNetworks: 0,
         totalNodes: 0,
@@ -111,121 +113,124 @@ export default function Dashboard() {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-                <p className="text-gray-600">Overview of your mesh network status</p>
+                <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Dashboard</h1>
+                <p className={`${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Overview of your mesh network status</p>
             </div>
 
-            {/* Stats Grid */}
+            {/* Stats Grid - top row, 4 cards in a line */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="card p-6">
                     <div className="flex items-center">
-                        <div className="p-2 bg-primary-100 rounded-lg">
-                            <Network className="h-6 w-6 text-primary-600" />
+                        <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900' : 'bg-primary-100'}`}>
+                            <Network className={`h-6 w-6 ${isDark ? 'text-blue-400' : 'text-primary-600'}`} />
                         </div>
                         <div className="ml-4">
-                            <p className="text-2xl font-bold text-gray-900">{stats.totalNetworks}</p>
-                            <p className="text-sm text-gray-600">Networks</p>
+                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.totalNetworks}</p>
+                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Networks</p>
                         </div>
                     </div>
                 </div>
 
                 <div className="card p-6">
                     <div className="flex items-center">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                            <Server className="h-6 w-6 text-blue-600" />
+                        <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900' : 'bg-blue-100'}`}>
+                            <Server className={`h-6 w-6 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
                         </div>
                         <div className="ml-4">
-                            <p className="text-2xl font-bold text-gray-900">{stats.totalNodes}</p>
-                            <p className="text-sm text-gray-600">Active Nodes</p>
+                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.totalNodes}</p>
+                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Active Nodes</p>
                         </div>
                     </div>
                 </div>
 
                 <div className="card p-6">
                     <div className="flex items-center">
-                        <div className="p-2 bg-green-100 rounded-lg">
-                            <Activity className="h-6 w-6 text-green-600" />
+                        <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900' : 'bg-green-100'}`}>
+                            <Activity className={`h-6 w-6 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
                         </div>
                         <div className="ml-4">
-                            <p className="text-2xl font-bold text-gray-900">{stats.avgLatency}ms</p>
-                            <p className="text-sm text-gray-600">Avg Latency</p>
+                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.avgLatency}ms</p>
+                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Avg Latency</p>
                         </div>
                     </div>
                 </div>
 
                 <div className="card p-6">
                     <div className="flex items-center">
-                        <div className="p-2 bg-red-100 rounded-lg">
-                            <AlertTriangle className="h-6 w-6 text-red-600" />
+                        <div className={`p-3 rounded-lg ${isDark ? 'bg-red-900' : 'bg-red-100'}`}>
+                            <AlertTriangle className={`h-6 w-6 ${isDark ? 'text-red-400' : 'text-red-600'}`} />
                         </div>
                         <div className="ml-4">
-                            <p className="text-2xl font-bold text-gray-900">{stats.alertCount}</p>
-                            <p className="text-sm text-gray-600">Alerts</p>
+                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.alertCount}</p>
+                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Alerts</p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Network Status Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="card p-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Network Status</h3>
-                    <div className="space-y-3">
-                        {viewData && Object.entries(viewData.networks).map(([networkId, network]) => {
-                            const status = network.offline_nodes === 0 ? 'online' :
-                                network.online_nodes > 0 ? 'warning' : 'offline'
-                            const statusClass = status === 'online' ? 'status-online' :
-                                status === 'offline' ? 'status-offline' : 'status-warning'
+            {/* Networks Section - full width, auto height */}
+            <div className="card p-6 w-full">
+                <h3 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Networks</h3>
+                <div className="flex flex-wrap gap-3">
+                    {viewData && Object.entries(viewData.networks).map(([networkId, network]) => {
+                        const status = network.offline_nodes === 0 ? 'online' :
+                            network.online_nodes > 0 ? 'warning' : 'offline'
+                        const statusClass = status === 'online' ? 'status-online' :
+                            status === 'offline' ? 'status-offline' : 'status-warning'
+
+                        return (
+                            <div
+                                key={networkId}
+                                className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors duration-200 min-w-64 flex-1 ${isDark
+                                    ? 'bg-gray-700 hover:bg-gray-600'
+                                    : 'bg-gray-50 hover:bg-gray-100'
+                                    }`}
+                                onClick={() => navigate(`/networks/${networkId}`)}
+                            >
+                                <div>
+                                    <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{networkId}</span>
+                                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
+                                        {network.online_nodes}/{network.total_nodes} nodes online
+                                    </p>
+                                </div>
+                                <span className={`px-3 py-1 text-xs font-medium rounded-full ${statusClass}`}>
+                                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                                </span>
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
+
+            {/* Node Information Section - Full width */}
+            <div className="card p-6">
+                <h3 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Node Information</h3>
+                <div className="space-y-3">
+                    {viewData && Object.entries(viewData.networks).map(([networkId, network]) => {
+                        return Object.entries(network.node_analyses).map(([nodeId, node]) => {
+                            const avgInboundRtt = node.inbound_status.average_rtt || 0
+                            const avgOutboundRtt = node.outbound_status.average_rtt || 0
+                            const avgRtt = (avgInboundRtt + avgOutboundRtt) / 2
 
                             return (
-                                <div
-                                    key={networkId}
-                                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors duration-200"
-                                    onClick={() => navigate(`/networks/${networkId}`)}
-                                >
-                                    <div>
-                                        <span className="font-medium">{networkId}</span>
-                                        <p className="text-xs text-gray-500">
-                                            {network.online_nodes}/{network.total_nodes} nodes online
+                                <div key={`${networkId}-${nodeId}`} className={`flex items-center space-x-3 p-3 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-50'
+                                    }`}>
+                                    <div className={`w-2 h-2 rounded-full ${node.node_status === 'online' ? 'bg-green-500' : 'bg-red-500'
+                                        }`}></div>
+                                    <div className="flex-1">
+                                        <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{nodeId} ({networkId})</p>
+                                        <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            {node.node_status} • Avg RTT: {avgRtt.toFixed(1)}ms
                                         </p>
                                     </div>
-                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusClass}`}>
-                                        {status.charAt(0).toUpperCase() + status.slice(1)}
-                                    </span>
+                                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        In: {node.inbound_status.online_connections}/{node.inbound_status.total_connections} •
+                                        Out: {node.outbound_status.online_connections}/{node.outbound_status.total_connections}
+                                    </div>
                                 </div>
                             )
-                        })}
-                    </div>
-                </div>
-
-                <div className="card p-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Node Information</h3>
-                    <div className="space-y-3">
-                        {viewData && Object.entries(viewData.networks).map(([networkId, network]) => {
-                            return Object.entries(network.node_analyses).map(([nodeId, node]) => {
-                                const avgInboundRtt = node.inbound_status.average_rtt || 0
-                                const avgOutboundRtt = node.outbound_status.average_rtt || 0
-                                const avgRtt = (avgInboundRtt + avgOutboundRtt) / 2
-
-                                return (
-                                    <div key={`${networkId}-${nodeId}`} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                                        <div className={`w-2 h-2 rounded-full ${node.node_status === 'online' ? 'bg-green-500' : 'bg-red-500'
-                                            }`}></div>
-                                        <div className="flex-1">
-                                            <p className="text-sm font-medium">{nodeId} ({networkId})</p>
-                                            <p className="text-xs text-gray-500">
-                                                {node.node_status} • Avg RTT: {avgRtt.toFixed(1)}ms
-                                            </p>
-                                        </div>
-                                        <div className="text-xs text-gray-500">
-                                            In: {node.inbound_status.online_connections}/{node.inbound_status.total_connections} •
-                                            Out: {node.outbound_status.online_connections}/{node.outbound_status.total_connections}
-                                        </div>
-                                    </div>
-                                )
-                            })
-                        }).flat()}
-                    </div>
+                        })
+                    }).flat()}
                 </div>
             </div>
         </div>

@@ -24,6 +24,12 @@ export interface NodeAnalysis {
   }
   inbound_status: AggregatedConnectionDetail
   outbound_status: AggregatedConnectionDetail
+  node_info: NodeInfo
+}
+
+export interface NodeInfo {
+  version: string
+  data_retention: string
 }
 
 export interface NodeConnectionDetail {

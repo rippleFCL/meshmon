@@ -90,11 +90,11 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
             logger.debug(
                 f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {max_ping_interval} seconds."
             )
-            if time_since_last_ping > max_ping_interval:  # account for timeout
-                node_statuses[node_id] = NodeStatus.OFFLINE
+            if time_since_last_ping < max_ping_interval:  # account for timeout
+                node_statuses[node_id] = NodeStatus.ONLINE
                 break
         else:
-            node_statuses[node_id] = NodeStatus.ONLINE
+            node_statuses[node_id] = NodeStatus.OFFLINE
     return node_statuses
 
 

@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.0] - 2025-09-17
+### :sparkles: New Features
+- [`fd8ecbe`](https://github.com/rippleFCL/meshmon/commit/fd8ecbefb1991e7a8d94e489ded5623190dd00c7) - added network analysis *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`e93c2d4`](https://github.com/rippleFCL/meshmon/commit/e93c2d4272058f89bd27d432ee62cbd9f5a7da33) - frontend v0.0.1 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`af1423e`](https://github.com/rippleFCL/meshmon/commit/af1423eb8061f45c325ae6593b470f308b5bc7c7) - impvoed web stuff *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`4068f63`](https://github.com/rippleFCL/meshmon/commit/4068f63b363680e1a41e8626d0e6254411100423) - proper reloading *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`4544bda`](https://github.com/rippleFCL/meshmon/commit/4544bda187a2c7a7f36e43f9493b7fd171ee96fb) - packaged into one container *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`a337eaa`](https://github.com/rippleFCL/meshmon/commit/a337eaa8d1251f1102419603e57538a358e8a200) - bump version to 1.0.0 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v0.4.0] - 2025-09-16
 ### :sparkles: New Features
 - [`accedc5`](https://github.com/rippleFCL/meshmon/commit/accedc51df94fa8ae6936bb91ad0844fbad83716) - improved monitor stoppage *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -31,3 +43,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [v0.2.0]: https://github.com/rippleFCL/distomon/compare/v0.1.0...v0.2.0
 [v0.4.0]: https://github.com/rippleFCL/meshmon/compare/v0.3.0...v0.4.0
+[v1.0.0]: https://github.com/rippleFCL/meshmon/compare/v0.4.0...v1.0.0

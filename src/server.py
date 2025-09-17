@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 from fastapi import FastAPI, Header, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from pydantic import BaseModel
 
@@ -84,6 +85,15 @@ async def lifespan(app: FastAPI):
 
 
 api = FastAPI(lifespan=lifespan)
+
+# Add CORS middleware
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Allow the Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class MonBody(BaseModel):

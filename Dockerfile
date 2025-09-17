@@ -49,12 +49,8 @@ COPY --from=web-builder /app/web/dist ./static
 
 EXPOSE 8000
 
-# HEALTHCHECK \
-#     --interval=15s \
-#     --timeout=10s \
-#     --start-period=15s \
-#     CMD curl -fs http://localhost:5000/healthcheck
-
 USER 1000:1000
+
+ENV ENV=production
 
 ENTRYPOINT [ "uvicorn", "server:api" ]

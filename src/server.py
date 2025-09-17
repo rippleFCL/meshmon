@@ -90,14 +90,15 @@ async def lifespan(app: FastAPI):
 
 api = FastAPI(lifespan=lifespan)
 
-# Add CORS middleware
-api.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Allow the Vite dev server
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if os.environ.get("ENV", "") != "production":
+    # Add CORS middleware
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000"],  # Allow the Vite dev server
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 class MonBody(BaseModel):

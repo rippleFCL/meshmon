@@ -1,5 +1,5 @@
 
-FROM node:18-alpine AS web-builder
+FROM node:24-alpine AS web-builder
 
 WORKDIR /app/web
 

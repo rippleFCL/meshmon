@@ -3,7 +3,7 @@ import json
 from typing import Callable, Iterator, Literal, overload
 from pydantic import BaseModel
 
-from .config import NetworkConfigLoader
+from .config import NetworkConfig, NetworkConfigLoader
 from .crypto import Signer, KeyMapping, Verifier
 import datetime
 from enum import Enum
@@ -428,7 +428,7 @@ class StoreManager:
     def __init__(
         self,
         config: NetworkConfigLoader,
-        store_prefiller: Callable[[SharedStore], None],
+        store_prefiller: Callable[[SharedStore, NetworkConfig], None],
     ):
         self.config = config
         self.store_prefiller = store_prefiller
@@ -445,7 +445,7 @@ class StoreManager:
                 new_store.update_from_dump(self.stores[network.network_id].dump())
             else:
                 logger.info(f"Creating new store for network ID {network.network_id}.")
-                self.store_prefiller(new_store)
+                self.store_prefiller(new_store, network)
             self.stores[network.network_id] = new_store
             logger.debug(f"Loaded store for network ID {network.network_id}")
         for network_id in list(self.stores.keys()):

@@ -18,7 +18,7 @@ from meshmon.distrostore import (
     NodeDataRetention,
     SharedStore,
 )
-from meshmon.config import NetworkConfigLoader
+from meshmon.config import NetworkConfig, NetworkConfigLoader, get_allowed_keys
 from meshmon.monitor import MonitorManager
 from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
 
 
-def prefill_store(store: SharedStore):
+def prefill_store(store: SharedStore, network: NetworkConfig):
     node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
     store.set_value("node_info", node_info)
     data_retention = NodeDataRetention(
@@ -49,7 +49,7 @@ def prefill_store(store: SharedStore):
     )
     store.set_value("data_retention", data_retention, DateEvalType.OLDER)
     ctx = store.get_context("ping_data", PingData)
-    ctx.allowed_keys = list(store.key_mapping.verifiers.keys())
+    ctx.allowed_keys = get_allowed_keys(network)
 
 
 logger.info(f"Starting server initialization with config file: {CONFIG_FILE_NAME}")

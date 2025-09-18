@@ -2,7 +2,7 @@ import threading
 import time
 
 from server import PingData
-from .config import NetworkConfigLoader
+from .config import NetworkConfigLoader, get_allowed_keys
 from .distrostore import StoreManager
 from .monitor import MonitorManager
 import logging
@@ -34,7 +34,7 @@ class ConfigManager:
                     for network_id, network in self.config.networks.items():
                         store = self.store_manager.get_store(network_id)
                         ctx = store.get_context("ping_data", PingData)
-                        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
+                        ctx.allowed_keys = get_allowed_keys(network)
                     self.monitor_manager.reload()
             except Exception as e:
                 logger.error(f"Error in config watcher: {e}")

@@ -248,3 +248,17 @@ class NetworkConfigLoader:
                 logger.info("Configuration files have been modified, reloading")
                 has_changes = True
         return has_changes
+
+
+def get_allowed_keys(network: NetworkConfig) -> list[str]:
+    connectable: dict[str, bool] = {}
+    for node_cfg in network.node_config:
+        if node_cfg.url:
+            connectable[node_cfg.node_id] = True
+        else:
+            connectable[node_cfg.node_id] = False
+    allowed_keys = []
+    for node_id in network.key_mapping.verifiers.keys():
+        if connectable.get(node_id, False):
+            allowed_keys.append(node_id)
+    return allowed_keys

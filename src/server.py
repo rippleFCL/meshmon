@@ -61,7 +61,6 @@ logger.info(f"Loaded {len(config.networks)} network configurations")
 
 logger.info("Initializing store manager...")
 store_manager = StoreManager(config, prefill_store)
-
 logger.info(f"Initialized store manager with {len(store_manager.stores)} stores")
 
 logger.info("Initializing monitor manager...")

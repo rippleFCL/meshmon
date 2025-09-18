@@ -164,10 +164,21 @@ class StoreContextData(BaseModel):
             )
             return
         if context_data.date > self.date:
+            old_allowed_keys = self.allowed_keys
             self.date = context_data.date
             self.sig = context_data.sig
             self.allowed_keys = context_data.allowed_keys
             self.context_name = context_data.context_name
+            if old_allowed_keys != self.allowed_keys:
+                logger.debug(
+                    f"Allowed keys updated for context {self.context_name}: {old_allowed_keys} -> {self.allowed_keys}"
+                )
+                for key in list(self.data.keys()):
+                    if key not in self.allowed_keys:
+                        logger.info(
+                            f"Removing disallowed key {key} from context {self.context_name}"
+                        )
+                        del self.data[key]
 
         for key, value in context_data.data.items():
             if self.allowed_keys and key not in self.allowed_keys:

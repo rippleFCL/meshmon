@@ -122,22 +122,6 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
     const avgOutboundRtt = node.outbound_status.average_rtt || 0
     const avgRtt = (avgInboundRtt + avgOutboundRtt) / 2
 
-    const formatDataRetention = (dateString: string) => {
-        try {
-            const date = new Date(dateString)
-            return date.toLocaleString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            }).replace(/,/g, '')
-        } catch {
-            return dateString
-        }
-    }
-
     const renderConnectionContent = () => {
         if (useUnifiedLayout) {
             // Unified layout

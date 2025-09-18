@@ -15,7 +15,6 @@ import ReactFlow, {
     Position,
     MarkerType,
     BackgroundVariant,
-    useReactFlow,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { meshmonApi } from '../api'
@@ -45,101 +44,119 @@ const MeshNode = ({ data }: { data: any }) => {
 
     return (
         <>
-            {/* Add handles for edge connections - each position needs both source and target */}
+            {/* Outbound connection handles (source) - positioned on outer edge of each side */}
             <Handle
                 type="source"
                 position={Position.Top}
-                id="top"
+                id="top-out"
                 style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
+                    background: '#3b82f6', // Blue for outbound
                     border: '2px solid',
                     borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
-                }}
-            />
-            <Handle
-                type="target"
-                position={Position.Top}
-                id="top-target"
-                style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
+                    top: -5,
+                    left: '30%',
                 }}
             />
             <Handle
                 type="source"
                 position={Position.Right}
-                id="right"
+                id="right-out"
                 style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
+                    background: '#3b82f6', // Blue for outbound
                     border: '2px solid',
                     borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
+                    right: -5,
+                    top: '30%',
+                }}
+            />
+            <Handle
+                type="source"
+                position={Position.Bottom}
+                id="bottom-out"
+                style={{
+                    background: '#3b82f6', // Blue for outbound
+                    border: '2px solid',
+                    borderColor: isOnline ? '#22c55e' : '#ef4444',
+                    width: 10,
+                    height: 10,
+                    bottom: -5,
+                    left: '30%',
+                }}
+            />
+            <Handle
+                type="source"
+                position={Position.Left}
+                id="left-out"
+                style={{
+                    background: '#3b82f6', // Blue for outbound
+                    border: '2px solid',
+                    borderColor: isOnline ? '#22c55e' : '#ef4444',
+                    width: 10,
+                    height: 10,
+                    left: -5,
+                    top: '30%',
+                }}
+            />
+
+            {/* Inbound connection handles (target) - positioned on inner edge of each side */}
+            <Handle
+                type="target"
+                position={Position.Top}
+                id="top-in"
+                style={{
+                    background: '#f59e0b', // Orange for inbound
+                    border: '2px solid',
+                    borderColor: isOnline ? '#22c55e' : '#ef4444',
+                    width: 10,
+                    height: 10,
+                    top: -5,
+                    left: '70%',
                 }}
             />
             <Handle
                 type="target"
                 position={Position.Right}
-                id="right-target"
+                id="right-in"
                 style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
+                    background: '#f59e0b', // Orange for inbound
                     border: '2px solid',
                     borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
-                }}
-            />
-            <Handle
-                type="source"
-                position={Position.Bottom}
-                id="bottom"
-                style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
+                    right: -5,
+                    top: '70%',
                 }}
             />
             <Handle
                 type="target"
                 position={Position.Bottom}
-                id="bottom-target"
+                id="bottom-in"
                 style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
+                    background: '#f59e0b', // Orange for inbound
                     border: '2px solid',
                     borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
-                }}
-            />
-            <Handle
-                type="source"
-                position={Position.Left}
-                id="left"
-                style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
+                    bottom: -5,
+                    left: '70%',
                 }}
             />
             <Handle
                 type="target"
                 position={Position.Left}
-                id="left-target"
+                id="left-in"
                 style={{
-                    background: isDark ? '#6b7280' : '#9ca3af',
+                    background: '#f59e0b', // Orange for inbound
                     border: '2px solid',
                     borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
+                    left: -5,
+                    top: '70%',
                 }}
             />
 
@@ -459,33 +476,88 @@ export default function NetworkGraph() {
         })
 
         // Helper function to determine the best connection handles based on node positions
-        const getOptimalHandles = (sourceX: number, sourceY: number, targetX: number, targetY: number) => {
+        // Adjacent nodes connect on facing sides, distant nodes connect toward center
+        const getOptimalHandles = (sourceX: number, sourceY: number, targetX: number, targetY: number, totalNodes: number) => {
             const dx = targetX - sourceX
             const dy = targetY - sourceY
+            const distance = Math.sqrt(dx * dx + dy * dy)
 
-            // Determine primary direction
-            if (Math.abs(dx) > Math.abs(dy)) {
-                // Horizontal connection is dominant
-                if (dx > 0) {
-                    return { sourceHandle: 'right', targetHandle: 'left-target' }
+            // Calculate network center (assuming nodes are arranged around origin)
+            const networkCenterX = 0
+            const networkCenterY = 0
+
+            // Determine if nodes are adjacent based on distance
+            // For small networks, nodes are more likely to be considered adjacent
+            // For larger networks, we need a stricter threshold
+            let adjacencyThreshold: number
+            if (totalNodes <= 4) {
+                adjacencyThreshold = 400 // More lenient for small networks
+            } else if (totalNodes <= 8) {
+                adjacencyThreshold = 300
+            } else if (totalNodes <= 12) {
+                adjacencyThreshold = 250
+            } else {
+                adjacencyThreshold = 200 // Stricter for large networks
+            }
+
+            const areAdjacent = distance < adjacencyThreshold
+
+            if (areAdjacent) {
+                // Adjacent nodes: connect on the sides facing each other
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    // Horizontal connection is dominant
+                    if (dx > 0) {
+                        return { sourceHandle: 'right-out', targetHandle: 'left-in', isAdjacent: true }
+                    } else {
+                        return { sourceHandle: 'left-out', targetHandle: 'right-in', isAdjacent: true }
+                    }
                 } else {
-                    return { sourceHandle: 'left', targetHandle: 'right-target' }
+                    // Vertical connection is dominant
+                    if (dy > 0) {
+                        return { sourceHandle: 'bottom-out', targetHandle: 'top-in', isAdjacent: true }
+                    } else {
+                        return { sourceHandle: 'top-out', targetHandle: 'bottom-in', isAdjacent: true }
+                    }
                 }
             } else {
-                // Vertical connection is dominant
-                if (dy > 0) {
-                    return { sourceHandle: 'bottom', targetHandle: 'top-target' }
+                // Distant nodes: connect toward the center for both source and target
+
+                // Calculate direction from source to center
+                const sourceToCenterX = networkCenterX - sourceX
+                const sourceToCenterY = networkCenterY - sourceY
+
+                // Calculate direction from target to center
+                const targetToCenterX = networkCenterX - targetX
+                const targetToCenterY = networkCenterY - targetY
+
+                // Determine source handle (side facing toward center)
+                let sourceHandle: string
+                if (Math.abs(sourceToCenterX) > Math.abs(sourceToCenterY)) {
+                    sourceHandle = sourceToCenterX > 0 ? 'right-out' : 'left-out'
                 } else {
-                    return { sourceHandle: 'top', targetHandle: 'bottom-target' }
+                    sourceHandle = sourceToCenterY > 0 ? 'bottom-out' : 'top-out'
                 }
+
+                // Determine target handle (side facing toward center)
+                let targetHandle: string
+                if (Math.abs(targetToCenterX) > Math.abs(targetToCenterY)) {
+                    targetHandle = targetToCenterX > 0 ? 'right-in' : 'left-in'
+                } else {
+                    targetHandle = targetToCenterY > 0 ? 'bottom-in' : 'top-in'
+                }
+
+                return { sourceHandle, targetHandle, isAdjacent: false }
             }
         }
 
         // Create edges based exclusively on real outbound connections
         console.log('Creating authentic mesh connections for', nodeIds.length, 'nodes')
+        console.log('Using intelligent handle selection: adjacent nodes connect face-to-face, distant nodes connect toward center')
 
         const createdConnections = new Set<string>()
         let realConnectionCount = 0
+        let adjacentConnections = 0
+        let centerConnections = 0
 
         // Create all real connections from outbound_info
         nodeIds.forEach(sourceNodeId => {
@@ -505,27 +577,40 @@ export default function NetworkGraph() {
                         // Get node positions for handle calculation
                         const sourceNode = nodeMap.get(sourceNodeId)
                         const targetNode = nodeMap.get(targetNodeId)
-                        const handles = getOptimalHandles(
+                        const handleResult = getOptimalHandles(
                             sourceNode?.position.x || 0,
                             sourceNode?.position.y || 0,
                             targetNode?.position.x || 0,
-                            targetNode?.position.y || 0
+                            targetNode?.position.y || 0,
+                            nodeIds.length
                         )
+
+                        // Track connection types for debugging
+                        if (handleResult.isAdjacent) {
+                            adjacentConnections++
+                        } else {
+                            centerConnections++
+                        }
 
                         // Calculate edge strength based on RTT and status
                         const strength = isOnline ? Math.max(1, 5 - (rtt / 50)) : 0.5
+
+                        // Different visual styles for adjacent vs center-oriented connections
+                        const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+                        const strokeWidth = handleResult.isAdjacent ? baseStrokeWidth : baseStrokeWidth * 0.8 // Adjacent connections slightly thicker
+                        const edgeOpacity = isOnline ? (handleResult.isAdjacent ? 0.9 : 0.7) : 0.6 // Adjacent connections more visible
 
                         edges.push({
                             id: edgeId,
                             source: sourceNodeId,
                             target: targetNodeId,
-                            sourceHandle: handles.sourceHandle,
-                            targetHandle: handles.targetHandle,
+                            sourceHandle: handleResult.sourceHandle,
+                            targetHandle: handleResult.targetHandle,
                             style: {
                                 stroke: isOnline ? '#22c55e' : '#ef4444',
-                                strokeWidth: Math.max(1.5, Math.min(4, strength)),
+                                strokeWidth: strokeWidth,
                                 strokeDasharray: isOnline ? '0' : '6,3',
-                                opacity: isOnline ? 0.9 : 0.6,
+                                opacity: edgeOpacity,
                             },
                             label: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
                             labelStyle: isOnline ? {
@@ -575,6 +660,7 @@ export default function NetworkGraph() {
         })
 
         console.log(`Created ${realConnectionCount} authentic connections from outbound data`)
+        console.log(`Connection types: ${adjacentConnections} adjacent (face-to-face), ${centerConnections} center-oriented`)
 
         console.log('Generated edges:', edges)
         return { processedNodes: nodes, processedEdges: edges }
@@ -784,16 +870,24 @@ export default function NetworkGraph() {
                                             <span className="text-gray-600 dark:text-gray-400">Offline Node</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
-                                            <div className="w-3 h-0.5 bg-green-500 rounded-full"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Active Link</span>
+                                            <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
+                                            <span className="text-gray-600 dark:text-gray-400">Outbound Handle</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
+                                            <span className="text-gray-600 dark:text-gray-400">Inbound Handle</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <div className="w-3 h-0.5 bg-green-500 rounded-full opacity-90"></div>
+                                            <span className="text-gray-600 dark:text-gray-400">Adjacent Link</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <div className="w-3 h-0.5 bg-green-500 opacity-70"></div>
+                                            <span className="text-gray-600 dark:text-gray-400">Center Link</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <div className="w-3 h-0.5 bg-red-500"></div>
                                             <span className="text-gray-600 dark:text-gray-400">Failed Link</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-3 h-0.5 bg-emerald-600 border-dashed border-t opacity-60"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Inferred Link</span>
                                         </div>
                                     </div>
                                 </Panel>

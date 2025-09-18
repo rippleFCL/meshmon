@@ -20,7 +20,7 @@ class WebhookHandler:
 
     def webhook_thread(self):
         while True:
-            network_data = analyze_all_networks(self.store_manager)
+            network_data = analyze_all_networks(self.store_manager, self.config)
             for network_id, analysis in network_data.networks.items():
                 for node_id, node_analysis in analysis.node_analyses.items():
                     if (network_id, node_id) not in self.node_status:

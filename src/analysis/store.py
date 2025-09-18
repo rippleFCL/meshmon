@@ -7,6 +7,7 @@ from meshmon.distrostore import (
     NodeInfo as StoreNodeInfo,
     NodeDataRetention,
 )
+from meshmon.config import NetworkConfigLoader
 
 
 class NodePingStatus(Enum):
@@ -48,7 +49,9 @@ class MeshmonData(BaseModel):
     networks: dict[str, NetworkData]
 
 
-def get_network_data(store_manager: StoreManager) -> MeshmonData:
+def get_network_data(
+    store_manager: StoreManager, config: NetworkConfigLoader
+) -> MeshmonData:
     """
     Extract and transform network data from the store manager into MeshmonData format.
 
@@ -62,6 +65,10 @@ def get_network_data(store_manager: StoreManager) -> MeshmonData:
 
     # Iterate through all network stores
     for network_id, store in store_manager.stores.items():
+        network_config = config.networks[network_id]
+        connectable = {
+            node.node_id: node.url is not None for node in network_config.node_config
+        }
         nodes: dict[str, NodeData] = {}
 
         # Get all nodes in the network store
@@ -75,7 +82,7 @@ def get_network_data(store_manager: StoreManager) -> MeshmonData:
                 # Iterate through all ping data entries for this node
                 for target_node_id in ping_ctx:
                     ping_info = ping_ctx.get(target_node_id)
-                    if ping_info:
+                    if ping_info and connectable.get(target_node_id, False):
                         # Convert store PingData to analysis NodePingData
                         ping_data[target_node_id] = NodePingData(
                             status=NodePingStatus(ping_info.status.value),

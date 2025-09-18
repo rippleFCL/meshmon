@@ -185,7 +185,7 @@ class ViewNetwork(BaseModel):
 def view():
     """Get network view data. Requires JWT authentication."""
     logger.debug("View request for networks")
-    networks = analyze_all_networks(store_manager)
+    networks = analyze_all_networks(store_manager, config)
     return networks
 
 

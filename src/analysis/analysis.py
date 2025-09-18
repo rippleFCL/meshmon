@@ -1,6 +1,8 @@
 import datetime
 from pydantic import BaseModel
 from enum import Enum
+
+from meshmon.config import NetworkConfigLoader
 from .store import NodePingStatus, get_network_data, NetworkData, NodeStatus
 from meshmon.distrostore import StoreManager
 import logging
@@ -221,8 +223,10 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
     )
 
 
-def analyze_all_networks(store_manager: StoreManager) -> MultiNetworkAnalysis:
-    network_data = get_network_data(store_manager)
+def analyze_all_networks(
+    store_manager: StoreManager, config: NetworkConfigLoader
+) -> MultiNetworkAnalysis:
+    network_data = get_network_data(store_manager, config)
     network_analyses = {
         network_id: analyze_network(network)
         for network_id, network in network_data.networks.items()

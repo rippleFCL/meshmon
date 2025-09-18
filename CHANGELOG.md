@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.0.4] - 2025-09-18
+### :bug: Bug Fixes
+- [`aa0ed88`](https://github.com/rippleFCL/meshmon/commit/aa0ed8859cb5536d2c819b6955b799feeef8b627) - hub nodes in graph actuall reprisent what they mean *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`ba31197`](https://github.com/rippleFCL/meshmon/commit/ba31197f5390b5d76dbfaaf210625f69b62f2377) - correctly build allowed keys *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`7c107ff`](https://github.com/rippleFCL/meshmon/commit/7c107ffabf902c47ebf30a95602d710b9c5a2439) - remove extra keys on allowed keys sertter *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`36464f6`](https://github.com/rippleFCL/meshmon/commit/36464f60f94226d96930173e697a11c16f5c0db9) - analiytics now correctly removes inbound connected if url has recently been set to none *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`836c6f2`](https://github.com/rippleFCL/meshmon/commit/836c6f29901a5c10ecf3a2e4d2e2cea519dede62) - bump version *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v2.0.3] - 2025-09-18
 ### :sparkles: New Features
 - [`ce7e9e2`](https://github.com/rippleFCL/meshmon/commit/ce7e9e2736edb53089599fba644c6983c2ea12cf) - add favicon *(commit by [@vellfire](https://github.com/vellfire))*
@@ -147,3 +158,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v2.0.1]: https://github.com/rippleFCL/meshmon/compare/v2.0.0...v2.0.1
 [v2.0.2]: https://github.com/rippleFCL/meshmon/compare/v2.0.1...v2.0.2
 [v2.0.3]: https://github.com/rippleFCL/meshmon/compare/v2.0.2...v2.0.3
+[v2.0.4]: https://github.com/rippleFCL/meshmon/compare/v2.0.3...v2.0.4

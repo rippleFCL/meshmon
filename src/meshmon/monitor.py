@@ -149,9 +149,6 @@ class Monitor:
         )
         self.setup()
         while True:
-            val = self.stop_flag.wait(self.remote_node.poll_rate)
-            if val:
-                break
             try:
                 self._sent_ping()
                 self._sync_store()
@@ -159,6 +156,9 @@ class Monitor:
                 logger.error(
                     f"Error in monitor loop for {self.net_id} -> {self.remote_node.node_id}: {e}"
                 )
+            val = self.stop_flag.wait(self.remote_node.poll_rate)
+            if val:
+                break
         self._sync_store(2)
         logger.debug(
             f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
@@ -252,15 +252,15 @@ class MonitorManager:
 
     def manager(self):
         while True:
-            val = self.stop_flag.wait(5)
-            if val:
-                break
             try:
                 for store in self.store_manager.stores.values():
                     node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
                     store.set_value("node_info", node_info)
             except Exception as e:
                 logger.error(f"Error in MonitorManager heartbeat: {e}")
+            val = self.stop_flag.wait(5)
+            if val:
+                break
 
     def _initialize_monitors(self) -> dict[str, Monitor]:
         logger.debug("Initializing monitors from network configuration")

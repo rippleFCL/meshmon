@@ -66,7 +66,7 @@ class Monitor:
             ),
         )
 
-    def _sync_store(self):
+    def _sync_store(self, timeout: int = 10):
         logger.debug(
             f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}"
         )
@@ -88,7 +88,7 @@ class Monitor:
                 f"{self.remote_node.url}/api/mon/{self.net_id}",
                 json=data,
                 headers={"Authorization": f"Bearer {b64_sig}"},
-                timeout=10,
+                timeout=timeout,
             )
         except requests.RequestException:
             return
@@ -114,7 +114,7 @@ class Monitor:
             rtt = (time.time() - st) * 1000
         except requests.RequestException as e:
             logger.debug(
-                f"Request failed for {self.net_id} -> {self.remote_node.node_id}: {e}"
+                f"Request timed out for {self.net_id} -> {self.remote_node.node_id}: {e}"
             )
             self._handle_error(ctx)
             return
@@ -148,8 +148,10 @@ class Monitor:
             f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
         )
         self.setup()
-        while not self.stop_flag.is_set():
-            time.sleep(self.remote_node.poll_rate)
+        while True:
+            val = self.stop_flag.wait(self.remote_node.poll_rate)
+            if val:
+                break
             try:
                 self._sent_ping()
                 self._sync_store()
@@ -157,7 +159,7 @@ class Monitor:
                 logger.error(
                     f"Error in monitor loop for {self.net_id} -> {self.remote_node.node_id}: {e}"
                 )
-        self._sync_store()
+        self._sync_store(2)
         logger.debug(
             f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
         )

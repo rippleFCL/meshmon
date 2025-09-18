@@ -229,25 +229,48 @@ export default function NetworkGraph() {
         setHoveredNode(hoveredNodeId)
     }, [])
 
-    // Update nodes and edges based on hover state
+    // Update nodes and edges based on hover state without triggering viewport reset
     useEffect(() => {
         if (!hoveredNode) {
             // Reset all nodes and edges to normal state
-            setNodes(currentNodes => currentNodes.map(node => ({
-                ...node,
-                data: {
-                    ...node.data,
-                    isHighlighted: false,
-                    isDimmed: false
-                }
-            })))
-            setEdges(currentEdges => currentEdges.map(edge => ({
-                ...edge,
-                style: {
-                    ...edge.style,
-                    opacity: edge.animated ? 0.9 : 0.6 // Restore original opacity based on connection status
-                }
-            })))
+            setNodes(currentNodes => {
+                const updated = currentNodes.map(node => {
+                    if (node.data.isHighlighted || node.data.isDimmed) {
+                        return {
+                            ...node,
+                            data: {
+                                ...node.data,
+                                isHighlighted: false,
+                                isDimmed: false
+                            }
+                        }
+                    }
+                    return node
+                })
+                return updated
+            })
+            setEdges(currentEdges => {
+                const updated = currentEdges.map(edge => {
+                    const originalOpacity = edge.animated ? 0.9 : 0.6
+                    const needsUpdate = edge.style?.opacity !== originalOpacity ||
+                        edge.label !== edge.data?.originalLabel
+
+                    if (needsUpdate) {
+                        return {
+                            ...edge,
+                            style: {
+                                ...edge.style,
+                                opacity: originalOpacity
+                            },
+                            label: edge.data?.originalLabel,
+                            labelStyle: edge.data?.originalLabelStyle,
+                            labelBgStyle: edge.data?.originalLabelBgStyle
+                        }
+                    }
+                    return edge
+                })
+                return updated
+            })
         } else {
             // Find connected nodes and edges
             const connectedNodeIds = new Set<string>([hoveredNode])
@@ -262,31 +285,56 @@ export default function NetworkGraph() {
                 }
             })
 
-            // Update nodes with hover state
-            setNodes(currentNodes => currentNodes.map(node => ({
-                ...node,
-                data: {
-                    ...node.data,
-                    isHighlighted: node.id === hoveredNode,
-                    isDimmed: !connectedNodeIds.has(node.id)
-                }
-            })))
+            // Update nodes with hover state only if changes are needed
+            setNodes(currentNodes => {
+                const updated = currentNodes.map(node => {
+                    const shouldHighlight = node.id === hoveredNode
+                    const shouldDim = !connectedNodeIds.has(node.id)
 
-            // Update edges with hover state
-            setEdges(currentEdges => currentEdges.map(edge => {
-                const isRelevant = relevantEdgeIds.has(edge.id)
-                // Use original opacity values, not current ones
-                const originalOpacity = edge.animated ? 0.9 : 0.6
-                return {
-                    ...edge,
-                    style: {
-                        ...edge.style,
-                        opacity: isRelevant ? originalOpacity : originalOpacity * 0.2
+                    if (node.data.isHighlighted !== shouldHighlight || node.data.isDimmed !== shouldDim) {
+                        return {
+                            ...node,
+                            data: {
+                                ...node.data,
+                                isHighlighted: shouldHighlight,
+                                isDimmed: shouldDim
+                            }
+                        }
                     }
-                }
-            }))
+                    return node
+                })
+                return updated
+            })
+
+            // Update edges with hover state only if changes are needed
+            setEdges(currentEdges => {
+                const updated = currentEdges.map(edge => {
+                    const isRelevant = relevantEdgeIds.has(edge.id)
+                    const originalOpacity = edge.animated ? 0.9 : 0.6
+                    const targetOpacity = isRelevant ? originalOpacity : 0
+
+                    // Show labels only for relevant edges
+                    const shouldShowLabel = isRelevant && edge.data?.originalLabel
+                    const currentHasLabel = edge.label !== undefined
+
+                    if (edge.style?.opacity !== targetOpacity || (shouldShowLabel !== currentHasLabel)) {
+                        return {
+                            ...edge,
+                            style: {
+                                ...edge.style,
+                                opacity: targetOpacity
+                            },
+                            label: shouldShowLabel ? edge.data?.originalLabel : undefined,
+                            labelStyle: shouldShowLabel ? edge.data?.originalLabelStyle : undefined,
+                            labelBgStyle: shouldShowLabel ? edge.data?.originalLabelBgStyle : undefined
+                        }
+                    }
+                    return edge
+                })
+                return updated
+            })
         }
-    }, [hoveredNode, setNodes, setEdges]) // Remove nodes and edges from dependencies
+    }, [hoveredNode, edges, setNodes, setEdges])
 
     const fetchData = useCallback(async () => {
         try {
@@ -316,27 +364,6 @@ export default function NetworkGraph() {
         }))
     }, [networkData])
 
-    // Custom fit view component
-    const FitViewHandler = () => {
-        const reactFlowInstance = useReactFlow()
-
-        useEffect(() => {
-            if (nodes.length > 0) {
-                // Small delay to ensure nodes are rendered
-                const timer = setTimeout(() => {
-                    reactFlowInstance.fitView({
-                        padding: 40,
-                        maxZoom: 1.2,
-                        minZoom: 0.4,
-                        duration: 600
-                    })
-                }, 200)
-                return () => clearTimeout(timer)
-            }
-        }, [nodes.length, reactFlowInstance])
-
-        return null
-    }
 
     // Convert mesh data to nodes and edges
     const { processedNodes, processedEdges } = useMemo(() => {
@@ -514,6 +541,22 @@ export default function NetworkGraph() {
                                 fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
                                 fillOpacity: 0.9,
                             } : undefined,
+                            data: {
+                                originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
+                                originalLabelStyle: isOnline ? {
+                                    fontSize: 11,
+                                    fontWeight: '600',
+                                    fill: '#16a34a',
+                                    background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                                    padding: '2px 6px',
+                                    borderRadius: '12px',
+                                    border: '1px solid #22c55e',
+                                } : undefined,
+                                originalLabelBgStyle: isOnline ? {
+                                    fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                                    fillOpacity: 0.9,
+                                } : undefined,
+                            },
                             animated: isOnline && rtt < 100,
                             type: 'bezier',
                             markerEnd: {
@@ -673,7 +716,7 @@ export default function NetworkGraph() {
                                 Drag nodes to rearrange • Scroll to zoom • Click and drag to pan
                             </p>
                         </div>
-                        <div className="h-[calc(100vh-16rem)] min-h-[500px] relative">
+                        <div className="h-[calc(100vh-24rem)] min-h-[300px] relative">
                             <ReactFlow
                                 nodes={nodes}
                                 edges={edges}
@@ -681,14 +724,6 @@ export default function NetworkGraph() {
                                 onEdgesChange={onEdgesChange}
                                 onConnect={onConnect}
                                 nodeTypes={nodeTypes}
-                                fitView
-                                fitViewOptions={{
-                                    padding: 40,
-                                    maxZoom: 1.2,
-                                    minZoom: 0.4,
-                                    includeHiddenNodes: false,
-                                    duration: 800
-                                }}
                                 attributionPosition="bottom-left"
                                 className={isDark ? 'dark' : ''}
                                 defaultEdgeOptions={{
@@ -696,6 +731,7 @@ export default function NetworkGraph() {
                                     animated: false,
                                     style: { strokeWidth: 2 }
                                 }}
+                                fitView
                                 connectionLineStyle={{ strokeWidth: 2, stroke: '#10b981' }}
                                 snapToGrid={false}
                                 snapGrid={[15, 15]}
@@ -706,10 +742,11 @@ export default function NetworkGraph() {
                                 panOnDrag={true}
                                 zoomOnScroll={true}
                                 zoomOnDoubleClick={true}
-                                minZoom={0.2}
-                                maxZoom={2.0}
+                                minZoom={0.1}
+                                maxZoom={3.0}
+                                zoomOnPinch={true}
+                                nodeOrigin={[0.5, 0.5]}
                             >
-                                <FitViewHandler />
                                 <Background
                                     color={isDark ? '#374151' : '#e5e7eb'}
                                     gap={30}

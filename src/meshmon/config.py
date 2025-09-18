@@ -28,6 +28,7 @@ class NodeCfgNetwork(BaseModel):
 
 class NodeCfg(BaseModel):
     networks: list[NodeCfgNetwork]
+    discord_webhook: str | None = None
 
 
 class NetworkNodeInfo(BaseModel):

@@ -24,7 +24,7 @@ from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
 from analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 import logging
-
+from webhooks import WebhookHandler
 from fastapi.staticfiles import StaticFiles
 
 # Configure logging
@@ -70,6 +70,10 @@ logger.info(
     f"Initialized monitor manager with {len(monitor_manager.monitors)} monitors"
 )
 
+logger.info("Initializing webhook handler...")
+webhook_handler = WebhookHandler(store_manager, config)
+logger.info("Webhook handler initialized")
+
 logger.info("Initializing config manager...")
 config_manager = ConfigManager(config, store_manager, monitor_manager)
 logger.info("Config manager initialized")
@@ -82,6 +86,7 @@ logger.info("Server initialization complete")
 async def lifespan(app: FastAPI):
     logger.info("Starting up the server...")
     yield
+    webhook_handler.stop()
     monitor_manager.stop_manager()
     for store in store_manager.stores.values():
         node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)

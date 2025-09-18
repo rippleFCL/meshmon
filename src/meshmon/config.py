@@ -32,7 +32,7 @@ class NodeCfg(BaseModel):
 
 class NetworkNodeInfo(BaseModel):
     node_id: Annotated[str, StringConstraints(to_lower=True)]
-    url: str
+    url: str | None = None
     poll_rate: int = 10
     retry: int = 2
 
@@ -108,9 +108,7 @@ class NetworkConfigLoader:
                 config_path = network_dir / "config.yml"
                 if not config_path.exists():
                     example_data = NetworkRootConfig(
-                        node_config=[
-                            NetworkNodeInfo(node_id=network.node_id, url="<replace-me>")
-                        ],
+                        node_config=[NetworkNodeInfo(node_id=network.node_id)],
                         network_id=network.directory,
                     )
                     with open(config_path, "w") as f:

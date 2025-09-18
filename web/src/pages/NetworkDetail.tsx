@@ -38,16 +38,13 @@ const getStatusColor = (status: string) => {
         case 'unknown':
             return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
         case 'node_down':
-            return 'status-offline'
+            return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
         default:
             return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
     }
 }
 
 const getConnectionStatusColor = (onlineCount: number, totalCount: number) => {
-    if (totalCount === 0) {
-        return 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30'
-    }
     if (onlineCount === totalCount) {
         return 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
     }
@@ -146,14 +143,6 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
             // Unified layout
             return (
                 <>
-                    {/* Connection Details Header */}
-                    <div className={`mb-3 px-3 py-2 rounded border-l-4 ${isDark ? 'bg-blue-900/20 border-blue-500 text-blue-200' : 'bg-blue-50 border-blue-400 text-blue-800'}`}>
-                        <div className="text-sm font-medium mb-1">Network Connectivity</div>
-                        <div className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-                            Shows bidirectional connectivity between this node and others in the network.
-                        </div>
-                    </div>
-
                     {/* Unified Connection List */}
                     <div className={`border rounded-lg p-3 ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
                         <div className="flex items-center justify-between mb-3">
@@ -193,33 +182,28 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
 
                                     let connectionType = ''
                                     let connectionColor = ''
-                                    let statusText = ''
                                     let rttText = ''
                                     let sortOrder = 0
 
                                     if (isBidirectional) {
                                         connectionType = '↔'
                                         connectionColor = 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                                        statusText = `${nodeId} ↔ ${targetNodeId}`
                                         const avgRtt = ((inbound.rtt + outbound.rtt) / 2)
                                         rttText = avgRtt > 0 ? `${avgRtt.toFixed(1)}ms avg` : 'N/A'
                                         sortOrder = 1
                                     } else if (hasOutbound) {
                                         connectionType = '→'
-                                        statusText = `${nodeId} → ${targetNodeId}`
                                         connectionColor = 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
                                         rttText = outbound.rtt > 0 ? `${outbound.rtt.toFixed(1)}ms` : 'N/A'
                                         sortOrder = 2
                                     } else if (hasInbound) {
                                         connectionType = '←'
                                         connectionColor = 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                                        statusText = `${targetNodeId} → ${nodeId}`
                                         rttText = inbound.rtt > 0 ? `${inbound.rtt.toFixed(1)}ms` : 'N/A'
                                         sortOrder = 3
                                     } else {
                                         connectionType = '✕'
                                         connectionColor = 'border-red-500 bg-red-50 dark:bg-red-900/20'
-                                        statusText = `${nodeId} ✕ ${targetNodeId}`
                                         rttText = 'N/A'
                                         sortOrder = 4
                                     }
@@ -228,7 +212,6 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
                                         targetNodeId,
                                         connectionType,
                                         connectionColor,
-                                        statusText,
                                         rttText,
                                         sortOrder,
                                         isBidirectional,
@@ -245,7 +228,7 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
                                     return a.targetNodeId.localeCompare(b.targetNodeId)
                                 })
 
-                                return sortedConnections.map(({ targetNodeId, connectionType, connectionColor, statusText, rttText, isBidirectional, inbound, outbound }) => {
+                                return sortedConnections.map(({ targetNodeId, connectionType, connectionColor, rttText, isBidirectional, inbound, outbound }) => {
                                     return (
                                         <div key={targetNodeId} className={`border-2 rounded p-1.5 ${connectionColor} ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
                                             <div className="flex items-center justify-between mb-0.5">
@@ -290,16 +273,6 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
             // Traditional two-table layout
             return (
                 <>
-                    {/* Connection Details Header */}
-                    <div className={`mb-3 px-3 py-2 rounded border-l-4 ${isDark ? 'bg-blue-900/20 border-blue-500 text-blue-200' : 'bg-blue-50 border-blue-400 text-blue-800'}`}>
-                        <div className="text-sm font-medium mb-1">Network Connectivity</div>
-                        <div className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-                            This shows which nodes can communicate with each other.
-                            <span className="font-medium"> Incoming</span> shows nodes that can reach this one.
-                            <span className="font-medium"> Outgoing</span> shows nodes this one can reach.
-                        </div>
-                    </div>
-
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         <ConnectionList
                             title="Incoming Connections"
@@ -372,21 +345,6 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
 
             {isExpanded && (
                 <div className="mt-3">
-                    {/* Data Retained Since */}
-                    <div className={`mb-3 px-3 py-3 rounded ${isDark ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                        <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                            <div className="flex items-center justify-between">
-                                <span className="font-medium">Monitoring Data Available Since:</span>
-                                <span className={`font-mono text-xs px-2 py-1 rounded ${isDark ? 'bg-gray-600 text-gray-200' : 'bg-gray-200 text-gray-800'}`}>
-                                    {formatDataRetention(node.node_info.data_retention)}
-                                </span>
-                            </div>
-                            <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                                Connection history and statistics are available from this date
-                            </p>
-                        </div>
-                    </div>
-
                     {renderConnectionContent()}
                 </div>
             )}

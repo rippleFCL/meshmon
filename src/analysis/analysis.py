@@ -94,11 +94,17 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
                 node_statuses[node_id] = NodeStatus.ONLINE
                 break
         else:
-            node_statuses[node_id] = NodeStatus.OFFLINE
+            if node_data.ping_data:
+                node_statuses[node_id] = NodeStatus.OFFLINE
+                continue
+            # If no pings exist, assume online if node_info is online
+        node_statuses[node_id] = NodeStatus.ONLINE
     return node_statuses
 
 
 def get_aggregate_status(online: int, offline: int) -> AggregateStatus:
+    if online == offline == 0:
+        return AggregateStatus.OFFLINE
     if offline == 0:
         return AggregateStatus.ONLINE
     elif online > 0:

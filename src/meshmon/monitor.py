@@ -270,7 +270,7 @@ class MonitorManager:
 
             # Create monitors for all other nodes in the network
             for node in network.node_config:
-                if node.node_id != local_node.node_id:
+                if node.node_id != local_node.node_id and node.url:
                     monitor_key = f"{net_id}_{node.node_id}"
                     logger.debug(f"Creating monitor: {monitor_key}")
                     monitor = Monitor(self.store_manager, net_id, node, local_node)

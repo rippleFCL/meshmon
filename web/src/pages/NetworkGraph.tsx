@@ -897,35 +897,40 @@ export default function NetworkGraph() {
                                     maskColor={isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)'}
                                 />
                                 <Panel position="top-right" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3">
-                                    <div className="space-y-1.5 text-xs">
-                                        <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">Network Legend</div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Online Node</span>
+                                    <div className="space-y-3 text-xs">
+                                        <div>
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Network Legend</div>
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center space-x-2">
+                                                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></div>
+                                                    <span className="text-gray-600 dark:text-gray-400">Online Node</span>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
+                                                    <span className="text-gray-600 dark:text-gray-400">Offline Node</span>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <div className="w-3 h-0.5 bg-green-500 rounded-full"></div>
+                                                    <span className="text-gray-600 dark:text-gray-400">Active Link</span>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <div className="w-3 h-0.5 bg-red-500"></div>
+                                                    <span className="text-gray-600 dark:text-gray-400">Failed Link</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Offline Node</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Outbound (Corner)</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Inbound (Corner)</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-3 h-0.5 bg-green-500 rounded-full opacity-90"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Adjacent Link</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-3 h-0.5 bg-green-500 opacity-70"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Center Link</span>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-3 h-0.5 bg-red-500"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Failed Link</span>
+                                        <div>
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Connection Handles</div>
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center space-x-2">
+                                                    <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
+                                                    <span className="text-gray-600 dark:text-gray-400">Outbound Handle</span>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
+                                                    <span className="text-gray-600 dark:text-gray-400">Inbound Handle</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </Panel>

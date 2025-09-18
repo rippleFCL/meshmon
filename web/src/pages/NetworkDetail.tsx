@@ -43,6 +43,19 @@ const getStatusColor = (status: string) => {
     }
 }
 
+const getConnectionStatusColor = (onlineCount: number, totalCount: number) => {
+    if (totalCount === 0) {
+        return 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30'
+    }
+    if (onlineCount === totalCount) {
+        return 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
+    }
+    if (onlineCount === 0) {
+        return 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30'
+    }
+    return 'text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/30'
+}
+
 const ConnectionList: React.FC<ConnectionListProps> = ({
     title,
     connections,
@@ -97,25 +110,6 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
     const avgOutboundRtt = node.outbound_status.average_rtt || 0
     const avgRtt = (avgInboundRtt + avgOutboundRtt) / 2
 
-    // Determine connection status based on inbound and outbound
-    const getConnectionStatus = () => {
-        const inboundStatus = node.inbound_status.status
-        const outboundStatus = node.outbound_status.status
-
-        if (inboundStatus === 'degraded' || outboundStatus === 'degraded') {
-            return 'degraded'
-        }
-        if (inboundStatus === 'offline' || outboundStatus === 'offline') {
-            return 'offline'
-        }
-        if (inboundStatus === 'online' && outboundStatus === 'online') {
-            return 'online'
-        }
-        return 'unknown'
-    }
-
-    const connectionStatus = getConnectionStatus()
-
     const formatDataRetention = (dateString: string) => {
         try {
             const date = new Date(dateString)
@@ -154,22 +148,20 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
                         </div>
                     </div>
                     <div className="text-center min-w-[4rem]">
-                        <div className="font-medium">Conn</div>
-                        <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(connectionStatus)}`}>
-                            {connectionStatus}
-                        </div>
-                    </div>
-                    <div className="text-center min-w-[4rem]">
                         <div className="font-medium">RTT</div>
                         <div className="font-mono text-sm">{avgRtt.toFixed(1)}ms</div>
                     </div>
                     <div className="text-center min-w-[4rem]">
                         <div className="font-medium">In</div>
-                        <div className="font-mono text-sm">{node.inbound_status.online_connections}/{node.inbound_status.total_connections}</div>
+                        <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getConnectionStatusColor(node.inbound_status.online_connections, node.inbound_status.total_connections)}`}>
+                            {node.inbound_status.online_connections}/{node.inbound_status.total_connections}
+                        </div>
                     </div>
                     <div className="text-center min-w-[4rem]">
                         <div className="font-medium">Out</div>
-                        <div className="font-mono text-sm">{node.outbound_status.online_connections}/{node.outbound_status.total_connections}</div>
+                        <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getConnectionStatusColor(node.outbound_status.online_connections, node.outbound_status.total_connections)}`}>
+                            {node.outbound_status.online_connections}/{node.outbound_status.total_connections}
+                        </div>
                     </div>
                     <div className="text-center min-w-[4rem]">
                         <div className="font-medium">Ver</div>

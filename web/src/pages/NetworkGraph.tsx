@@ -32,16 +32,14 @@ const MeshNode = ({ data }: { data: any }) => {
     const statusIcon = isOnline ? Wifi : WifiOff
     const StatusIcon = statusIcon
 
-    // Calculate node importance based on connectivity
-    const importance = Math.min(1, data.totalConnections / 15)
-    const nodeSize = 140 + (importance * 40) // Scale from 140px to 180px based on connectivity
-
+    // Calculate node importance based on inbound connections (true hub metric)
+    const nodeSize = 140
     // Apply opacity based on hover state
     const isHighlighted = data.isHighlighted
     const isDimmed = data.isDimmed
     const nodeOpacity = isDimmed ? 0.3 : isHighlighted ? 1 : 1
     const handleHover = data.onHover
-
+    console.log(`Node ${data.label} - Online: ${isOnline}, Inbound: ${data.inboundCount}, Outbound: ${data.outboundCount}`)
     return (
         <>
             {/* Outbound connection handles (source) - positioned at outer corners to avoid crossovers */}
@@ -212,11 +210,11 @@ const MeshNode = ({ data }: { data: any }) => {
                 )}
 
                 <div className="flex justify-between text-xs opacity-70">
-                    <span title="Inbound connections">↓{data.inboundCount}</span>
+                    <span title="Online/Total inbound connections">↓{data.inboundOnlineCount}/{data.inboundCount}</span>
                     <span title="Outbound connections">↑{data.outboundCount}</span>
                 </div>
 
-                {importance > 0.3 && (
+                {data.inboundOnlineCount > 0 && isOnline && (
                     <div className="mt-1 px-2 py-1 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400 text-xs text-center">
                         Hub Node
                     </div>
@@ -462,6 +460,7 @@ export default function NetworkGraph() {
                     status: nodeAnalysis.node_status,
                     avgRtt: nodeAnalysis.inbound_status?.average_rtt || 0,
                     inboundCount: nodeAnalysis.inbound_status?.total_connections || 0,
+                    inboundOnlineCount: nodeAnalysis.inbound_status?.online_connections || 0,
                     outboundCount: nodeAnalysis.outbound_status?.total_connections || 0,
                     totalConnections,
                     version: nodeAnalysis.node_info?.version || 'unknown',

@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Networks from './pages/Networks'
 import NetworkDetail from './pages/NetworkDetail'
+import NetworkGraph from './pages/NetworkGraph'
 
 function App() {
     return (
@@ -16,6 +17,7 @@ function App() {
                             <Route path="/" element={<Dashboard />} />
                             <Route path="/networks" element={<Networks />} />
                             <Route path="/networks/:networkId" element={<NetworkDetail />} />
+                            <Route path="/graph" element={<NetworkGraph />} />
                         </Routes>
                     </Layout>
                 </Router>

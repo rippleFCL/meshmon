@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.0.3] - 2025-09-18
+### :sparkles: New Features
+- [`ce7e9e2`](https://github.com/rippleFCL/meshmon/commit/ce7e9e2736edb53089599fba644c6983c2ea12cf) - add favicon *(commit by [@vellfire](https://github.com/vellfire))*
+
+### :bug: Bug Fixes
+- [`afb2def`](https://github.com/rippleFCL/meshmon/commit/afb2def5240bcae24d8dc7f4848c6a402f54ce90) - update title *(commit by [@vellfire](https://github.com/vellfire))*
+
+### :wrench: Chores
+- [`420627c`](https://github.com/rippleFCL/meshmon/commit/420627cc8da0169378969dd704c53b7f38f82d83) - bump version *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v2.0.2] - 2025-09-18
 ### :sparkles: New Features
 - [`66677b4`](https://github.com/rippleFCL/meshmon/commit/66677b46ae244a2385d27ddc43fb02350856bc5a) - better monitor stopping mechanics *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -135,3 +146,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v2.0.0]: https://github.com/rippleFCL/meshmon/compare/v1.0.8...v2.0.0
 [v2.0.1]: https://github.com/rippleFCL/meshmon/compare/v2.0.0...v2.0.1
 [v2.0.2]: https://github.com/rippleFCL/meshmon/compare/v2.0.1...v2.0.2
+[v2.0.3]: https://github.com/rippleFCL/meshmon/compare/v2.0.2...v2.0.3

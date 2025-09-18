@@ -44,7 +44,7 @@ const MeshNode = ({ data }: { data: any }) => {
 
     return (
         <>
-            {/* Outbound connection handles (source) - positioned on outer edge of each side */}
+            {/* Outbound connection handles (source) - positioned at outer corners to avoid crossovers */}
             <Handle
                 type="source"
                 position={Position.Top}
@@ -56,7 +56,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     top: -5,
-                    left: '30%',
+                    left: '15%', // Far left on top edge
                 }}
             />
             <Handle
@@ -70,7 +70,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     right: -5,
-                    top: '30%',
+                    top: '15%', // High on right edge
                 }}
             />
             <Handle
@@ -84,7 +84,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     bottom: -5,
-                    left: '30%',
+                    left: '85%', // Far right on bottom edge
                 }}
             />
             <Handle
@@ -98,11 +98,11 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     left: -5,
-                    top: '30%',
+                    top: '85%', // Low on left edge
                 }}
             />
 
-            {/* Inbound connection handles (target) - positioned on inner edge of each side */}
+            {/* Inbound connection handles (target) - positioned at inner corners to avoid crossovers */}
             <Handle
                 type="target"
                 position={Position.Top}
@@ -114,7 +114,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     top: -5,
-                    left: '70%',
+                    left: '85%', // Far right on top edge
                 }}
             />
             <Handle
@@ -128,7 +128,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     right: -5,
-                    top: '70%',
+                    top: '85%', // Low on right edge
                 }}
             />
             <Handle
@@ -142,7 +142,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     bottom: -5,
-                    left: '70%',
+                    left: '15%', // Far left on bottom edge
                 }}
             />
             <Handle
@@ -156,7 +156,7 @@ const MeshNode = ({ data }: { data: any }) => {
                     width: 10,
                     height: 10,
                     left: -5,
-                    top: '70%',
+                    top: '15%', // High on left edge
                 }}
             />
 
@@ -491,34 +491,57 @@ export default function NetworkGraph() {
             // For larger networks, we need a stricter threshold
             let adjacencyThreshold: number
             if (totalNodes <= 4) {
-                adjacencyThreshold = 400 // More lenient for small networks
+                adjacencyThreshold = 500 // More lenient for small networks
             } else if (totalNodes <= 8) {
-                adjacencyThreshold = 300
+                adjacencyThreshold = 400 // Increased from 300
             } else if (totalNodes <= 12) {
-                adjacencyThreshold = 250
+                adjacencyThreshold = 350 // Increased from 250
             } else {
-                adjacencyThreshold = 200 // Stricter for large networks
+                adjacencyThreshold = 300 // Increased from 200 - more connections will be face-to-face
             }
 
             const areAdjacent = distance < adjacencyThreshold
 
             if (areAdjacent) {
-                // Adjacent nodes: connect on the sides facing each other
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    // Horizontal connection is dominant
-                    if (dx > 0) {
-                        return { sourceHandle: 'right-out', targetHandle: 'left-in', isAdjacent: true }
-                    } else {
-                        return { sourceHandle: 'left-out', targetHandle: 'right-in', isAdjacent: true }
-                    }
+                // Adjacent nodes: connect on the sides that truly face each other
+                // Using angle-based calculation for precise face-to-face connections
+                // Calculate the angle between the two nodes to determine facing sides
+                const angle = Math.atan2(dy, dx) // Angle from source to target
+                const angleInDegrees = (angle * 180 / Math.PI + 360) % 360
+
+                // Determine source handle based on direction to target
+                let sourceHandle: string
+                if (angleInDegrees >= 315 || angleInDegrees < 45) {
+                    // Target is to the right
+                    sourceHandle = 'right-out'
+                } else if (angleInDegrees >= 45 && angleInDegrees < 135) {
+                    // Target is below
+                    sourceHandle = 'bottom-out'
+                } else if (angleInDegrees >= 135 && angleInDegrees < 225) {
+                    // Target is to the left
+                    sourceHandle = 'left-out'
                 } else {
-                    // Vertical connection is dominant
-                    if (dy > 0) {
-                        return { sourceHandle: 'bottom-out', targetHandle: 'top-in', isAdjacent: true }
-                    } else {
-                        return { sourceHandle: 'top-out', targetHandle: 'bottom-in', isAdjacent: true }
-                    }
+                    // Target is above
+                    sourceHandle = 'top-out'
                 }
+
+                // Determine target handle (opposite side from source perspective)
+                let targetHandle: string
+                if (angleInDegrees >= 315 || angleInDegrees < 45) {
+                    // Source is to the left of target
+                    targetHandle = 'left-in'
+                } else if (angleInDegrees >= 45 && angleInDegrees < 135) {
+                    // Source is above target
+                    targetHandle = 'top-in'
+                } else if (angleInDegrees >= 135 && angleInDegrees < 225) {
+                    // Source is to the right of target
+                    targetHandle = 'right-in'
+                } else {
+                    // Source is below target
+                    targetHandle = 'bottom-in'
+                }
+
+                return { sourceHandle, targetHandle, isAdjacent: true }
             } else {
                 // Distant nodes: connect toward the center for both source and target
 
@@ -559,6 +582,9 @@ export default function NetworkGraph() {
         let adjacentConnections = 0
         let centerConnections = 0
 
+        // Debug: Track some example connections
+        const debugConnections: Array<{ source: string, target: string, sourceHandle: string, targetHandle: string, isAdjacent: boolean }> = []
+
         // Create all real connections from outbound_info
         nodeIds.forEach(sourceNodeId => {
             const nodeAnalysis = network.node_analyses[sourceNodeId]
@@ -590,6 +616,17 @@ export default function NetworkGraph() {
                             adjacentConnections++
                         } else {
                             centerConnections++
+                        }
+
+                        // Track some example connections for debugging
+                        if (debugConnections.length < 5) {
+                            debugConnections.push({
+                                source: sourceNodeId,
+                                target: targetNodeId,
+                                sourceHandle: handleResult.sourceHandle,
+                                targetHandle: handleResult.targetHandle,
+                                isAdjacent: handleResult.isAdjacent
+                            })
                         }
 
                         // Calculate edge strength based on RTT and status
@@ -661,6 +698,7 @@ export default function NetworkGraph() {
 
         console.log(`Created ${realConnectionCount} authentic connections from outbound data`)
         console.log(`Connection types: ${adjacentConnections} adjacent (face-to-face), ${centerConnections} center-oriented`)
+        console.log(`Sample face-to-face connections:`, debugConnections.filter(c => c.isAdjacent))
 
         console.log('Generated edges:', edges)
         return { processedNodes: nodes, processedEdges: edges }
@@ -871,11 +909,11 @@ export default function NetworkGraph() {
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Outbound Handle</span>
+                                            <span className="text-gray-600 dark:text-gray-400">Outbound (Corner)</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
-                                            <span className="text-gray-600 dark:text-gray-400">Inbound Handle</span>
+                                            <span className="text-gray-600 dark:text-gray-400">Inbound (Corner)</span>
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <div className="w-3 h-0.5 bg-green-500 rounded-full opacity-90"></div>

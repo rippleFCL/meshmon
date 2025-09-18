@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.0.0] - 2025-09-18
+### :boom: BREAKING CHANGES
+- due to [`7a21d32`](https://github.com/rippleFCL/meshmon/commit/7a21d32003abf88542925967c1d0ca81f3fc754e) - allowed nullable url *(commit by [@rippleFCL](https://github.com/rippleFCL))*:
+
+  if your network config intends to use this feature you will have to update to v2.0.0
+
+
+### :sparkles: New Features
+- [`3a33c2c`](https://github.com/rippleFCL/meshmon/commit/3a33c2ce0da1c8b3d8cd5b37f585097c7cd33cc7) - added graph in web *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`507d6d6`](https://github.com/rippleFCL/meshmon/commit/507d6d682b34b53565fdc2ea4d67db82895f8339) - improved graph *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`896eb46`](https://github.com/rippleFCL/meshmon/commit/896eb465dcfa7b5d6563abd93be619b197c9e80f) - working on better routing algo *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`756b674`](https://github.com/rippleFCL/meshmon/commit/756b67429b38053766777ac669899141399d4024) - connection are gud now *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`c55a96b`](https://github.com/rippleFCL/meshmon/commit/c55a96b018d70b4dbf60fca012c493d80ca36401) - improved node detail redability *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`3a05435`](https://github.com/rippleFCL/meshmon/commit/3a054359424368db3a7279b2b0d554bc221bc06e) - added a unified view *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`a756bf6`](https://github.com/rippleFCL/meshmon/commit/a756bf6999337506bb2fb58bcb37410cdb555f8a) - added cards insted of a table in unified view *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`7a21d32`](https://github.com/rippleFCL/meshmon/commit/7a21d32003abf88542925967c1d0ca81f3fc754e) - allowed nullable url *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`ad3eb66`](https://github.com/rippleFCL/meshmon/commit/ad3eb668cd0af20422e49fc704df6e542082ce23) - added webhooks *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :bug: Bug Fixes
+- [`ddfb526`](https://github.com/rippleFCL/meshmon/commit/ddfb52606669834427bd4714d2eaf34bd1039588) - removed unused values *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`7c7c296`](https://github.com/rippleFCL/meshmon/commit/7c7c296e5fda2a268656ddd48be8752c5b1f6a29) - bump version to v2.0.0 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v1.0.8] - 2025-09-17
 ### :bug: Bug Fixes
 - [`197e7d3`](https://github.com/rippleFCL/meshmon/commit/197e7d332f1233d572c6cdc9aa158a20ec5efcaf) - going cloud native. fixed multi node setups *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -95,3 +120,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v1.0.5]: https://github.com/rippleFCL/meshmon/compare/v1.0.4...v1.0.5
 [v1.0.7]: https://github.com/rippleFCL/meshmon/compare/v1.0.6...v1.0.7
 [v1.0.8]: https://github.com/rippleFCL/meshmon/compare/v1.0.7...v1.0.8
+[v2.0.0]: https://github.com/rippleFCL/meshmon/compare/v1.0.8...v2.0.0

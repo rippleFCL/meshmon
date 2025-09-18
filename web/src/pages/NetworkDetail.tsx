@@ -174,7 +174,7 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
                             </div>
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                             {(() => {
                                 // Create a unified list of all connections
                                 const allNodes = new Set([
@@ -199,7 +199,7 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
 
                                     if (isBidirectional) {
                                         connectionType = '↔'
-                                        connectionColor = 'border-l-green-500 bg-green-50 dark:bg-green-900/20'
+                                        connectionColor = 'border-green-500 bg-green-50 dark:bg-green-900/20'
                                         statusText = `${nodeId} ↔ ${targetNodeId}`
                                         const avgRtt = ((inbound.rtt + outbound.rtt) / 2)
                                         rttText = avgRtt > 0 ? `${avgRtt.toFixed(1)}ms avg` : 'N/A'
@@ -207,18 +207,18 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
                                     } else if (hasOutbound) {
                                         connectionType = '→'
                                         statusText = `${nodeId} → ${targetNodeId}`
-                                        connectionColor = 'border-l-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                                        connectionColor = 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
                                         rttText = outbound.rtt > 0 ? `${outbound.rtt.toFixed(1)}ms` : 'N/A'
                                         sortOrder = 2
                                     } else if (hasInbound) {
                                         connectionType = '←'
-                                        connectionColor = 'border-l-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
+                                        connectionColor = 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
                                         statusText = `${targetNodeId} → ${nodeId}`
                                         rttText = inbound.rtt > 0 ? `${inbound.rtt.toFixed(1)}ms` : 'N/A'
                                         sortOrder = 3
                                     } else {
                                         connectionType = '✕'
-                                        connectionColor = 'border-l-red-500 bg-red-50 dark:bg-red-900/20'
+                                        connectionColor = 'border-red-500 bg-red-50 dark:bg-red-900/20'
                                         statusText = `${nodeId} ✕ ${targetNodeId}`
                                         rttText = 'N/A'
                                         sortOrder = 4
@@ -247,40 +247,36 @@ const NodeDetailCard: React.FC<NodeDetailCardProps> = ({ nodeId, node, isExpande
 
                                 return sortedConnections.map(({ targetNodeId, connectionType, connectionColor, statusText, rttText, isBidirectional, inbound, outbound }) => {
                                     return (
-                                        <div key={targetNodeId} className={`border-l-4 rounded-r-lg px-3 py-2 ${connectionColor}`}>
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex-1">
-                                                    <div className={`flex items-center space-x-4 ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
-                                                        <span className={`text-base font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
-                                                            {nodeId} {connectionType} {targetNodeId}
-                                                        </span>
-                                                        {isBidirectional ? (
-                                                            <>
-                                                                <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                    {nodeId} → {targetNodeId}: <span className="font-mono font-medium">{outbound?.rtt?.toFixed(1) || 'N/A'}ms</span>
-                                                                </span>
-                                                                <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                    {targetNodeId} → {nodeId}: <span className="font-mono font-medium">{inbound?.rtt?.toFixed(1) || 'N/A'}ms</span>
-                                                                </span>
-                                                            </>
-                                                        ) : connectionType === '→' ? (
-                                                            <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                {nodeId} → {targetNodeId}: <span className="font-mono font-medium">{rttText}</span>
-                                                            </span>
-                                                        ) : connectionType === '←' ? (
-                                                            <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                {targetNodeId} → {nodeId}: <span className="font-mono font-medium">{rttText}</span>
-                                                            </span>
-                                                        ) : (
-                                                            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>No connection available</span>
-                                                        )}
-                                                    </div>
+                                        <div key={targetNodeId} className={`border-2 rounded p-1.5 ${connectionColor} ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
+                                            <div className="flex items-center justify-between mb-0.5">
+                                                <h6 className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'} truncate pr-1`}>
+                                                    {nodeId} {connectionType} {targetNodeId}
+                                                </h6>
+                                                <div className={`text-lg ${isDark ? 'text-gray-300' : 'text-gray-700'} flex-shrink-0`}>
+                                                    {connectionType}
                                                 </div>
-                                                <div className="text-right">
-                                                    <div className={`text-xl ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                        {connectionType}
+                                            </div>
+                                            <div className="space-y-0">
+                                                {isBidirectional ? (
+                                                    <>
+                                                        <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                            {nodeId} → {targetNodeId}: <span className="font-mono font-medium">{outbound?.rtt?.toFixed(1) || 'N/A'}ms</span>
+                                                        </div>
+                                                        <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                            {targetNodeId} → {nodeId}: <span className="font-mono font-medium">{inbound?.rtt?.toFixed(1) || 'N/A'}ms</span>
+                                                        </div>
+                                                    </>
+                                                ) : connectionType === '→' ? (
+                                                    <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                        {nodeId} → {targetNodeId}: <span className="font-mono font-medium">{rttText}</span>
                                                     </div>
-                                                </div>
+                                                ) : connectionType === '←' ? (
+                                                    <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                        {targetNodeId} → {nodeId}: <span className="font-mono font-medium">{rttText}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>No connection available</div>
+                                                )}
                                             </div>
                                         </div>
                                     )

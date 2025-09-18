@@ -251,8 +251,10 @@ class MonitorManager:
         logger.debug(f"MonitorManager initialized with {len(self.monitors)} monitors")
 
     def manager(self):
-        while not self.stop_flag.is_set():
-            time.sleep(5)
+        while True:
+            val = self.stop_flag.wait(5)
+            if val:
+                break
             try:
                 for store in self.store_manager.stores.values():
                     node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)

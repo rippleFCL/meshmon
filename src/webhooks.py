@@ -1,4 +1,3 @@
-import time
 from analysis.analysis import analyze_all_networks, Status
 from meshmon.distrostore import StoreManager
 from meshmon.config import NetworkConfigLoader
@@ -20,7 +19,10 @@ class WebhookHandler:
         self.thread.start()
 
     def webhook_thread(self):
-        while not self.flag.is_set():
+        while True:
+            val = self.flag.wait(1)
+            if val:
+                break
             network_data = analyze_all_networks(self.store_manager)
             for network_id, analysis in network_data.networks.items():
                 for node_id, node_analysis in analysis.node_analyses.items():
@@ -43,7 +45,6 @@ class WebhookHandler:
                         self.node_status[(network_id, node_id)] = (
                             node_analysis.node_status
                         )
-            time.sleep(1)
 
     def stop(self):
         self.flag.set()

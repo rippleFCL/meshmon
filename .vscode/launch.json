@@ -26,6 +26,9 @@
                 "--port",
                 "8001"
             ],
+            "env": {
+                "LOG_LEVEL": "DEBUG",
+            },
             "jinja": true,
             "justMyCode": false
         }

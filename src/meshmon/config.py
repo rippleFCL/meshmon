@@ -88,21 +88,31 @@ class NetworkConfigLoader:
             if network.config_type == ConfigTypes.GIT and network.git_repo:
                 # Use a temp directory for the repo
                 repo_url = network.git_repo
-                if network_dir.exists():
-                    # If already cloned, pull latest
-                    try:
-                        repo = Repo(str(network_dir))
-                        origin = repo.remotes.origin
-                        origin.pull()
-                    except Exception as e:
-                        # If pull fails, reclone
-                        logger.debug(
-                            f"Git pull failed for {network.directory}, recloning: {e}"
-                        )
-                        shutil.rmtree(network_dir)
-                        Repo.clone_from(repo_url, str(network_dir))
-                else:
-                    Repo.clone_from(repo_url, str(network_dir))
+                repo: Repo | None = None
+                try:
+                    if network_dir.exists():
+                        # If already cloned, pull latest
+                        try:
+                            repo = Repo(str(network_dir))
+                            origin = repo.remotes.origin
+                            origin.pull()
+                        except Exception as e:
+                            # If pull fails, reclone
+                            logger.debug(
+                                f"Git pull failed for {network.directory}, recloning: {e}"
+                            )
+                            shutil.rmtree(network_dir)
+                            repo = Repo.clone_from(repo_url, str(network_dir))
+                    else:
+                        repo = Repo.clone_from(repo_url, str(network_dir))
+                finally:
+                    # https://github.com/gitpython-developers/GitPython/issues/1333
+                    # Repo needs to be closed and deleted otherwise it'll leave zombie processes behind
+                    if repo:
+                        # https://github.com/SwissDataScienceCenter/renku-python/pull/2928
+                        repo.close()
+                        del repo
+                        repo = None
             else:
                 # For local configs, ensure the directory exists
                 network_dir.mkdir(parents=True, exist_ok=True)

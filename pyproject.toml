@@ -7,7 +7,6 @@ dependencies = [
     "pyyaml (>=6.0.2,<7.0.0)",
     "cryptography (>=45.0.7,<46.0.0)",
     "uvicorn (>=0.35.0,<0.36.0)",
-    "gitpython (>=3.1.45,<4.0.0)",
     "requests (>=2.32.5,<3.0.0)",
     "fastapi (>=0.116.1,<0.117.0)",
 ]

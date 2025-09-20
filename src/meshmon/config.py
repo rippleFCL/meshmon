@@ -7,7 +7,7 @@ from typing import Annotated
 from .crypto import KeyMapping, Signer, Verifier
 import yaml
 from pydantic import BaseModel, StringConstraints
-from git import Repo
+from .git import Repo
 import shutil
 import logging
 
@@ -83,36 +83,15 @@ class NetworkConfigLoader:
         logger.debug(f"Loaded config for {len(node_cfg.networks)} networks")
 
         for network in node_cfg.networks:
-            # If the config is from Git, clone or pull the repo
             network_dir = self.config_dir / "networks" / network.directory
             if network.config_type == ConfigTypes.GIT and network.git_repo:
-                # Use a temp directory for the repo
-                repo_url = network.git_repo
-                repo: Repo | None = None
                 try:
-                    if network_dir.exists():
-                        # If already cloned, pull latest
-                        try:
-                            repo = Repo(str(network_dir))
-                            origin = repo.remotes.origin
-                            origin.pull()
-                        except Exception as e:
-                            # If pull fails, reclone
-                            logger.debug(
-                                f"Git pull failed for {network.directory}, recloning: {e}"
-                            )
-                            shutil.rmtree(network_dir)
-                            repo = Repo.clone_from(repo_url, str(network_dir))
-                    else:
-                        repo = Repo.clone_from(repo_url, str(network_dir))
-                finally:
-                    # https://github.com/gitpython-developers/GitPython/issues/1333
-                    # Repo needs to be closed and deleted otherwise it'll leave zombie processes behind
-                    if repo:
-                        # https://github.com/SwissDataScienceCenter/renku-python/pull/2928
-                        repo.close()
-                        del repo
-                        repo = None
+                    repo = Repo(network.git_repo, str(network_dir))
+                    repo.clone_or_update()
+                except Exception as e:
+                    # If pull fails, reclone
+                    logger.debug(f"Git pull failed for {network.directory}, error: {e}")
+                    shutil.rmtree(network_dir)
             else:
                 # For local configs, ensure the directory exists
                 network_dir.mkdir(parents=True, exist_ok=True)
@@ -129,7 +108,7 @@ class NetworkConfigLoader:
                         )
         return node_cfg
 
-    def _load_network_config(self, net_cfg: NodeCfgNetwork) -> NetworkConfig:
+    def _load_network_config(self, net_cfg: NodeCfgNetwork) -> NetworkConfig | None:
         """
         Load a single network's config and keys.
         """
@@ -138,6 +117,8 @@ class NetworkConfigLoader:
         net_config_path = (
             self.config_dir / "networks" / net_cfg.directory / "config.yml"
         )
+        if not net_config_path.exists():
+            return None
         with open(net_config_path, "r") as f:
             data = yaml.safe_load(f)
         root = NetworkRootConfig.model_validate(data)
@@ -180,7 +161,7 @@ class NetworkConfigLoader:
         """
         node_configs = self._load_node_config()
         net_configs = [self._load_network_config(cfg) for cfg in node_configs.networks]
-        return {cfg.network_id: cfg for cfg in net_configs}
+        return {cfg.network_id: cfg for cfg in net_configs if cfg is not None}
 
     def reload(self):
         """
@@ -224,22 +205,11 @@ class NetworkConfigLoader:
             if network.config_type == ConfigTypes.GIT and network.git_repo:
                 if network_path.exists():
                     try:
-                        repo = Repo(str(network_path))
-                        # Get current commit hash before pulling
-                        old_commit = repo.head.commit.hexsha
+                        repo = Repo(network.git_repo, str(network_path))
+                        needs_update = repo.needs_update()
 
-                        # Pull latest changes
-                        origin = repo.remotes.origin
-                        origin.pull()
-
-                        # Get commit hash after pulling
-                        new_commit = repo.head.commit.hexsha
-
-                        # Check if there were any changes
-                        if old_commit != new_commit:
-                            logger.info(
-                                f"Network {network.directory} has updates: {old_commit[:8]} -> {new_commit[:8]}"
-                            )
+                        if needs_update:
+                            logger.info(f"Network {network.directory} has updates")
                             has_changes = True
                         else:
                             logger.debug(f"Network {network.directory} is up to date")

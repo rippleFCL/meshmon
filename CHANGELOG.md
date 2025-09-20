@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.0.5] - 2025-09-20
+### :wrench: Chores
+- [`d130fd2`](https://github.com/rippleFCL/meshmon/commit/d130fd2a3033e1c67f7e7c7b494fe80f8f0c9fd3) - bump version to v2.0.5 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v2.0.4] - 2025-09-18
 ### :bug: Bug Fixes
 - [`aa0ed88`](https://github.com/rippleFCL/meshmon/commit/aa0ed8859cb5536d2c819b6955b799feeef8b627) - hub nodes in graph actuall reprisent what they mean *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -159,3 +164,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v2.0.2]: https://github.com/rippleFCL/meshmon/compare/v2.0.1...v2.0.2
 [v2.0.3]: https://github.com/rippleFCL/meshmon/compare/v2.0.2...v2.0.3
 [v2.0.4]: https://github.com/rippleFCL/meshmon/compare/v2.0.3...v2.0.4
+[v2.0.5]: https://github.com/rippleFCL/meshmon/compare/v2.0.4...v2.0.5

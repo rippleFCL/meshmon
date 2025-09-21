@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Annotated
 
+from meshmon.version import SEMVER
+
 from .crypto import KeyMapping, Signer, Verifier
 import yaml
 from pydantic import BaseModel, StringConstraints
@@ -41,6 +43,7 @@ class NetworkNodeInfo(BaseModel):
 class NetworkRootConfig(BaseModel):
     node_config: list[NetworkNodeInfo]
     network_id: Annotated[str, StringConstraints(to_lower=True)]
+    node_version: list[str] | None = None
 
 
 @dataclass
@@ -122,6 +125,14 @@ class NetworkConfigLoader:
         with open(net_config_path, "r") as f:
             data = yaml.safe_load(f)
         root = NetworkRootConfig.model_validate(data)
+        if root.node_version:
+            for version in root.node_version:
+                if not SEMVER.match(version):
+                    logger.warning(
+                        f"Node version constraint '{version}' for network '{net_cfg.directory}' is not compatible with current node version '{SEMVER}'"
+                    )
+                    return None
+
         logger.debug(f"Network {net_cfg.directory} has {len(root.node_config)} nodes")
 
         # Load key mapping for this network

@@ -51,4 +51,4 @@ EXPOSE 8000
 
 USER 1000:1000
 
-ENTRYPOINT [ "uvicorn", "server:api" ]
+ENTRYPOINT [ "dumb-init", "uvicorn", "server:api" ]

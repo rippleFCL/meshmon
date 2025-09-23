@@ -64,10 +64,8 @@ jobs:
         # Build cache is scoped to branches by default.
         # We use the main branch as a fallback if there's no cache for the existing branch.
         # https://stackoverflow.com/a/77127188/5209106
-        cache-from: |
-          type=gha
-          type=gha,scope=main
-        cache-to: type=gha,mode=max
+        cache-from: type=registry,ref=ghcr.io/ripplefcl/meshmon:buildcache
+        cache-to: type=registry,ref=ghcr.io/ripplefcl/meshmon:buildcache,mode=max
         provenance: false
 
   release:

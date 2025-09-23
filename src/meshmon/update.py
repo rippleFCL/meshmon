@@ -29,10 +29,13 @@ class UpdateManager:
     def _update_thread(
         self, net_id: str, remote_node: NetworkNodeInfo, update_event: Event
     ):
+        logger.info(
+            f"Starting update thread for network: {net_id}, remote node: {remote_node.node_id}"
+        )
         while not self.stop_event.is_set():
             update_event.wait()
             update_event.clear()
-            logger.info(
+            logger.debug(
                 f"Update event triggered for network: {net_id}, remote node: {remote_node.node_id}"
             )
             store = self.store_manager.get_store(net_id)
@@ -110,5 +113,6 @@ class UpdateManager:
 
     def reload(self):
         self.stop()
+        self.stop_event.clear()
         self.update_events: dict[str, list[Event]] = {}
         self.threads = self._get_threads()

@@ -62,7 +62,7 @@ class WebhookHandler:
                     return False
             online_nodes += 1
         if online_nodes == 1:
-            logger.info(
+            logger.warning(
                 f"Only one online node ({store.key_mapping.signer.node_id}) in network {network_id}, cluster agreement not possible"
             )
             return False
@@ -153,8 +153,10 @@ class WebhookHandler:
             current_status = current_store.get_context(
                 "last_notified_status", AnalysedNodeStatus
             )
+            logger.info(f"Catching up to leader {leader_node} for network {network_id}")
             for node_id, status in leader_status:
                 current_status.set(node_id, status)
+            current_store.set_value("last_notification", leader_last_notification)
 
     def _notify_for_network(self, network_id: str):
         logger.debug(f"Processing notifications for network {network_id}")
@@ -165,7 +167,7 @@ class WebhookHandler:
             current_status = current_store.get_context(
                 "last_notified_status", AnalysedNodeStatus
             )
-            logger.info(f"Acting as leader for network {network_id}")
+            logger.debug(f"Acting as leader for network {network_id}")
             self._catchup(network_id)
             updated = False
             for node_id, status in analysis_ctx:

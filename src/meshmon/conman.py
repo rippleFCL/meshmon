@@ -1,6 +1,9 @@
 import threading
 import time
 
+from .webhooks import AnalysedNodeStatus
+
+from .update import UpdateManager
 from server import PingData
 from .config import NetworkConfigLoader, get_allowed_keys
 from .distrostore import StoreManager
@@ -16,7 +19,9 @@ class ConfigManager:
         config: NetworkConfigLoader,
         stores: StoreManager,
         monitors: MonitorManager,
+        update_manager: UpdateManager,
     ):
+        self.update_manager = update_manager
         self.config = config
         self.store_manager = stores
         self.monitor_manager = monitors
@@ -28,6 +33,7 @@ class ConfigManager:
             time.sleep(10)
             try:
                 if self.config.needs_reload():
+                    self.update_manager.stop()
                     self.monitor_manager.stop()
                     self.config.reload()
                     self.store_manager.reload()
@@ -35,6 +41,13 @@ class ConfigManager:
                         store = self.store_manager.get_store(network_id)
                         ctx = store.get_context("ping_data", PingData)
                         ctx.allowed_keys = get_allowed_keys(network)
+                        ctx = store.get_context(
+                            "last_notified_status", AnalysedNodeStatus
+                        )
+                        ctx.allowed_keys = get_allowed_keys(network)
+                        ctx = store.get_context("network_analysis", AnalysedNodeStatus)
+                        ctx.allowed_keys = get_allowed_keys(network)
                     self.monitor_manager.reload()
+                    self.update_manager.reload()
             except Exception as e:
                 logger.error(f"Error in config watcher: {e}")

@@ -25,7 +25,7 @@ from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
 from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 import logging
-from meshmon.webhooks import WebhookHandler
+from meshmon.webhooks import WebhookHandler, AnalysedNodeStatus
 from fastapi.staticfiles import StaticFiles
 
 # Configure logging
@@ -50,6 +50,12 @@ def prefill_store(store: SharedStore, network: NetworkConfig):
     )
     store.set_value("data_retention", data_retention, DateEvalType.OLDER)
     ctx = store.get_context("ping_data", PingData)
+    ctx.allowed_keys = get_allowed_keys(network)
+    ctx = store.get_context("ping_data", PingData)
+    ctx.allowed_keys = get_allowed_keys(network)
+    ctx = store.get_context("last_notified_status", AnalysedNodeStatus)
+    ctx.allowed_keys = get_allowed_keys(network)
+    ctx = store.get_context("network_analysis", AnalysedNodeStatus)
     ctx.allowed_keys = get_allowed_keys(network)
 
 
@@ -79,7 +85,7 @@ webhook_handler = WebhookHandler(store_manager, config, update_manager)
 logger.info("Webhook handler initialized")
 
 logger.info("Initializing config manager...")
-config_manager = ConfigManager(config, store_manager, monitor_manager)
+config_manager = ConfigManager(config, store_manager, monitor_manager, update_manager)
 logger.info("Config manager initialized")
 
 # Get password from config and hash it
@@ -96,6 +102,7 @@ async def lifespan(app: FastAPI):
         node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)
         store.set_value("node_info", node_info)
         update_manager.update(net_id)
+    update_manager.stop()
     monitor_manager.stop()
 
 

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.5] - 2025-09-23
+### :wrench: Chores
+- [`9ba3e0a`](https://github.com/rippleFCL/meshmon/commit/9ba3e0a1dd3421bb11623e0e9d12ee7c34fe17dd) - bump version to v3.0.5 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v3.0.4] - 2025-09-23
 ### :bug: Bug Fixes
 - [`b4311a8`](https://github.com/rippleFCL/meshmon/commit/b4311a89791ef49373268d9a516ad2901af360c2) - dont allow ctx mutation if key dosnt exist in allowed keys *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -207,3 +212,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v3.0.2]: https://github.com/rippleFCL/meshmon/compare/v3.0.1...v3.0.2
 [v3.0.3]: https://github.com/rippleFCL/meshmon/compare/v3.0.2...v3.0.3
 [v3.0.4]: https://github.com/rippleFCL/meshmon/compare/v3.0.3...v3.0.4
+[v3.0.5]: https://github.com/rippleFCL/meshmon/compare/v3.0.4...v3.0.5

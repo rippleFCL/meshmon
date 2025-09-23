@@ -1,7 +1,7 @@
 import semver
 
 
-VERSION = "3.0.3"
+VERSION = "3.0.4"
 
 SEMVER = semver.Version.parse(VERSION)
 

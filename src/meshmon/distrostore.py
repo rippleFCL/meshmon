@@ -348,6 +348,9 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
         signed_data = SignedBlockData.new(
             self.signer, data, block_id=key, rep_type=rep_type
         )
+        if ctx_data.allowed_keys and key not in ctx_data.allowed_keys:
+            logger.warning(f"Key {key} not in allowed keys; skipping set operation.")
+            return
         ctx_data.data[key] = signed_data
 
 

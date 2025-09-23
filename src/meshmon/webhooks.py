@@ -1,0 +1,335 @@
+from pydantic import BaseModel
+
+from meshmon.update import UpdateManager
+from .analysis.store import NodeStatus
+from .monitor import AnalysedNodeStatus
+from .distrostore import StoreManager
+from .config import NetworkConfigLoader
+import threading
+import logging
+import datetime
+import hashlib
+import requests
+
+
+logger = logging.getLogger("meshmon.webhooks")
+
+
+class HashedWebhook(BaseModel):
+    hashed_webhook: str
+
+    @classmethod
+    def from_webhook(cls, webhook: str) -> "HashedWebhook":
+        hashed = hashlib.sha256(webhook.encode()).hexdigest()
+        return cls(hashed_webhook=hashed)
+
+
+class LastNotification(BaseModel):
+    timestamp: datetime.datetime
+
+
+class WebhookHandler:
+    def __init__(
+        self,
+        store_manager: StoreManager,
+        config: NetworkConfigLoader,
+        update_manager: UpdateManager,
+    ):
+        self.store_manager = store_manager
+        self.update_manager = update_manager
+        self.config = config
+        self.flag = threading.Event()
+        self.thread = threading.Thread(target=self.webhook_thread, daemon=True)
+        self.thread.start()
+
+    def _cluster_agrees(self, network_id: str) -> bool:
+        store = self.store_manager.stores[network_id]
+        local_analysis = store.get_context("network_analysis", AnalysedNodeStatus)
+        online_nodes = 0
+
+        for node_id in store.nodes:
+            remote_status = store.get_context(
+                "network_analysis", AnalysedNodeStatus, node_id
+            )
+            if remote_status is None:
+                continue
+            status = local_analysis.get(node_id)
+            if status is None or status.status != NodeStatus.ONLINE:
+                continue
+            for peer_id, status in remote_status:
+                local_status = local_analysis.get(peer_id)
+                if local_status is None or local_status.status != status.status:
+                    return False
+            online_nodes += 1
+        if online_nodes == 1:
+            logger.info(
+                f"Only one online node ({store.key_mapping.signer.node_id}) in network {network_id}, cluster agreement not possible"
+            )
+            return False
+
+        return True
+
+    def _get_webhook(self, network_id: str) -> str | None:
+        return self.config.networks[network_id].node_cfg.discord_webhook
+
+    def _get_priority(self, node_id: str, network_id: str) -> int:
+        for idx, node in enumerate(self.config.networks[network_id].node_config):
+            if node.node_id == node_id:
+                return idx
+        return 0
+
+    def leader_priority(
+        self, network_id: str, exclude_self: bool = False
+    ) -> tuple[str, int] | None:
+        current_store = self.store_manager.get_store(network_id)
+        current_hash = current_store.get_value("webhook_hash", HashedWebhook)
+        current_analysis = current_store.get_context(
+            "network_analysis", AnalysedNodeStatus
+        )
+        if current_hash is None:
+            webhook = self._get_webhook(network_id)
+            if not webhook:
+                return None
+            current_store.set_value("webhook_hash", HashedWebhook.from_webhook(webhook))
+            current_hash = current_store.get_value("webhook_hash", HashedWebhook)
+            if current_hash is None:
+                return None
+            self.update_manager.update(network_id)
+
+        current_node = current_store.key_mapping.signer.node_id
+        current_priority = self._get_priority(current_node, network_id)
+        nodes: list[tuple[str, int]] = [(current_node, current_priority)]
+        for node_id in current_store.nodes:
+            node_hash = current_store.get_value("webhook_hash", HashedWebhook, node_id)
+            if (
+                node_hash is not None
+                and node_hash.hashed_webhook == current_hash.hashed_webhook
+            ):
+                current_priority = self._get_priority(node_id, network_id)
+                node_status = current_analysis.get(node_id)
+                if node_status is not None and node_status.status == NodeStatus.ONLINE:
+                    nodes.append((node_id, current_priority))
+        if exclude_self:
+            nodes = [
+                n for n in nodes if n[0] != current_store.key_mapping.signer.node_id
+            ]
+        if not nodes:
+            return None
+        nodes.sort(key=lambda x: x[1])
+        leader_node, leader_priority = nodes[0]
+        return leader_node, leader_priority
+
+    def is_leader(self, network_id: str) -> bool:
+        current_node = self.store_manager.get_store(
+            network_id
+        ).key_mapping.signer.node_id
+        leader_priority = self.leader_priority(network_id)
+        if leader_priority is None:
+            return False
+        return leader_priority[0] == current_node
+
+    def _catchup(self, network_id: str):
+        current_store = self.store_manager.get_store(network_id)
+        next_leader = self.leader_priority(network_id, exclude_self=True)
+        if next_leader is None:
+            return
+        leader_node, _ = next_leader
+        leader_last_notification = current_store.get_value(
+            "last_notification", LastNotification, leader_node
+        )
+        current_last_notification = current_store.get_value(
+            "last_notification", LastNotification
+        )
+        leader_status = current_store.get_context(
+            "last_notified_status", AnalysedNodeStatus, leader_node
+        )
+        if (
+            leader_last_notification is None
+            or current_last_notification is None
+            or leader_status is None
+        ):
+            return
+        if leader_last_notification.timestamp > current_last_notification.timestamp:
+            current_status = current_store.get_context(
+                "last_notified_status", AnalysedNodeStatus
+            )
+            for node_id, status in leader_status:
+                current_status.set(node_id, status)
+
+    def _notify_for_network(self, network_id: str):
+        logger.debug(f"Processing notifications for network {network_id}")
+        current_store = self.store_manager.get_store(network_id)
+        analysis_ctx = current_store.get_context("network_analysis", AnalysedNodeStatus)
+
+        if self.is_leader(network_id):
+            current_status = current_store.get_context(
+                "last_notified_status", AnalysedNodeStatus
+            )
+            logger.info(f"Acting as leader for network {network_id}")
+            self._catchup(network_id)
+            updated = False
+            for node_id, status in analysis_ctx:
+                current_notified_status = current_status.get(node_id)
+                if current_notified_status is not None:
+                    if current_notified_status.status != status.status:
+                        logger.info(
+                            f"Status change detected for node {node_id} in network {network_id}: {current_notified_status.status} -> {status.status}"
+                        )
+                        self.handle_webhook(network_id, node_id, status.status)
+                        current_status.set(node_id, status)
+                        updated = True
+                else:
+                    logger.debug(
+                        f"Setting initial status for node {node_id} in network {network_id}: {status.status}"
+                    )
+                    current_status.set(node_id, status)
+                    updated = True
+            if updated:
+                logger.debug(f"Updating network {network_id} due to status changes")
+                current_store.set_value(
+                    "last_notification",
+                    LastNotification(
+                        timestamp=datetime.datetime.now(tz=datetime.timezone.utc)
+                    ),
+                )
+                self.update_manager.update(network_id)
+
+            else:
+                logger.debug(f"No status changes detected for network {network_id}")
+        elif (
+            leader_data := self.leader_priority(network_id, exclude_self=True)
+        ) is not None:
+            leader_node, _ = leader_data
+            logger.debug(f"Following leader {leader_node} for network {network_id}")
+            leader_status = current_store.get_context(
+                "last_notified_status", AnalysedNodeStatus, leader_node
+            )
+            node_status = current_store.get_context(
+                "last_notified_status", AnalysedNodeStatus
+            )
+            if leader_status is None:
+                logger.info(
+                    f"No leader status found for {leader_node} in network {network_id}"
+                )
+                return
+            updated = False
+            for node_id, status in leader_status:
+                current_notified_status = node_status.get(node_id)
+                if current_notified_status is not None:
+                    if current_notified_status.status != status.status:
+                        node_status.set(node_id, status)
+                        updated = True
+                else:
+                    node_status.set(node_id, status)
+                    updated = True
+            if updated:
+                self.update_manager.update(network_id)
+
+    def webhook_thread(self):
+        while True:
+            for network_id in self.store_manager.stores:
+                if (
+                    self._cluster_agrees(network_id)
+                    and self._get_webhook(network_id) is not None
+                ):
+                    self._notify_for_network(network_id)
+            val = self.flag.wait(1)
+            if val:
+                break
+
+    def stop(self):
+        self.flag.set()
+        self.thread.join()
+
+    def handle_webhook(self, network_id: str, node_id: str, status: NodeStatus):
+        webhook = self._get_webhook(network_id)
+        if webhook is not None:
+            # Enhanced status mapping with better colors and emojis
+            status_info = {
+                NodeStatus.ONLINE: {
+                    "color": 0x00FF54,  # Brighter green
+                    "emoji": "🟢",
+                    "description": "Node is now operational and responding",
+                    "severity": "✅ Resolved",
+                },
+                NodeStatus.OFFLINE: {
+                    "color": 0xFF4757,  # Modern red
+                    "emoji": "🔴",
+                    "description": "Node is not responding to pings",
+                    "severity": "⚠️ Alert",
+                },
+            }
+
+            current_status = status_info.get(
+                status,
+                {
+                    "color": 0x747D8C,  # Gray for unknown
+                    "emoji": "⚪",
+                    "description": "Node status is unknown",
+                    "severity": "❓ Unknown",
+                },
+            )
+
+            # Create more informative title
+            title = f"{current_status['emoji']} Node Status Change - {current_status['severity']}"
+
+            # Enhanced description with more context
+            description = f"{current_status['description']}\n\n**Network:** `{network_id}`, **Node:** `{node_id}`"
+            timestamp = int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp())
+            embed = {
+                "title": title,
+                "description": description,
+                "color": current_status["color"],
+                "fields": [
+                    {
+                        "name": "⏰ Event Time",
+                        "value": f"<t:{timestamp}:F>\n<t:{timestamp}:R>",
+                    },
+                ],
+                "timestamp": datetime.datetime.now(
+                    tz=datetime.timezone.utc
+                ).isoformat(),
+                "footer": {
+                    "text": "Meshmon Network Monitor • Automated Status Update",
+                    "icon_url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Globe%20with%20meridians/3D/globe_with_meridians_3d.png",
+                },
+                "author": {
+                    "name": "Meshmon",
+                    "icon_url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Chart%20increasing/3D/chart_increasing_3d.png",
+                },
+            }
+
+            # Add thumbnail based on status
+            if status == NodeStatus.ONLINE:
+                embed["thumbnail"] = {
+                    "url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Check%20mark/3D/check_mark_3d.png"
+                }
+            elif status == NodeStatus.OFFLINE:
+                embed["thumbnail"] = {
+                    "url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Cross%20mark/3D/cross_mark_3d.png"
+                }
+
+            data = {"embeds": [embed]}
+
+            try:
+                response = requests.post(webhook, json=data, timeout=10)
+                if response.status_code != 204:
+                    logger.error(
+                        f"Failed to send webhook for node {node_id} in network {network_id}: {response.status_code} {response.text}"
+                    )
+                else:
+                    logger.info(
+                        f"Successfully sent webhook notification for {node_id} status change to {status.value}"
+                    )
+            except requests.exceptions.Timeout:
+                logger.error(
+                    f"Webhook request timed out for node {node_id} in network {network_id}"
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(
+                    f"Network error while sending webhook for node {node_id} in network {network_id}: {e}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error while sending webhook for node {node_id} in network {network_id}: {e}"
+                )

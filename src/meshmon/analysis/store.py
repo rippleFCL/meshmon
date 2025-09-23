@@ -80,8 +80,7 @@ def get_network_data(
             ping_ctx = store.get_context("ping_data", PingData, node_id)
             if ping_ctx:
                 # Iterate through all ping data entries for this node
-                for target_node_id in ping_ctx:
-                    ping_info = ping_ctx.get(target_node_id)
+                for target_node_id, ping_info in ping_ctx:
                     if ping_info and connectable.get(target_node_id, False):
                         # Convert store PingData to analysis NodePingData
                         ping_data[target_node_id] = NodePingData(

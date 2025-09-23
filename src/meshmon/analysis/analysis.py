@@ -89,9 +89,9 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
                 datetime.datetime.now(datetime.timezone.utc) - last_ping
             ).total_seconds()
             max_ping_interval = ping.ping_rate * (ping.max_retries + 2)
-            logger.debug(
-                f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {max_ping_interval} seconds."
-            )
+            # logger.debug(
+            #     f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {max_ping_interval} seconds."
+            # )
             if time_since_last_ping < max_ping_interval:  # account for timeout
                 node_statuses[node_id] = NodeStatus.ONLINE
                 break
@@ -221,6 +221,15 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
         ),
         node_analyses=node_analyses,
     )
+
+
+def analyze_node_status(
+    store_manager: StoreManager, config: NetworkConfigLoader, network_id: str
+) -> dict[str, NodeStatus] | None:
+    network_data = get_network_data(store_manager, config)
+    if network_id not in network_data.networks:
+        return None
+    return get_node_statuses(network_data.networks[network_id])
 
 
 def analyze_all_networks(

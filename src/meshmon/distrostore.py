@@ -3,6 +3,7 @@ import json
 from typing import Callable, Iterator, Literal, overload
 from pydantic import BaseModel
 
+
 from .config import NetworkConfig, NetworkConfigLoader
 from .crypto import Signer, KeyMapping, Verifier
 import datetime
@@ -153,16 +154,17 @@ class StoreContextData(BaseModel):
     def update(
         self, context_data: "StoreContextData", verifier: Verifier, context_name: str
     ):
+        updated = False
         if not (context_data.context_name == self.context_name == context_name):
             logger.warning(
                 f"Context name mismatch: {self.context_name} vs {context_data.context_name}"
             )
-            return
+            return False
         if not context_data.verify(verifier, context_name):
             logger.warning(
                 f"New context data signature verification failed for context {self.context_name}"
             )
-            return
+            return False
         if context_data.date > self.date:
             old_allowed_keys = self.allowed_keys
             self.date = context_data.date
@@ -179,6 +181,7 @@ class StoreContextData(BaseModel):
                             f"Removing disallowed key {key} from context {self.context_name}"
                         )
                         del self.data[key]
+            updated = True
 
         for key, value in context_data.data.items():
             if self.allowed_keys and key not in self.allowed_keys:
@@ -188,22 +191,27 @@ class StoreContextData(BaseModel):
                         f"Removing disallowed key {key} from context {self.context_name}"
                     )
                     del self.data[key]
+                    updated = True
                 continue
             if key not in self.data:
                 if value.verify(verifier, key):
                     self.data[key] = value
+                    updated = True
             elif (
                 value.replacement_type == DateEvalType.NEWER
                 and value.date > self.data[key].date
             ):
                 if value.verify(verifier, key):
                     self.data[key] = value
+                    updated = True
             elif (
                 value.replacement_type == DateEvalType.OLDER
                 and value.date < self.data[key].date
             ):
                 if value.verify(verifier, key):
                     self.data[key] = value
+                    updated = True
+        return updated
 
 
 class StoreNodeData(BaseModel):
@@ -211,6 +219,7 @@ class StoreNodeData(BaseModel):
     values: dict[str, SignedBlockData] = {}
 
     def update(self, node_data: "StoreNodeData", verifier: Verifier):
+        updated = False
         for context_name, context_data in node_data.contexts.items():
             if context_name not in self.contexts:
                 if context_data.verify(verifier, context_name):
@@ -222,27 +231,39 @@ class StoreNodeData(BaseModel):
                     )
                     new_ctx.update(context_data, verifier, context_name)
                     self.contexts[context_name] = new_ctx
+                    updated = True
             else:
-                self.contexts[context_name].update(context_data, verifier, context_name)
+                updated = self.contexts[context_name].update(
+                    context_data, verifier, context_name
+                )
         for key, value in node_data.values.items():
             if key not in self.values:
-                self.values[key] = value
+                if value.verify(verifier, key):
+                    self.values[key] = value
+                    updated = True
             elif (
                 self.values[key].replacement_type == DateEvalType.NEWER
                 and value.date > self.values[key].date
             ):
-                self.values[key] = value
+                if value.verify(verifier, key):
+                    updated = True
+                    self.values[key] = value
+
             elif (
                 self.values[key].replacement_type == DateEvalType.OLDER
                 and value.date < self.values[key].date
             ):
-                self.values[key] = value
+                if value.verify(verifier, key):
+                    self.values[key] = value
+                    updated = True
+        return updated
 
 
 class StoreData(BaseModel):
     nodes: dict[str, StoreNodeData] = {}
 
     def update(self, store_data: "StoreData", key_mapping: KeyMapping):
+        updated = False
         for node_id, node_data in store_data.nodes.items():
             if node_id not in key_mapping.verifiers:
                 logger.warning(
@@ -253,9 +274,11 @@ class StoreData(BaseModel):
                 new_node = StoreNodeData()
                 new_node.update(node_data, key_mapping.verifiers[node_id])
                 self.nodes[node_id] = new_node
+                updated = True
             else:
                 current_node = self.nodes[node_id]
-                current_node.update(node_data, key_mapping.verifiers[node_id])
+                updated = current_node.update(node_data, key_mapping.verifiers[node_id])
+        return updated
 
 
 class StoreCtxView[T: BaseModel]:
@@ -276,10 +299,16 @@ class StoreCtxView[T: BaseModel]:
     def _get_ctx_data(self) -> StoreContextData:
         return self.store.nodes[self.node_id].contexts[self.context_name]
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[tuple[str, T]]:
         ctx_data = self._get_ctx_data()
         for value in ctx_data.data:
-            yield value
+            data = self.get(value)
+            if data is not None:
+                yield value, data
+
+    def __len__(self) -> int:
+        ctx_data = self._get_ctx_data()
+        return len(ctx_data.data)
 
     def __contains__(self, key: str) -> bool:
         ctx_data = self._get_ctx_data()

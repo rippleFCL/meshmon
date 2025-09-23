@@ -1,8 +1,9 @@
-import base64
 import datetime
 import logging
 from threading import Thread, Event
 import time
+
+from .update import UpdateManager
 
 from .version import VERSION
 
@@ -16,6 +17,9 @@ from .distrostore import (
 )
 import requests
 import json
+from .analysis.analysis import analyze_node_status
+from .analysis.store import NodeStatus as AnalysisNodeStatus
+from pydantic import BaseModel
 
 # Set up logger for this module
 logger = logging.getLogger("meshmon.monitor")
@@ -28,16 +32,22 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+class AnalysedNodeStatus(BaseModel):
+    status: AnalysisNodeStatus
+
+
 class Monitor:
     def __init__(
         self,
         store_manager: StoreManager,
+        update_manager: UpdateManager,
         net_id: str,
         remote_node: NetworkNodeInfo,
         local_node: NetworkNodeInfo,
     ):
         self.store = store_manager
         self.net_id = net_id
+        self.update_manager = update_manager
         self.remote_node = remote_node
         self.local_node = local_node
         self.thread = Thread(target=self.monitor, daemon=True)
@@ -65,45 +75,6 @@ class Monitor:
                 ping_rate=self.remote_node.poll_rate,
             ),
         )
-
-    def _sync_store(self, timeout: int = 10):
-        logger.debug(
-            f"Monitoring cycle for {self.net_id} -> {self.remote_node.node_id}"
-        )
-        store = self.store.get_store(self.net_id)
-        store_data = store.dump()
-        enc_data = json.dumps(store_data, cls=DateTimeEncoder)
-        sig = store.key_mapping.signer.sign(enc_data.encode())
-        b64_sig = base64.b64encode(sig).decode("utf-8")
-        data = {
-            "data": store_data,
-            "sig_id": self.local_node.node_id,
-        }
-
-        try:
-            logger.debug(
-                f"Sending POST request to {self.remote_node.url}/mon/{self.net_id}"
-            )
-            response = requests.post(
-                f"{self.remote_node.url}/api/mon/{self.net_id}",
-                json=data,
-                headers={"Authorization": f"Bearer {b64_sig}"},
-                timeout=timeout,
-            )
-        except requests.RequestException:
-            return
-        if response.status_code != 200:
-            logger.warning(
-                f"HTTP {response.status_code} response from {self.remote_node.node_id} during store sync:  {response.text}"
-            )
-        else:
-            data = response.json()
-            try:
-                store.update_from_dump(data)
-            except Exception as e:
-                logger.error(
-                    f"Failed to update store from dump received from {self.remote_node.node_id}: {e}"
-                )
 
     def _sent_ping(self):
         store = self.store.get_store(self.net_id)
@@ -143,6 +114,19 @@ class Monitor:
                 ),
             )
 
+    def _analyse_node_status(self):
+        node_statuses = analyze_node_status(
+            self.store, self.update_manager.config_loader, self.net_id
+        )
+        store = self.store.get_store(self.net_id)
+        analysis_ctx = store.get_context("network_analysis", AnalysedNodeStatus)
+        if node_statuses is None:
+            logger.warning(f"Failed to analyze node statuses for network {self.net_id}")
+            return
+
+        for node_id, status in node_statuses.items():
+            analysis_ctx.set(node_id, AnalysedNodeStatus(status=status))
+
     def monitor(self):
         logger.debug(
             f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
@@ -151,7 +135,8 @@ class Monitor:
         while True:
             try:
                 self._sent_ping()
-                self._sync_store()
+                self._analyse_node_status()
+                self.update_manager.update(self.net_id)
             except Exception as e:
                 logger.error(
                     f"Error in monitor loop for {self.net_id} -> {self.remote_node.node_id}: {e}"
@@ -159,7 +144,6 @@ class Monitor:
             val = self.stop_flag.wait(self.remote_node.poll_rate)
             if val:
                 break
-        self._sync_store(2)
         logger.debug(
             f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
         )
@@ -241,8 +225,14 @@ class Monitor:
 
 
 class MonitorManager:
-    def __init__(self, store_manager: StoreManager, config: NetworkConfigLoader):
+    def __init__(
+        self,
+        store_manager: StoreManager,
+        config: NetworkConfigLoader,
+        update_manager: UpdateManager,
+    ):
         self.store_manager = store_manager
+        self.update_manager = update_manager
         self.config = config
         self.monitors: dict[str, Monitor] = self._initialize_monitors()
         self.stop_flag = Event()
@@ -285,7 +275,13 @@ class MonitorManager:
                 if node.node_id != local_node.node_id and node.url:
                     monitor_key = f"{net_id}_{node.node_id}"
                     logger.debug(f"Creating monitor: {monitor_key}")
-                    monitor = Monitor(self.store_manager, net_id, node, local_node)
+                    monitor = Monitor(
+                        self.store_manager,
+                        self.update_manager,
+                        net_id,
+                        node,
+                        local_node,
+                    )
                     monitors[monitor_key] = monitor
                     monitor.start()
 

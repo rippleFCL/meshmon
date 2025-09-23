@@ -18,13 +18,14 @@ from meshmon.distrostore import (
     NodeDataRetention,
     SharedStore,
 )
+from meshmon.update import UpdateManager
 from meshmon.config import NetworkConfig, NetworkConfigLoader, get_allowed_keys
 from meshmon.monitor import MonitorManager
 from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
-from analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
+from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 import logging
-from webhooks import WebhookHandler
+from meshmon.webhooks import WebhookHandler
 from fastapi.staticfiles import StaticFiles
 
 # Configure logging
@@ -63,14 +64,18 @@ logger.info("Initializing store manager...")
 store_manager = StoreManager(config, prefill_store)
 logger.info(f"Initialized store manager with {len(store_manager.stores)} stores")
 
+logger.info("Initializing update manager...")
+update_manager = UpdateManager(store_manager, config)
+logger.info("Update manager initialized")
+
 logger.info("Initializing monitor manager...")
-monitor_manager = MonitorManager(store_manager, config)
+monitor_manager = MonitorManager(store_manager, config, update_manager)
 logger.info(
     f"Initialized monitor manager with {len(monitor_manager.monitors)} monitors"
 )
 
 logger.info("Initializing webhook handler...")
-webhook_handler = WebhookHandler(store_manager, config)
+webhook_handler = WebhookHandler(store_manager, config, update_manager)
 logger.info("Webhook handler initialized")
 
 logger.info("Initializing config manager...")
@@ -87,9 +92,10 @@ async def lifespan(app: FastAPI):
     yield
     webhook_handler.stop()
     monitor_manager.stop_manager()
-    for store in store_manager.stores.values():
+    for net_id, store in store_manager.stores.items():
         node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)
         store.set_value("node_info", node_info)
+        update_manager.update(net_id)
     monitor_manager.stop()
 
 
@@ -170,8 +176,10 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
     )
     msg = validate_msg(body, network_id, authorization)
     mon_store = store_manager.get_store(network_id)
-    mon_store.update_from_dump(msg)
-
+    updated = mon_store.update_from_dump(msg)
+    if updated:
+        logger.info(f"Store updated from dump received for network: {network_id}")
+        update_manager.update(network_id)
     logger.debug(f"Successfully processed monitoring data for {network_id}")
     # Convert each value to SignedNodeData
     return mon_store.store
@@ -193,6 +201,17 @@ def view():
 def health():
     """Health check endpoint."""
     return {"status": "ok", "version": VERSION}
+
+
+@api.get("/api/raw/{network_id}", response_model=StoreData)
+def get_raw_store(network_id: str):
+    """Get raw store data for a specific network. Requires JWT authentication."""
+    logger.debug(f"Raw store request for network: {network_id}")
+    store = store_manager.get_store(network_id)
+    if not store:
+        logger.warning(f"Network not found: {network_id}")
+        raise HTTPException(status_code=404, detail="Network not found")
+    return store.store
 
 
 api.mount("/assets", StaticFiles(directory="static/assets", html=True), name="static")

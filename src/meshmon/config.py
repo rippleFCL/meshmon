@@ -26,11 +26,11 @@ class NodeCfgNetwork(BaseModel):
     node_id: Annotated[str, StringConstraints(to_lower=True)]
     config_type: ConfigTypes = ConfigTypes.LOCAL
     git_repo: str | None = None
+    discord_webhook: str | None = None
 
 
 class NodeCfg(BaseModel):
     networks: list[NodeCfgNetwork]
-    discord_webhook: str | None = None
 
 
 class NetworkNodeInfo(BaseModel):
@@ -52,6 +52,7 @@ class NetworkConfig:
     node_config: list[NetworkNodeInfo]
     network_id: str
     node_id: str
+    node_cfg: NodeCfgNetwork
 
     def get_verifier(self, peer_id: str) -> Verifier | None:
         if peer_id not in self.key_mapping:
@@ -164,6 +165,7 @@ class NetworkConfigLoader:
             network_id=root.network_id,
             key_mapping=key_mapping,
             node_id=net_cfg.node_id,
+            node_cfg=net_cfg,
         )
 
     def _load_all_network_configs(self) -> dict[str, NetworkConfig]:

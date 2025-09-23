@@ -51,12 +51,9 @@ def prefill_store(store: SharedStore, network: NetworkConfig):
     store.set_value("data_retention", data_retention, DateEvalType.OLDER)
     ctx = store.get_context("ping_data", PingData)
     ctx.allowed_keys = get_allowed_keys(network)
-    ctx = store.get_context("ping_data", PingData)
-    ctx.allowed_keys = get_allowed_keys(network)
-    ctx = store.get_context("last_notified_status", AnalysedNodeStatus)
-    ctx.allowed_keys = get_allowed_keys(network)
+    ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
     ctx = store.get_context("network_analysis", AnalysedNodeStatus)
-    ctx.allowed_keys = get_allowed_keys(network)
+    ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
 
 
 logger.info(f"Starting server initialization with config file: {CONFIG_FILE_NAME}")

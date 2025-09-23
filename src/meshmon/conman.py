@@ -44,9 +44,9 @@ class ConfigManager:
                         ctx = store.get_context(
                             "last_notified_status", AnalysedNodeStatus
                         )
-                        ctx.allowed_keys = get_allowed_keys(network)
+                        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
                         ctx = store.get_context("network_analysis", AnalysedNodeStatus)
-                        ctx.allowed_keys = get_allowed_keys(network)
+                        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
                     self.monitor_manager.reload()
                     self.update_manager.reload()
             except Exception as e:

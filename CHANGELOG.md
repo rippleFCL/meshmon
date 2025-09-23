@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.3] - 2025-09-23
+### :bug: Bug Fixes
+- [`7ae8111`](https://github.com/rippleFCL/meshmon/commit/7ae8111f5db444ba48993d5f7ae83e43024d3c6a) - allowed keys on startup for last_notified_status *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v3.0.2] - 2025-09-23
 ### :bug: Bug Fixes
 - [`f53106b`](https://github.com/rippleFCL/meshmon/commit/f53106be805fb16883e542794493ea515fee49d5) - allowed keys only included nodes with url when it should be all *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -195,3 +200,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v3.0.0]: https://github.com/rippleFCL/meshmon/compare/v2.1.0...v3.0.0
 [v3.0.1]: https://github.com/rippleFCL/meshmon/compare/v3.0.0...v3.0.1
 [v3.0.2]: https://github.com/rippleFCL/meshmon/compare/v3.0.1...v3.0.2
+[v3.0.3]: https://github.com/rippleFCL/meshmon/compare/v3.0.2...v3.0.3

@@ -56,14 +56,11 @@ jobs:
     - name: Build and push image
       uses: docker/build-push-action@v6
       with:
-        push: ${{ inputs.push != 'false' }} # is null if trigger != workflow_dispatch
+        push: ${{ inputs.push != 'false' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         annotations: ${{ steps.meta.outputs.annotations }}
         platforms: linux/amd64,linux/arm64
-        # Build cache is scoped to branches by default.
-        # We use the main branch as a fallback if there's no cache for the existing branch.
-        # https://stackoverflow.com/a/77127188/5209106
         cache-from: type=registry,ref=ghcr.io/ripplefcl/meshmon:buildcache
         cache-to: type=registry,ref=ghcr.io/ripplefcl/meshmon:buildcache,mode=max
         provenance: false

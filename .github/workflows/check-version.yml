@@ -1,4 +1,4 @@
-name: Lint/Publish Ansible Collection
+name: Check version matches tag
 
 on:
   workflow_call:

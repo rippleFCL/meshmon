@@ -251,7 +251,7 @@ class WebhookHandler:
                 NodeStatus.ONLINE: {
                     "color": 0x00FF54,  # Brighter green
                     "emoji": "🟢",
-                    "description": "Node is now operational and responding",
+                    "description": "Node is now responding to pings",
                     "severity": "✅ Resolved",
                 },
                 NodeStatus.OFFLINE: {
@@ -276,40 +276,26 @@ class WebhookHandler:
             title = f"{current_status['emoji']} Node Status Change - {current_status['severity']}"
 
             # Enhanced description with more context
-            description = f"{current_status['description']}\n\n**Network:** `{network_id}`, **Node:** `{node_id}`"
-            timestamp = int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp())
             embed = {
                 "title": title,
-                "description": description,
+                "description": current_status["description"],
                 "color": current_status["color"],
                 "fields": [
                     {
-                        "name": "⏰ Event Time",
-                        "value": f"<t:{timestamp}:F>\n<t:{timestamp}:R>",
+                        "name": "Network",
+                        "value": network_id,
+                        "inline": True,
+                    },
+                    {
+                        "name": "Node ID",
+                        "value": node_id,
+                        "inline": True,
                     },
                 ],
                 "timestamp": datetime.datetime.now(
                     tz=datetime.timezone.utc
                 ).isoformat(),
-                "footer": {
-                    "text": "Meshmon Network Monitor • Automated Status Update",
-                    "icon_url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Globe%20with%20meridians/3D/globe_with_meridians_3d.png",
-                },
-                "author": {
-                    "name": "Meshmon",
-                    "icon_url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Chart%20increasing/3D/chart_increasing_3d.png",
-                },
             }
-
-            # Add thumbnail based on status
-            if status == NodeStatus.ONLINE:
-                embed["thumbnail"] = {
-                    "url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Check%20mark/3D/check_mark_3d.png"
-                }
-            elif status == NodeStatus.OFFLINE:
-                embed["thumbnail"] = {
-                    "url": "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Cross%20mark/3D/cross_mark_3d.png"
-                }
 
             data = {"embeds": [embed]}
 

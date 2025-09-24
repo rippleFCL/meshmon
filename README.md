@@ -95,6 +95,7 @@ networks:
     node_id: my-node
     # config_type: git
     # git_repo: https://github.com/your-org/meshmon-configs.git
+    # discord_webhook: ...
 ```
 
 **Configuration Options:**
@@ -107,10 +108,11 @@ networks:
     - `git`: Load configuration from a Git repository
   - **`git_repo`** (optional): Git repository URL when using `config_type: git`
     - Example: `https://github.com/gituser/repo.git`
+  - **`discord_webhook`: (optional) Discord Webhook url to send node status changes too
 
 ### Network Configuration
 
-The network config outlined in this section must be present and identical on all nodes. There are two types of network config: `local` or `git`.
+The network config outlined in this section must be present on all nodes. There are two types of network config: `local` or `git`.
 
 #### Configuration Modes
 
@@ -124,14 +126,21 @@ The network config outlined in this section must be present and identical on all
 - A background task periodically syncs configuration from the remote repository
 - Generated Public keys are placed in `config/.public_keys/<network_name>/<node_id>.pub` (since meshmon cannot edit the remote config)
 
+
+#### Discord Webhook
+
+If multiple nodes share the same webhook the network will elect a leader. only the leader will be allowed to send notifications. the network will also gracefully handle leader failure and re-election.
+For webhooks to work you need >= 2 alive nodes in the cluster. this is due to the cluster needing to agree on which nodes are online or offline. the cluster cannot agree with one node.
+
+
 #### Network Directory Structure
 
 ```
 config/networks/<directory>/
 ├── config.yml              # Network configuration
 └── pubkeys/                 # Public keys directory
-    ├── <node_id>.pub       # Node public keys
-    └── <node_id>.pub
+    ├── <node1_id>.pub       # Node public keys
+    └── <node2_id>.pub
 ```
 
 
@@ -200,6 +209,10 @@ your-meshmon-configs/
 4. Configuration changes are distributed to all nodes automatically
 
 ---
+
+## Public Cluster
+
+There is a public meshmon cluster you can join. For extra information, read [public_cluster.md](public_cluster.md)
 
 ## API Documentation
 

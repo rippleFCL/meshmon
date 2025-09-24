@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.1.1] - 2025-09-24
+### :bug: Bug Fixes
+- [`d809d6e`](https://github.com/rippleFCL/meshmon/commit/d809d6e5c781ed8aecad86bbc6aaea225360dbfc) - check for updates in nodeconf.yml *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v3.1.0] - 2025-09-24
 ### :sparkles: New Features
 - [`dbe0f97`](https://github.com/rippleFCL/meshmon/commit/dbe0f9716e7260f335a2b9bdebcdd4ea14fac251) - improved webhook embeds *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -219,3 +224,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v3.0.4]: https://github.com/rippleFCL/meshmon/compare/v3.0.3...v3.0.4
 [v3.0.5]: https://github.com/rippleFCL/meshmon/compare/v3.0.4...v3.0.5
 [v3.1.0]: https://github.com/rippleFCL/meshmon/compare/v3.0.5...v3.1.0
+[v3.1.1]: https://github.com/rippleFCL/meshmon/compare/v3.1.0...v3.1.1

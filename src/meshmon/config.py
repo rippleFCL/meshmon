@@ -73,6 +73,7 @@ class NetworkConfigLoader:
         self.node_cfg = self._load_node_config()
         self.networks: dict[str, NetworkConfig] = self._load_all_network_configs()
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
+        self.nodecfg_latest_mtime = self.get_netconf_mtime()
 
     def _load_node_config(self) -> NodeCfg:
         """
@@ -183,12 +184,19 @@ class NetworkConfigLoader:
         self.node_cfg = self._load_node_config()
         self.networks = self._load_all_network_configs()
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
+        self.nodecfg_latest_mtime = self.get_netconf_mtime()
 
     def get_network(self, network_id: str) -> NetworkConfig | None:
         """
         Get a network configuration by its ID.
         """
         return self.networks.get(network_id)
+
+    def get_netconf_mtime(self) -> float:
+        """
+        Get the modification time of the main nodeconf.yml file.
+        """
+        return (self.config_dir / self.file_name).stat().st_mtime
 
     def get_latest_mtime(self, network_path: Path) -> float:
         """
@@ -240,6 +248,9 @@ class NetworkConfigLoader:
             elif self.get_latest_mtime(network_path) > self.latest_mtime:
                 logger.info("Configuration files have been modified, reloading")
                 has_changes = True
+        if self.get_netconf_mtime() > self.nodecfg_latest_mtime:
+            logger.info("Node configuration file has been modified, reloading")
+            has_changes = True
         return has_changes
 
 

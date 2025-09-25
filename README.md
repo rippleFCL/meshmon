@@ -22,6 +22,28 @@
 - **Mesh Architecture**: No single point of failure - nodes monitor each other
 - **Flexible**: Support for local and remote Git-based configurations
 
+## Screenshots
+
+### Dashboard Overview
+<p align="center">
+  <img src="screenshots/dashboard.png" alt="meshmon Dashboard" width="800">
+</p>
+
+### Network Graph Visualization
+<p align="center">
+  <img src="screenshots/network-graph.png" alt="Network Graph Overview" width="800">
+</p>
+
+### Individual Node Details
+<p align="center">
+  <img src="screenshots/network-graph-node.png" alt="Network Graph Node Detail" width="800">
+</p>
+
+### Networks Management
+<p align="center">
+  <img src="screenshots/network-tab.png" alt="Networks Tab" width="800">
+</p>
+
 ## How It Works
 
 1. **Node Initialisation**: Each node loads its configuration and generates/loads cryptographic keys

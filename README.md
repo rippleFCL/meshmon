@@ -130,7 +130,7 @@ networks:
     - `git`: Load configuration from a Git repository
   - **`git_repo`** (optional): Git repository URL when using `config_type: git`
     - Example: `https://github.com/gituser/repo.git`
-  - **`discord_webhook`: (optional) Discord Webhook url to send node status changes too
+  - **`discord_webhook`**: (optional) Discord Webhook url to send node status changes too
 
 ### Network Configuration
 

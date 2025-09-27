@@ -16,6 +16,7 @@ import ReactFlow, {
     BaseEdge,
     EdgeLabelRenderer,
     getBezierPath,
+    ReactFlowInstance,
     useReactFlow,
     Handle,
     Position,
@@ -281,6 +282,9 @@ export default function NetworkGraph() {
     const [layoutMode, setLayoutMode] = useState<'elk' | 'concentric' | 'dense' | 'pretty'>(() => 'pretty')
     const [hideOnlineByDefault, setHideOnlineByDefault] = useState<boolean>(true)
     const [zoom, setZoom] = useState<number>(1)
+    const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
+    const reactFlowRef = useRef<ReactFlowInstance | null>(null)
+    const focusingRef = useRef<boolean>(false)
 
     // Function to handle node hover and update opacity
     // Throttle hover updates to animation frames to avoid excessive re-renders
@@ -1168,6 +1172,8 @@ export default function NetworkGraph() {
 
     // Update nodes and edges based on hover state without triggering viewport reset
     useEffect(() => {
+        // If we're in focus mode, skip hover-driven updates
+        if (focusedNodeId) return
         if (isDragging) return // skip hover updates while dragging to reduce churn
         if (isPanning) return // skip hover updates while panning the viewport
         const largePerfGraph = processedNodes.length > 120
@@ -1198,7 +1204,7 @@ export default function NetworkGraph() {
                 const shouldShowDefaultLabel = ((processedNodes.length <= 35) && (zoom >= 0.9) && !hideOnlineByDefault) && !!e.data?.originalLabel && baseOpacity > 0
                 return {
                     ...e,
-                    style: { ...(e.style || {}), opacity: baseOpacity },
+                    style: { ...(e.style || {}), opacity: baseOpacity, transition: 'opacity 300ms ease' },
                     label: (shouldShowDefaultLabel) ? e.data?.originalLabel : undefined,
                     labelStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelStyle : undefined,
                     labelBgStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelBgStyle : undefined
@@ -1255,7 +1261,7 @@ export default function NetworkGraph() {
                 const shouldShowLabel = enableHoverLabels && isRelevant && e.data?.originalLabel
                 return {
                     ...e,
-                    style: { ...(e.style || {}), opacity: targetOpacity },
+                    style: { ...(e.style || {}), opacity: targetOpacity, transition: 'opacity 250ms ease' },
                     label: shouldShowLabel ? e.data?.originalLabel : undefined,
                     labelStyle: shouldShowLabel ? e.data?.originalLabelStyle : undefined,
                     labelBgStyle: shouldShowLabel ? e.data?.originalLabelBgStyle : undefined
@@ -1268,7 +1274,194 @@ export default function NetworkGraph() {
             })
             setEdges(filtered)
         }
-    }, [hoveredNode, setNodes, setEdges, nodeToEdgesMap, nodeToNeighborsMap, isDragging, isPanning, processedNodes.length, zoom, hideOnlineByDefault])
+    }, [hoveredNode, setNodes, setEdges, nodeToEdgesMap, nodeToNeighborsMap, isDragging, isPanning, processedNodes.length, zoom, hideOnlineByDefault, focusedNodeId])
+
+    // Focus mode: center a node and arrange its neighbors around it, dim others, and show only its edges with labels
+    // Remember viewport before entering focus so we can restore it on exit
+    const prevViewportRef = useRef<{ x: number; y: number; zoom: number } | null>(null)
+    // No removal timer; we keep hidden nodes mounted to allow smooth exit animations
+
+    const clearFocus = useCallback(() => {
+        setFocusedNodeId(null)
+        // Restore all nodes with a staged animation back to their original positions
+        const posMap = new Map<string, { x: number; y: number }>(processedNodes.map(n => [n.id, n.position]))
+        // Stage 1: add transitions to all currently mounted nodes
+        setNodes(curr => curr.map(n => ({
+            ...n,
+            // Enable transform + opacity transitions
+            style: { ...(n.style || {}), transition: 'transform 450ms ease, opacity 350ms ease', pointerEvents: 'auto' as any },
+            data: { ...n.data, isHighlighted: false, isDimmed: false },
+        })))
+        // Stage 2 (next frame): move to original positions and fade in
+        requestAnimationFrame(() => {
+            setNodes(curr => curr.map(n => ({
+                ...n,
+                position: posMap.get(n.id) ?? n.position,
+                style: { ...(n.style || {}), opacity: 1, pointerEvents: 'auto' as any },
+                data: { ...n.data, isHighlighted: false, isDimmed: false },
+            })))
+
+            // After the animation completes, remove transitions so normal dragging isn't animated
+            const CLEANUP_DELAY_MS = 500
+            setTimeout(() => {
+                setNodes(curr => curr.map(n => {
+                    const { transition, ...rest } = (n.style || {}) as any
+                    return {
+                        ...n,
+                        style: { ...rest, pointerEvents: 'auto' as any },
+                    }
+                }))
+            }, CLEANUP_DELAY_MS)
+        })
+        // Restore edges to base opacity and default label policy
+        const recomputed = processedEdges.map(e => {
+            const baseOpacity = (e.data && (e.data as any).baseOpacity) ?? ((e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6))
+            const shouldShowDefaultLabel = ((processedNodes.length <= 35) && (zoom >= 0.9) && !hideOnlineByDefault) && !!e.data?.originalLabel && baseOpacity > 0
+            return {
+                ...e,
+                style: { ...(e.style || {}), opacity: baseOpacity, transition: 'opacity 350ms ease' },
+                label: (shouldShowDefaultLabel) ? e.data?.originalLabel : undefined,
+                labelStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelStyle : undefined,
+                labelBgStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelBgStyle : undefined
+            }
+        })
+        const filtered = recomputed.filter(e => {
+            const op = e.style?.opacity
+            const visible = typeof op === 'number' ? op > 0.02 : true
+            return visible || !!e.label
+        })
+        setEdges(filtered)
+        // Restore previous viewport if we saved one when entering focus, else fit full graph
+        try {
+            const inst = reactFlowRef.current
+            if (inst) {
+                const prev = prevViewportRef.current
+                // Wait a frame so restored nodes are mounted before viewport change
+                requestAnimationFrame(() => {
+                    try {
+                        if (prev) {
+                            // Animate back to saved viewport
+                            // @ts-ignore - some versions allow a second options arg for duration
+                            inst.setViewport(prev, { duration: 600 })
+                        } else {
+                            inst.fitView({ duration: 400, padding: 0.2 })
+                        }
+                    } catch { }
+                })
+            }
+        } catch { }
+        // Clear saved viewport after restoring
+        prevViewportRef.current = null
+    }, [processedNodes, processedEdges, setNodes, setEdges, reactFlowRef, zoom, hideOnlineByDefault])
+
+    const focusNode = useCallback((centerId: string) => {
+        if (!processedNodes.length) return
+        // Prevent spamming while an animation/layout is in progress
+        if (focusingRef.current) return
+        // If we're already focused on this node, do nothing
+        if (focusedNodeId === centerId) return
+        focusingRef.current = true
+        // Save current viewport once when entering focus mode
+        try {
+            if (!focusedNodeId) {
+                const inst = reactFlowRef.current as ReactFlowInstance | null
+                if (inst && (prevViewportRef.current == null)) {
+                    // Prefer getViewport if available, else fallback to composing from current transform
+                    // @ts-ignore - older types may not declare getViewport
+                    const vp = inst.getViewport ? inst.getViewport() : { x: 0, y: 0, zoom: inst.getZoom ? inst.getZoom() : 1 }
+                    prevViewportRef.current = vp
+                }
+            }
+        } catch { }
+        setFocusedNodeId(centerId)
+
+        // Determine neighbors of the focused node
+        const neighborSet = new Set<string>(nodeToNeighborsMap.get(centerId) || [])
+        // Place focused at center and neighbors around a circle
+        const N = neighborSet.size
+        const radius = Math.max(320, Math.min(800, 140 + N * 40))
+        // Sort neighbors by current polar angle around the focus to keep relative order
+        const centerNode = processedNodes.find(n => n.id === centerId)
+        const cx0 = centerNode?.position.x || 0
+        const cy0 = centerNode?.position.y || 0
+        const neighborsOrdered = Array.from(neighborSet)
+            .map(id => {
+                const n = processedNodes.find(nn => nn.id === id)
+                const dx = (n?.position.x || 0) - cx0
+                const dy = (n?.position.y || 0) - cy0
+                const ang = Math.atan2(dy, dx)
+                return { id, ang }
+            })
+            .sort((a, b) => a.ang - b.ang)
+            .map(x => x.id)
+
+        // Precompute target positions for focus layout
+        const targetPos = new Map<string, { x: number; y: number }>()
+        targetPos.set(centerId, { x: 0, y: 0 })
+        neighborsOrdered.forEach((id, idx) => {
+            const angle = (idx / Math.max(1, N)) * Math.PI * 2
+            targetPos.set(id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius })
+        })
+        // Stage 1: add transition styles and set visibility flags without moving yet
+        setNodes(curr => curr.map(n => {
+            const isFocusOrNeighbor = n.id === centerId || neighborSet.has(n.id)
+            return {
+                ...n,
+                style: { ...(n.style || {}), transition: 'transform 450ms ease, opacity 300ms ease', opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) },
+                data: { ...n.data, isHighlighted: isFocusOrNeighbor, isDimmed: !isFocusOrNeighbor },
+            }
+        }))
+        // Stage 2 (next frame): move focus + neighbors to target positions
+        requestAnimationFrame(() => {
+            setNodes(curr => curr.map(n => ({
+                ...n,
+                position: targetPos.get(n.id) ?? n.position,
+            })))
+        })
+
+        // Update edges: show only those connected to the focus, with labels
+        const relevantEdgeIds = new Set<string>(nodeToEdgesMap.get(centerId) || [])
+        const recomputed = processedEdges.map(e => {
+            const isRelevant = relevantEdgeIds.has(e.id)
+            const hoverOpacity = (e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6)
+            const targetOpacity = isRelevant ? hoverOpacity : 0
+            const shouldShowLabel = isRelevant && e.data?.originalLabel
+            return {
+                ...e,
+                style: { ...(e.style || {}), opacity: targetOpacity, transition: 'opacity 350ms ease' },
+                label: shouldShowLabel ? e.data?.originalLabel : undefined,
+                labelStyle: shouldShowLabel ? e.data?.originalLabelStyle : undefined,
+                labelBgStyle: shouldShowLabel ? e.data?.originalLabelBgStyle : undefined
+            }
+        })
+        const filtered = recomputed.filter(e => {
+            const op = e.style?.opacity
+            const visible = typeof op === 'number' ? op > 0.02 : true
+            return visible || !!e.label
+        })
+        setEdges(filtered)
+
+        // Animate viewport to fit all focused nodes (focused + neighbors)
+        try {
+            const inst = reactFlowRef.current
+            if (inst) {
+                // Wait a frame so the node list change is applied before fitting
+                requestAnimationFrame(() => {
+                    try {
+                        inst.fitView({ duration: 600, padding: 0.2 })
+                    } catch { }
+                })
+            }
+        } catch { }
+        focusingRef.current = false
+    }, [processedNodes, processedEdges, nodeToNeighborsMap, setNodes, setEdges, focusedNodeId])
+
+    // Keep focus edges/nodes consistent if data refreshes while focused
+    useEffect(() => {
+        if (!focusedNodeId) return
+        focusNode(focusedNodeId)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [processedNodes, processedEdges])
 
     // Track zoom to gate default labels progressively (throttled to animation frame)
     const zoomRaf = useRef<number | null>(null)
@@ -1377,6 +1570,7 @@ export default function NetworkGraph() {
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                         <div className="h-[calc(100vh-12rem)] min-h-[500px] relative max-h-[calc(100vh-12rem)]">
                             <ReactFlow
+                                onInit={(instance) => { reactFlowRef.current = instance }}
                                 nodes={nodes}
                                 edges={edges}
                                 onNodesChange={onNodesChange}
@@ -1412,12 +1606,20 @@ export default function NetworkGraph() {
                                 selectNodesOnDrag={false}
                                 panOnDrag={true}
                                 zoomOnScroll={true}
-                                zoomOnDoubleClick={true}
+                                zoomOnDoubleClick={false}
                                 minZoom={0.1}
                                 maxZoom={3.0}
                                 zoomOnPinch={true}
                                 nodeOrigin={[0.5, 0.5]}
                                 onlyRenderVisibleElements
+                                onNodeDoubleClick={(_e, node) => {
+                                    if (focusedNodeId === node.id) {
+                                        clearFocus()
+                                    } else {
+                                        focusNode(node.id)
+                                    }
+                                }}
+                                onPaneClick={(e: any) => { if (focusedNodeId && e?.detail === 2) clearFocus() }}
                                 onNodeDragStart={() => setIsDragging(true)}
                                 onNodeDrag={() => setIsDragging(true)}
                                 onNodeDragStop={() => setIsDragging(false)}
@@ -1451,6 +1653,15 @@ export default function NetworkGraph() {
                                 )}
                                 <Panel position="top-right" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3">
                                     <div className="space-y-3 text-xs">
+                                        {focusedNodeId && (
+                                            <div className="flex justify-between items-center p-2 rounded-md bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800">
+                                                <span className="text-amber-700 dark:text-amber-300 font-medium">Focus: {focusedNodeId}</span>
+                                                <button
+                                                    onClick={clearFocus}
+                                                    className="px-2 py-1 text-xs rounded bg-amber-600 text-white hover:bg-amber-700"
+                                                >Exit focus</button>
+                                            </div>
+                                        )}
                                         <div>
                                             <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Network Legend</div>
                                             <div className="space-y-1.5">

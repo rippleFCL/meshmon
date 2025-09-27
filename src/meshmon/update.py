@@ -1,12 +1,13 @@
 from .config import NetworkConfigLoader, NetworkNodeInfo
 from .pulsewave.distrostore import StoreManager
 from threading import Event, Thread
-import logging
 import json
 import base64
 import requests
 
-logger = logging.getLogger("meshmon.update")
+from structlog.stdlib import get_logger
+
+logger = get_logger()
 
 
 class UpdateManager:

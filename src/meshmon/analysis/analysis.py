@@ -4,10 +4,11 @@ from enum import Enum
 
 from meshmon.config import NetworkConfigLoader
 from .store import NodePingStatus, get_network_data, NetworkData, NodeStatus
-from meshmon.pulsewave.distrostore import StoreManager
-import logging
 
-logger = logging.getLogger("meshmon.analysis")
+from meshmon.pulsewave.distrostore import StoreManager
+from structlog.stdlib import get_logger
+
+logger = get_logger()
 
 
 class PingStatus(Enum):
@@ -230,9 +231,9 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
         outbound_status = get_aggregate_status(online_outbound, offline_outbound)
 
         node_analysis = NodeAnalysis(
-            node_status=Status.ONLINE
-            if node_status == NodeStatus.ONLINE
-            else Status.OFFLINE,
+            node_status=(
+                Status.ONLINE if node_status == NodeStatus.ONLINE else Status.OFFLINE
+            ),
             inbound_info=inbound_info,
             outbound_info=outbound_info,
             inbound_status=AggregatedConnectionDetail(

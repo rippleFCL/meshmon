@@ -2,11 +2,12 @@ from enum import Enum
 from pydantic import BaseModel
 import datetime
 import base64
-import logging
 from .crypto import Signer, KeyMapping, Verifier
 import json
 
-logger = logging.getLogger("meshmon.distrostore")
+from structlog.stdlib import get_logger
+
+logger = get_logger()
 
 
 class DateEvalType(Enum):

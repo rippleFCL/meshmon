@@ -1,5 +1,4 @@
 import datetime
-import logging
 from threading import Thread, Event
 import time
 from typing import Protocol
@@ -22,9 +21,9 @@ import json
 from .analysis.analysis import analyze_monitor_status, analyze_node_status
 from .analysis.store import NodeStatus as AnalysisNodeStatus, NodePingStatus
 from pydantic import BaseModel
+from structlog.stdlib import get_logger
 
-# Set up logger for this module
-logger = logging.getLogger("meshmon.monitor")
+logger = get_logger()
 
 
 class DateTimeEncoder(json.JSONEncoder):

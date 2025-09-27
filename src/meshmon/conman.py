@@ -8,9 +8,9 @@ from server import PingData
 from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
 from .pulsewave.distrostore import StoreManager
 from .monitor import MonitorManager
-import logging
+from structlog.stdlib import get_logger
 
-logger = logging.getLogger("meshmon.conman")
+logger = get_logger()
 
 
 class ConfigManager:

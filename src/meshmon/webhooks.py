@@ -6,13 +6,12 @@ from .monitor import AnalysedNodeStatus
 from .pulsewave.distrostore import StoreManager
 from .config import NetworkConfigLoader
 import threading
-import logging
 import datetime
 import hashlib
 import requests
+from structlog.stdlib import get_logger
 
-
-logger = logging.getLogger("meshmon.webhooks")
+logger = get_logger()
 
 
 class HashedWebhook(BaseModel):

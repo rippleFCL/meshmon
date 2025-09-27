@@ -44,16 +44,14 @@ from .meshmon.pulsewave.store import (
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 structlog.configure_once(
     processors=[
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=False),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.ExceptionRenderer(),
-        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-        structlog.processors.JSONRenderer(sort_keys=True),
+        structlog.processors.JSONRenderer(),
     ],
-    logger_factory=structlog.stdlib.LoggerFactory(),
+    logger_factory=structlog.PrintLoggerFactory(),
     wrapper_class=structlog.make_filtering_bound_logger(
         getattr(logging, log_level, logging.INFO)
     ),

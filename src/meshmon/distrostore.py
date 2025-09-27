@@ -8,10 +8,9 @@ from .config import NetworkConfig, NetworkConfigLoader
 from .crypto import Signer, KeyMapping, Verifier
 import datetime
 from enum import Enum
-import logging
+from structlog.stdlib import get_logger
 
-
-logger = logging.getLogger("meshmon.distrostore")
+logger = get_logger()
 
 
 class NodeStatus(Enum):

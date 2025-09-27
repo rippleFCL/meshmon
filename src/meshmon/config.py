@@ -11,9 +11,9 @@ import yaml
 from pydantic import BaseModel, StringConstraints
 from .git import Repo
 import shutil
-import logging
+from structlog.stdlib import get_logger
 
-logger = logging.getLogger("meshmon.config")
+logger = get_logger()
 
 
 class ConfigTypes(Enum):

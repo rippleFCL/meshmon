@@ -48,8 +48,6 @@ structlog.configure_once(
     ),
     cache_logger_on_first_use=True,
 )
-logger = logging.getLogger("meshmon.server")  # Create logger for this module
-logger = logging.getLogger(__name__)
 logger = structlog.stdlib.get_logger()
 
 # JWT Configuration

@@ -8,10 +8,11 @@ This library provides functionality to:
 """
 
 import subprocess
-import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from structlog.stdlib import get_logger
+
+logger = get_logger()
 
 
 class GitError(Exception):

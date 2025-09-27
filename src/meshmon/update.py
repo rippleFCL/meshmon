@@ -2,13 +2,11 @@ import base64
 import json
 from threading import Event, Thread
 
-import requests
+from requests import RequestException, Session
 from structlog.stdlib import get_logger
 
 from .config import NetworkConfigLoader, NetworkNodeInfo
 from .pulsewave.distrostore import StoreManager
-
-logger = get_logger()
 
 
 class UpdateManager:
@@ -18,9 +16,11 @@ class UpdateManager:
         self.stop_event = Event()
         self.update_events: dict[str, list[Event]] = {}
         self.threads = self._get_threads()
+        self.logger = get_logger()
+        self.session = Session()
 
     def update(self, net_id: str):
-        logger.debug(f"Triggering update for network: {net_id}")
+        self.logger.debug("Triggering update for network", net_id=net_id)
         update_events = self.update_events.get(net_id, [])
         if not update_events:
             return
@@ -30,14 +30,18 @@ class UpdateManager:
     def _update_thread(
         self, net_id: str, remote_node: NetworkNodeInfo, update_event: Event
     ):
-        logger.info(
-            f"Starting update thread for network: {net_id}, remote node: {remote_node.node_id}"
+        self.logger.info(
+            "Starting update thread for network",
+            net_id=net_id,
+            remote_node=remote_node.node_id,
         )
         while not self.stop_event.is_set():
             update_event.wait()
             update_event.clear()
-            logger.debug(
-                f"Update event triggered for network: {net_id}, remote node: {remote_node.node_id}"
+            self.logger.debug(
+                "Update event triggered for network",
+                net_id=net_id,
+                remote_node=remote_node.node_id,
             )
             store = self.store_manager.get_store(net_id)
             store_data = store.dump()
@@ -50,34 +54,55 @@ class UpdateManager:
             }
 
             try:
-                logger.debug(f"Sending POST request to {remote_node.url}/mon/{net_id}")
-                response = requests.post(
-                    f"{remote_node.url}/api/mon/{net_id}",
+                url = f"{remote_node.url}/api/mon/{net_id}"
+                self.logger.debug(
+                    "Sending POST request",
+                    url=url,
+                    net_id=net_id,
+                    remote_node=remote_node.node_id,
+                )
+                response = self.session.post(
+                    url,
                     json=data,
                     headers={"Authorization": f"Bearer {b64_sig}"},
                     timeout=10,
                 )
-            except requests.RequestException:
-                continue
-            if response.status_code != 200:
-                logger.warning(
-                    f"HTTP {response.status_code} response from {remote_node.node_id} during store sync:  {response.text}"
-                )
+                response.raise_for_status()
+            except RequestException as exc:
+                if exc.response:
+                    self.logger.warning(
+                        "HTTP exception during store sync",
+                        remote_node=remote_node.node_id,
+                        exc=exc,
+                        status=exc.response.status_code,
+                        body=exc.response.text,
+                    )
+                else:
+                    self.logger.warning(
+                        "HTTP exception during store sync",
+                        remote_node=remote_node.node_id,
+                        exc=exc,
+                    )
             else:
                 data = response.json()
                 try:
                     updated = store.update_from_dump(data)
                     if updated:
-                        logger.info(
-                            f"Store updated from dump received from {remote_node.node_id}"
+                        self.logger.info(
+                            "Store updated from dump received from",
+                            remote_node=remote_node.node_id,
                         )
                         self.update(net_id)  # Trigger another update if store changed
-                except Exception as e:
-                    logger.error(
-                        f"Failed to update store from dump received from {remote_node.node_id}: {e}"
+                except Exception as exc:
+                    self.logger.error(
+                        "Failed to update store from dump received",
+                        remote_node=remote_node.node_id,
+                        exc=exc,
                     )
-        logger.info(
-            f"Exiting update thread for network: {net_id}, remote node: {remote_node.node_id}"
+        self.logger.info(
+            "Exiting update thread for network",
+            net_id=net_id,
+            remote_node=remote_node.node_id,
         )
 
     def _get_threads(self) -> dict[str, list[Thread]]:
@@ -100,8 +125,10 @@ class UpdateManager:
                 )
                 thread.start()
                 threads[net_id].append(thread)
-            logger.info(
-                f"Started {len(threads[net_id])} update threads for network: {net_id}"
+            self.logger.info(
+                "Started update threads for network",
+                count=len(threads[net_id]),
+                net_id=net_id,
             )
         return threads
 

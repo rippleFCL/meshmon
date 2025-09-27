@@ -8,10 +8,11 @@ This library provides functionality to:
 """
 
 import subprocess
-import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from structlog.stdlib import get_logger
+
+logger = get_logger()
 
 
 class GitError(Exception):
@@ -47,7 +48,7 @@ class Repo:
         self, args: list, capture_output: bool = True, check: bool = True
     ) -> subprocess.CompletedProcess:
         cmd = ["git"] + args
-        logger.debug(f"Running git command: {' '.join(cmd)}")
+        logger.debug("Running git command", cmd=cmd)
 
         try:
             result = subprocess.run(

@@ -1,17 +1,16 @@
 import base64
+import datetime
 import json
+from enum import Enum
 from typing import Callable, Iterator, Literal, overload
-from pydantic import BaseModel
 
+from pydantic import BaseModel
+from structlog.stdlib import get_logger
 
 from .config import NetworkConfig, NetworkConfigLoader
-from .crypto import Signer, KeyMapping, Verifier
-import datetime
-from enum import Enum
-import logging
+from .crypto import KeyMapping, Signer, Verifier
 
-
-logger = logging.getLogger("meshmon.distrostore")
+logger = get_logger()
 
 
 class NodeStatus(Enum):

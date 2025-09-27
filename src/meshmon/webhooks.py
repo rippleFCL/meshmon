@@ -42,6 +42,7 @@ class WebhookHandler:
         self.flag = threading.Event()
         self.thread = threading.Thread(target=self.webhook_thread, daemon=True)
         self.thread.start()
+        self.session = requests.Session()
 
     def _cluster_agrees(self, network_id: str) -> bool:
         store = self.store_manager.stores[network_id]
@@ -324,7 +325,7 @@ class WebhookHandler:
             data = {"embeds": [embed]}
 
             try:
-                response = requests.post(webhook, json=data, timeout=10)
+                response = self.session.post(webhook, json=data, timeout=10)
                 if response.status_code != 204:
                     logger.error(
                         "Failed to send webhook for node in network",

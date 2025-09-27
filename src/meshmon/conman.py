@@ -1,14 +1,15 @@
 import threading
 import time
 
-from .webhooks import AnalysedNodeStatus
+from structlog.stdlib import get_logger
 
-from .update import UpdateManager
 from server import PingData
+
 from .config import NetworkConfigLoader, get_allowed_keys
 from .distrostore import StoreManager
 from .monitor import MonitorManager
-from structlog.stdlib import get_logger
+from .update import UpdateManager
+from .webhooks import AnalysedNodeStatus
 
 logger = get_logger()
 

@@ -1,33 +1,34 @@
 import base64
-from contextlib import asynccontextmanager
 import datetime
 import json
+import logging
 import os
+from contextlib import asynccontextmanager
+
+import structlog
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.responses import FileResponse
 
+from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
+from meshmon.config import NetworkConfig, NetworkConfigLoader, get_allowed_keys
+from meshmon.conman import ConfigManager
 from meshmon.distrostore import (
     DateEvalType,
+    NodeDataRetention,
     NodeInfo,
+    NodeStatus,
     PingData,
+    SharedStore,
     StoreData,
     StoreManager,
-    NodeStatus,
-    NodeDataRetention,
-    SharedStore,
 )
-from meshmon.update import UpdateManager
-from meshmon.config import NetworkConfig, NetworkConfigLoader, get_allowed_keys
 from meshmon.monitor import MonitorManager
-from meshmon.conman import ConfigManager
+from meshmon.update import UpdateManager
 from meshmon.version import VERSION
-from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
-import logging
-from meshmon.webhooks import WebhookHandler, AnalysedNodeStatus
-from fastapi.staticfiles import StaticFiles
-import structlog
+from meshmon.webhooks import AnalysedNodeStatus, WebhookHandler
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()

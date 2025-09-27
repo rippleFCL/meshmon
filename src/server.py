@@ -36,16 +36,30 @@ from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 import logging
 from meshmon.webhooks import WebhookHandler, AnalysedNodeStatus
 from fastapi.staticfiles import StaticFiles
+import structlog
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
-    format="%(asctime)s|%(name)s|%(levelname)s|%(filename)s:%(lineno)d|%(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+structlog.configure_once(
+    processors=[
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso", utc=False),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.ExceptionRenderer(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        structlog.processors.JSONRenderer(sort_keys=True),
+    ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.make_filtering_bound_logger(
+        getattr(logging, log_level, logging.INFO)
+    ),
+    cache_logger_on_first_use=True,
 )
 logger = logging.getLogger("meshmon.server")  # Create logger for this module
 logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger()
 
 # JWT Configuration
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")

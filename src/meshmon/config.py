@@ -283,3 +283,15 @@ def get_pingable_nodes(network: NetworkConfig) -> list[str]:
         if connectable.get(node_id, False):
             allowed_keys.append(node_id)
     return allowed_keys
+
+
+def get_all_monitor_names(network: NetworkConfig, node_id: str) -> list[str]:
+    monitor_names = set()
+    for monitor in network.monitors:
+        monitor_names.add(monitor.name)
+    for node in network.node_config:
+        if node.node_id != node_id:
+            continue
+        for monitor in node.local_monitors:
+            monitor_names.add(monitor.name)
+    return list(monitor_names)

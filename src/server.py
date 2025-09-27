@@ -19,7 +19,12 @@ from meshmon.distrostore import (
     SharedStore,
 )
 from meshmon.update import UpdateManager
-from meshmon.config import NetworkConfig, NetworkConfigLoader, get_allowed_keys
+from meshmon.config import (
+    NetworkConfig,
+    NetworkConfigLoader,
+    get_pingable_nodes,
+    get_all_monitor_names,
+)
 from meshmon.monitor import MonitorManager
 from meshmon.conman import ConfigManager
 from meshmon.version import VERSION
@@ -50,11 +55,15 @@ def prefill_store(store: SharedStore, network: NetworkConfig):
     )
     store.set_value("data_retention", data_retention, DateEvalType.OLDER)
     ctx = store.get_context("ping_data", PingData)
-    ctx.allowed_keys = get_allowed_keys(network)
+    ctx.allowed_keys = get_pingable_nodes(network)
     ctx = store.get_context("last_notified_status", AnalysedNodeStatus)
     ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
     ctx = store.get_context("network_analysis", AnalysedNodeStatus)
     ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
+    ctx = store.get_context("monitor_data", PingData)
+    ctx.allowed_keys = get_all_monitor_names(network, store.key_mapping.signer.node_id)
+    ctx = store.get_context("monitor_analysis", AnalysedNodeStatus)
+    ctx.allowed_keys = get_all_monitor_names(network, store.key_mapping.signer.node_id)
 
 
 logger.info(f"Starting server initialization with config file: {CONFIG_FILE_NAME}")

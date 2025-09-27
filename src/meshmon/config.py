@@ -39,8 +39,8 @@ class MonitorTypes(Enum):
 
 
 class NetworkMonitor(BaseModel):
-    monitor_id: str
-    monitor_type: MonitorTypes
+    name: str
+    type: MonitorTypes
     host: str
     interval: int = 10
     retry: int = 2
@@ -271,7 +271,7 @@ class NetworkConfigLoader:
         return has_changes
 
 
-def get_allowed_keys(network: NetworkConfig) -> list[str]:
+def get_pingable_nodes(network: NetworkConfig) -> list[str]:
     connectable: dict[str, bool] = {}
     for node_cfg in network.node_config:
         if node_cfg.url:

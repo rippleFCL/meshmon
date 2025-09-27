@@ -241,7 +241,7 @@ class HTTPMonitor(MonitorProto):
 
     @property
     def name(self) -> str:
-        return f"HTTPMonitor-{self._net_id}-{self.monitor_info.monitor_id}"
+        return f"HTTPMonitor-{self._net_id}-{self.monitor_info.name}"
 
     @property
     def poll_rate(self) -> int:
@@ -251,7 +251,7 @@ class HTTPMonitor(MonitorProto):
         store = self.store.get_store(self._net_id)
         ctx = store.get_context("monitor_data", PingData)
         ctx.set(
-            self.monitor_info.monitor_id,
+            self.monitor_info.name,
             PingData(
                 status=NodeStatus.UNKNOWN,
                 req_time_rtt=-1,
@@ -278,14 +278,14 @@ class HTTPMonitor(MonitorProto):
             self._handle_error(ctx)
         elif response.status_code != 200:
             logger.warning(
-                f"HTTP {response.status_code} response from {self.monitor_info.monitor_id}: {response.text}"
+                f"HTTP {response.status_code} response from {self.monitor_info.name}: {response.text}"
             )
             self._handle_error(ctx)
         else:
-            logger.debug(f"Successful response from {self.monitor_info.monitor_id}")
+            logger.debug(f"Successful response from {self.monitor_info.name}")
             self.error_count = 0
             ctx.set(
-                self.monitor_info.monitor_id,
+                self.monitor_info.name,
                 PingData(
                     status=NodeStatus.ONLINE,
                     req_time_rtt=rtt,
@@ -310,20 +310,20 @@ class HTTPMonitor(MonitorProto):
 
     def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
         logger.debug(f"Error count increased to {self.error_count} for {self.name}")
-        current_node = ctx.get(self.monitor_info.monitor_id)
+        current_node = ctx.get(self.monitor_info.name)
         if self.error_count >= self.monitor_info.retry:
             if current_node:
                 if current_node.status != NodeStatus.OFFLINE:
                     logger.info(
-                        f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.monitor_id}, marking as OFFLINE"
+                        f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.name}, marking as OFFLINE"
                     )
             else:
                 logger.info(
-                    f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.monitor_id}, marking as OFFLINE"
+                    f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.name}, marking as OFFLINE"
                 )
 
             ctx.set(
-                self.monitor_info.monitor_id,
+                self.monitor_info.name,
                 PingData(
                     status=NodeStatus.OFFLINE,
                     req_time_rtt=-1,
@@ -335,12 +335,10 @@ class HTTPMonitor(MonitorProto):
             )
         else:
             if current_node:
-                logger.debug(
-                    f"Incrementing retry count for {self.monitor_info.monitor_id}"
-                )
+                logger.debug(f"Incrementing retry count for {self.monitor_info.name}")
                 current_node.current_retry += 1
                 ctx.set(
-                    self.monitor_info.monitor_id,
+                    self.monitor_info.name,
                     PingData(
                         status=current_node.status,
                         req_time_rtt=current_node.req_time_rtt,
@@ -352,10 +350,10 @@ class HTTPMonitor(MonitorProto):
                 )
             else:
                 logger.debug(
-                    f"Setting initial UNKNOWN status for {self.monitor_info.monitor_id}"
+                    f"Setting initial UNKNOWN status for {self.monitor_info.name}"
                 )
                 ctx.set(
-                    self.monitor_info.monitor_id,
+                    self.monitor_info.name,
                     PingData(
                         status=NodeStatus.UNKNOWN,
                         req_time_rtt=-1,
@@ -369,7 +367,7 @@ class HTTPMonitor(MonitorProto):
 
     def run(self) -> None:
         logger.debug(
-            f"Sending ping to {self.monitor_info.monitor_id} at {self.monitor_info.host}"
+            f"Sending ping to {self.monitor_info.name} at {self.monitor_info.host}"
         )
         self._sent_ping()
         self._analyse_node_status()
@@ -473,13 +471,13 @@ class MonitorManager:
                     monitors[monitor_key] = monitor_wrapper
                     monitor_wrapper.start()
 
-            unique_monitors = {m.monitor_id: m for m in global_monitors}
+            unique_monitors = {m.name: m for m in global_monitors}
             for monitor in local_node.local_monitors:
-                unique_monitors[monitor.monitor_id] = monitor
+                unique_monitors[monitor.name] = monitor
 
             for monitor_info in unique_monitors.values():
-                if monitor_info.monitor_type == MonitorTypes.HTTP:
-                    monitor_key = f"{net_id}_monitor_{monitor_info.monitor_id}"
+                if monitor_info.type == MonitorTypes.HTTP:
+                    monitor_key = f"{net_id}_monitor_{monitor_info.name}"
                     logger.debug(f"Creating HTTP monitor: {monitor_key}")
                     monitor = HTTPMonitor(
                         self.store_manager,
@@ -492,7 +490,7 @@ class MonitorManager:
                     monitor_wrapper.start()
                 else:
                     logger.warning(
-                        f"Unsupported monitor type {monitor_info.monitor_type} for monitor {monitor_info.monitor_id} in network {net_id}, skipping"
+                        f"Unsupported monitor type {monitor_info.type} for monitor {monitor_info.name} in network {net_id}, skipping"
                     )
 
         logger.debug(f"Successfully initialized {len(monitors)} monitors")

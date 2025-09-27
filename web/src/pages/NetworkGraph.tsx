@@ -45,7 +45,7 @@ const estimateDiameterFromLabel = (label?: string) => {
 
 // (Radial handle logic removed in favor of floating edges)
 
-function FloatingBezierEdge({ id, source, target, markerEnd, style, label, labelStyle }: any) {
+function FloatingBezierEdge({ id, source, target, markerStart, markerEnd, style, label, labelStyle }: any) {
     const rf = useReactFlow()
     const sourceNode = rf.getNode(source)
     const targetNode = rf.getNode(target)
@@ -104,7 +104,7 @@ function FloatingBezierEdge({ id, source, target, markerEnd, style, label, label
 
     return (
         <>
-            <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+            <BaseEdge id={id} path={edgePath} style={style} markerStart={markerStart} markerEnd={markerEnd} />
             {label && (
                 <EdgeLabelRenderer>
                     <div
@@ -508,7 +508,8 @@ export default function NetworkGraph() {
         } else if (layoutMode === 'dense') {
             // Compact grid centered at origin: nodes first, then monitors
             const MAX_DIAM = Math.max(maxNodeDiam, maxMonDiam)
-            const CELL = MAX_DIAM + 24
+            // Tripled margin for denser grid spacing
+            const CELL = MAX_DIAM + 72
             const allEntities = [...sortedNodes, ...sortedMonitors]
             const total = allEntities.length
             const cols = Math.max(1, Math.ceil(Math.sqrt(total)))
@@ -574,11 +575,12 @@ export default function NetworkGraph() {
             const golden = Math.PI * (3 - Math.sqrt(5)) // ~2.39996 rad
             const NODE_RADIUS = Math.max(60, Math.round(maxNodeDiam / 2))
             const MON_RADIUS = Math.max(60, Math.round(maxMonDiam / 2))
-            const MARGIN = 16
+            // Tripled margin for wider spacing between entities
+            const MARGIN = 48
             const NODE_DIAM = NODE_RADIUS * 2
             const MON_DIAM = MON_RADIUS * 2
             // Extra separation between different types to avoid tight boundaries
-            const TYPE_SEP = Math.max(24, Math.round((NODE_RADIUS + MON_RADIUS) * 0.25))
+            const TYPE_SEP = Math.max(72, Math.round((NODE_RADIUS + MON_RADIUS) * 0.75))
 
             // Scale parameters derived from desired area per point: pi*c^2 ≈ s^2 => c ≈ s/√pi
             const cNode = (NODE_DIAM + MARGIN) / Math.sqrt(Math.PI)
@@ -658,7 +660,8 @@ export default function NetworkGraph() {
                         return
                     }
                     // If collision, expand radius slightly and nudge angle a bit
-                    r += (selfR + MARGIN) * 0.6
+                    // Slightly larger step when resolving collisions to reflect bigger margins
+                    r += (selfR + MARGIN) * 0.9
                     angle += 0.03
                 }
                 // Fallback: push far out to avoid blocking
@@ -784,21 +787,96 @@ export default function NetworkGraph() {
                 debugConnections.push({ source: a, target: b, isAdjacent: adjacent })
             }
 
-            const aOnline = rec.aToB?.online ?? false
-            const bOnline = rec.bToA?.online ?? false
+            const hasAtoB = rec.aToB !== undefined
+            const hasBtoA = rec.bToA !== undefined
+            const aOnline = rec.aToB?.online ?? false // A→B
+            const bOnline = rec.bToA?.online ?? false // B→A
+            const bothOnline = hasAtoB && hasBtoA && aOnline && bOnline
+            const bothDown = hasAtoB && hasBtoA && !aOnline && !bOnline
+            const partial = hasAtoB && hasBtoA && ((aOnline && !bOnline) || (!aOnline && bOnline))
             const anyOnline = aOnline || bOnline
             const rttA = rec.aToB?.rtt
             const rttB = rec.bToA?.rtt
 
-            const labelText = (showDefaultLabels && anyOnline)
-                ? [rttA, rttB].filter(v => typeof v === 'number').map(v => `${(v as number).toFixed(0)}ms`).join(' ⇄ ')
-                : undefined
+            // Labels for default (non-hover) rendering
+            let labelText: string | undefined = undefined
+            if (hasAtoB && hasBtoA) {
+                const showLabel = (showDefaultLabels && anyOnline) || partial || bothDown
+                if (showLabel) {
+                    const left = aOnline && typeof rttA === 'number' ? `${(rttA as number).toFixed(0)}ms` : 'offline'
+                    const right = bOnline && typeof rttB === 'number' ? `${(rttB as number).toFixed(0)}ms` : 'offline'
+                    labelText = `${left} →  |  ← ${right}`
+                }
+            } else if (hasAtoB) {
+                const showLabel = (showDefaultLabels && (aOnline || !hideOnlineByDefault)) || !aOnline
+                if (showLabel) {
+                    const left = aOnline && typeof rttA === 'number' ? `${(rttA as number).toFixed(0)}ms` : 'offline'
+                    labelText = `${left} →`
+                }
+            } else if (hasBtoA) {
+                const showLabel = (showDefaultLabels && (bOnline || !hideOnlineByDefault)) || !bOnline
+                if (showLabel) {
+                    const right = bOnline && typeof rttB === 'number' ? `${(rttB as number).toFixed(0)}ms` : 'offline'
+                    labelText = `← ${right}`
+                }
+            }
 
-            const strength = anyOnline ? Math.max(1, 5 - (((rttA ?? rttB ?? 0) as number) / 50)) : 0.5
+            // Stroke rules
+            // - Bidirectional both up: solid green
+            // - Bidirectional both down: dashed red
+            // - Bidirectional partial: green dashed (non-animated)
+            // - Unidirectional: solid green if up else solid red
+            let strokeColor = '#22c55e'
+            let strokeDasharray = '0'
+            if (hasAtoB && hasBtoA) {
+                if (bothDown) {
+                    strokeColor = '#ef4444'
+                    strokeDasharray = '6,3'
+                } else if (partial) {
+                    // Yellow dashed for degraded (one-way down)
+                    strokeColor = '#eab308'
+                    strokeDasharray = '6,3'
+                } else if (bothOnline) {
+                    strokeColor = '#22c55e'
+                    strokeDasharray = '0'
+                }
+            } else if (hasAtoB) {
+                strokeColor = aOnline ? '#22c55e' : '#ef4444'
+                strokeDasharray = '0'
+            } else if (hasBtoA) {
+                strokeColor = bOnline ? '#22c55e' : '#ef4444'
+                strokeDasharray = '0'
+            }
+
+            // Stroke width based on best available RTT for aesthetics
+            const rttForStrength = (aOnline ? (rttA ?? 0) : Infinity) < (bOnline ? (rttB ?? 0) : Infinity)
+                ? (aOnline ? (rttA ?? 0) : (bOnline ? (rttB ?? 0) : 0))
+                : (bOnline ? (rttB ?? 0) : (aOnline ? (rttA ?? 0) : 0))
+            const strength = anyOnline ? Math.max(1, 5 - ((rttForStrength as number) / 50)) : 0.5
             const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
             const strokeWidth = adjacent ? baseStrokeWidth : baseStrokeWidth * 0.8
             const computedOpacity = anyOnline ? (adjacent ? 0.9 : 0.7) : 0.6
-            const baseOpacity = anyOnline && hideOnlineByDefault ? 0 : computedOpacity
+            // Hide behavior:
+            // - Bidirectional: hide only when both directions are online (fully healthy)
+            // - Unidirectional: hide when that single direction is online
+            const baseOpacity = (hasAtoB && hasBtoA)
+                ? (bothOnline && hideOnlineByDefault ? 0 : computedOpacity)
+                : ((anyOnline && hideOnlineByDefault) ? 0 : computedOpacity)
+
+            // Precompute a full label string for hover regardless of default visibility
+            const fmtMs = (v?: number) => (typeof v === 'number' && isFinite(v)) ? `${Math.round(v)}ms` : 'offline'
+            const fullLabelText: string | undefined = (() => {
+                if (hasAtoB && hasBtoA) {
+                    const left = aOnline ? fmtMs(rttA) : 'offline'
+                    const right = bOnline ? fmtMs(rttB) : 'offline'
+                    return `${left} →  |  ← ${right}`
+                } else if (hasAtoB) {
+                    return aOnline ? `${fmtMs(rttA)} →` : '→ offline'
+                } else if (hasBtoA) {
+                    return bOnline ? `← ${fmtMs(rttB)}` : 'offline ←'
+                }
+                return undefined
+            })()
 
             edges.push({
                 id: `${a}-${b}`,
@@ -807,20 +885,20 @@ export default function NetworkGraph() {
                 target: b,
                 targetHandle: 't',
                 style: {
-                    stroke: anyOnline ? '#22c55e' : '#ef4444',
+                    stroke: strokeColor,
                     strokeWidth,
-                    strokeDasharray: anyOnline ? '0' : '6,3',
+                    strokeDasharray,
                     opacity: baseOpacity,
                 },
                 label: labelText,
                 labelStyle: labelText ? {
                     fontSize: 11,
                     fontWeight: '600',
-                    fill: '#16a34a',
+                    fill: bothOnline ? '#16a34a' : (bothDown ? '#ef4444' : (partial ? '#eab308' : (strokeColor === '#22c55e' ? '#16a34a' : (strokeColor === '#eab308' ? '#eab308' : '#ef4444')))),
                     background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
                     padding: '2px 6px',
                     borderRadius: '12px',
-                    border: '1px solid #22c55e',
+                    border: bothOnline ? '1px solid #22c55e' : (bothDown ? '1px solid #ef4444' : (partial ? '1px solid #eab308' : (strokeColor === '#22c55e' ? '1px solid #22c55e' : (strokeColor === '#eab308' ? '1px solid #eab308' : '1px solid #ef4444')))),
                 } : undefined,
                 labelBgStyle: labelText ? {
                     fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
@@ -829,37 +907,43 @@ export default function NetworkGraph() {
                 data: {
                     isOnline: anyOnline,
                     isMonitorEdge: false,
-                    originalLabel: labelText,
-                    originalLabelStyle: labelText ? {
+                    originalLabel: fullLabelText,
+                    originalLabelStyle: fullLabelText ? {
                         fontSize: 11,
                         fontWeight: '600',
-                        fill: '#16a34a',
+                        fill: bothOnline ? '#16a34a' : (bothDown ? '#ef4444' : (partial ? '#eab308' : (strokeColor === '#22c55e' ? '#16a34a' : (strokeColor === '#eab308' ? '#eab308' : '#ef4444')))),
                         background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
                         padding: '2px 6px',
                         borderRadius: '12px',
-                        border: '1px solid #22c55e',
+                        border: bothOnline ? '1px solid #22c55e' : (bothDown ? '1px solid #ef4444' : (partial ? '1px solid #eab308' : (strokeColor === '#22c55e' ? '1px solid #22c55e' : (strokeColor === '#eab308' ? '1px solid #eab308' : '1px solid #ef4444')))),
                     } : undefined,
-                    originalLabelBgStyle: labelText ? {
+                    originalLabelBgStyle: fullLabelText ? {
                         fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
                         fillOpacity: 0.9,
                     } : undefined,
                     originalOpacity: computedOpacity,
                     baseOpacity,
+                    aToBOnline: aOnline,
+                    bToAOnline: bOnline,
+                    hasAtoB,
+                    hasBtoA,
                 },
-                animated: anyOnline && ((rttA ?? rttB ?? 0) < 100) && !disableAnimations,
+                // Animation only for fully healthy (solid green) bidirectional links
+                animated: bothOnline && ((rttA ?? rttB ?? 0) < 100) && !disableAnimations,
                 type: 'floating',
-                markerStart: {
+                // Arrowheads: show only for existing directions. Colors reflect that direction's status.
+                markerStart: hasBtoA ? {
                     type: MarkerType.ArrowClosed,
-                    color: anyOnline ? '#22c55e' : '#ef4444',
+                    color: bOnline ? '#22c55e' : '#ef4444',
                     width: 12,
                     height: 12,
-                },
-                markerEnd: {
+                } : undefined,
+                markerEnd: hasAtoB ? {
                     type: MarkerType.ArrowClosed,
-                    color: anyOnline ? '#22c55e' : '#ef4444',
+                    color: aOnline ? '#22c55e' : '#ef4444',
                     width: 12,
                     height: 12,
-                },
+                } : undefined,
             })
 
             createdConnections.add(`${a}-${b}`)
@@ -1023,9 +1107,10 @@ export default function NetworkGraph() {
                     'elk.algorithm': 'layered',
                     'elk.direction': 'RIGHT',
                     // Increase spacing with larger nodes
-                    'elk.spacing.nodeNode': '80',
-                    'elk.spacing.edgeNode': '40',
-                    'elk.spacing.edgeEdge': '30',
+                    // Tripled spacing for stacked layout
+                    'elk.spacing.nodeNode': '240',
+                    'elk.spacing.edgeNode': '120',
+                    'elk.spacing.edgeEdge': '90',
                     'elk.layered.mergeEdges': 'true',
                     'elk.layered.considerModelOrder': 'true',
                 },
@@ -1130,7 +1215,7 @@ export default function NetworkGraph() {
             const connectedNodeIds = new Set<string>([hoveredNode])
             const relevantEdgeIds = new Set<string>(nodeToEdgesMap.get(hoveredNode) || [])
             // Allow hover labels even in performance mode to expose online connections
-            const enableHoverLabels = relevantEdgeIds.size <= 50
+            const enableHoverLabels = true
             logPerf('hover:update', { node: hoveredNode, edges: relevantEdgeIds.size })
             const neighbors = nodeToNeighborsMap.get(hoveredNode)
             if (neighbors) {
@@ -1377,14 +1462,76 @@ export default function NetworkGraph() {
                                                     <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
                                                     <span className="text-gray-600 dark:text-gray-400">Offline Node</span>
                                                 </div>
+                                                {/* Bidirectional: both up (solid green with arrowheads both ends) */}
                                                 <div className="flex items-center space-x-2">
-                                                    <div className="w-3 h-0.5 bg-green-500 rounded-full"></div>
-                                                    <span className="text-gray-600 dark:text-gray-400">Active Link</span>
+                                                    <svg width="46" height="10" viewBox="0 0 46 10" className="shrink-0">
+                                                        <defs>
+                                                            <marker id="lg-bidi-up-start" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" />
+                                                            </marker>
+                                                            <marker id="lg-bidi-up-end" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" />
+                                                            </marker>
+                                                        </defs>
+                                                        <line x1="6" y1="5" x2="40" y2="5" stroke="#22c55e" strokeWidth="2.5" markerStart="url(#lg-bidi-up-start)" markerEnd="url(#lg-bidi-up-end)" />
+                                                    </svg>
+                                                    <span className="text-gray-600 dark:text-gray-400">Bidirectional: up</span>
                                                 </div>
+                                                {/* Bidirectional: degraded (one way down) dashed yellow with red/green arrowheads */}
                                                 <div className="flex items-center space-x-2">
-                                                    <div className="w-3 h-0.5 bg-red-500"></div>
-                                                    <span className="text-gray-600 dark:text-gray-400">Failed Link</span>
+                                                    <svg width="46" height="10" viewBox="0 0 46 10" className="shrink-0">
+                                                        <defs>
+                                                            <marker id="lg-bidi-deg-start" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" />
+                                                            </marker>
+                                                            <marker id="lg-bidi-deg-end" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" />
+                                                            </marker>
+                                                        </defs>
+                                                        <line x1="6" y1="5" x2="40" y2="5" stroke="#eab308" strokeWidth="2.5" strokeDasharray="6 3" markerStart="url(#lg-bidi-deg-start)" markerEnd="url(#lg-bidi-deg-end)" />
+                                                    </svg>
+                                                    <span className="text-gray-600 dark:text-gray-400">Bidirectional: degraded (one-way down)</span>
                                                 </div>
+                                                {/* Bidirectional: down (dashed red with red arrowheads) */}
+                                                <div className="flex items-center space-x-2">
+                                                    <svg width="46" height="10" viewBox="0 0 46 10" className="shrink-0">
+                                                        <defs>
+                                                            <marker id="lg-bidi-down-start" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" />
+                                                            </marker>
+                                                            <marker id="lg-bidi-down-end" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" />
+                                                            </marker>
+                                                        </defs>
+                                                        <line x1="6" y1="5" x2="40" y2="5" stroke="#ef4444" strokeWidth="2.5" strokeDasharray="6 3" markerStart="url(#lg-bidi-down-start)" markerEnd="url(#lg-bidi-down-end)" />
+                                                    </svg>
+                                                    <span className="text-gray-600 dark:text-gray-400">Bidirectional: down</span>
+                                                </div>
+                                                {/* Unidirectional: up (single green arrowhead) */}
+                                                <div className="flex items-center space-x-2">
+                                                    <svg width="46" height="10" viewBox="0 0 46 10" className="shrink-0">
+                                                        <defs>
+                                                            <marker id="lg-uni-up-end" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" />
+                                                            </marker>
+                                                        </defs>
+                                                        <line x1="0" y1="5" x2="40" y2="5" stroke="#22c55e" strokeWidth="2.5" markerEnd="url(#lg-uni-up-end)" />
+                                                    </svg>
+                                                    <span className="text-gray-600 dark:text-gray-400">Unidirectional: up</span>
+                                                </div>
+                                                {/* Unidirectional: down (single red arrowhead) */}
+                                                <div className="flex items-center space-x-2">
+                                                    <svg width="46" height="10" viewBox="0 0 46 10" className="shrink-0">
+                                                        <defs>
+                                                            <marker id="lg-uni-down-end" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+                                                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" />
+                                                            </marker>
+                                                        </defs>
+                                                        <line x1="0" y1="5" x2="40" y2="5" stroke="#ef4444" strokeWidth="2.5" markerEnd="url(#lg-uni-down-end)" />
+                                                    </svg>
+                                                    <span className="text-gray-600 dark:text-gray-400">Unidirectional: down</span>
+                                                </div>
+                                                <div className="text-[10px] text-gray-500 dark:text-gray-500 pt-0.5">Arrowheads are colored per direction (green = up, red = down).</div>
                                             </div>
                                         </div>
                                         <div className="pt-2 border-t border-gray-200 dark:border-gray-700">

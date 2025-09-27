@@ -84,9 +84,9 @@ const buildMockNetwork = (_id: string, nodesCount = 20, monitorsCount = 40): Net
 
 export const mockMultiNetworkAnalysis: MultiNetworkAnalysis = {
   networks: {
-    'local-test': buildMockNetwork('local-test', 20, 50),
-    'staging': buildMockNetwork('staging', 3, 10),
-    'production': buildMockNetwork('production', 1, 1),
+    'mock-net1': buildMockNetwork('local-test', 20, 50),
+    'mock-net2': buildMockNetwork('staging', 3, 10),
+    'mock-net3': buildMockNetwork('production', 1, 1),
   },
 }
 

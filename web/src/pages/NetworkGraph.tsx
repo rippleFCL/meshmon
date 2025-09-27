@@ -1414,7 +1414,9 @@ export default function NetworkGraph() {
         prevViewportRef.current = null
     }, [processedNodes, processedEdges, setNodes, setEdges, reactFlowRef, zoom, hideOnlineByDefault, animationMode])
 
-    const focusNode = useCallback((centerId: string, force: boolean = false) => {
+    const focusNode = useCallback((centerId: string, forceOrOptions: boolean | { force?: boolean; refit?: boolean } = false) => {
+        const force = typeof forceOrOptions === 'boolean' ? forceOrOptions : !!forceOrOptions?.force
+        const refit = typeof forceOrOptions === 'boolean' ? true : (forceOrOptions?.refit ?? true)
         if (!processedNodes.length) return
         // Prevent spamming while an animation/layout is in progress
         if (focusingRef.current) return
@@ -1507,26 +1509,28 @@ export default function NetworkGraph() {
         })
         setEdges(filtered)
 
-        // Animate viewport to fit all focused nodes (focused + neighbors)
-        try {
-            const inst = reactFlowRef.current
-            if (inst) {
-                // Wait a frame so the node list change is applied before fitting
-                requestAnimationFrame(() => {
-                    try {
-                        inst.fitView({ duration: 600, padding: 0.2 })
-                    } catch { }
-                })
-            }
-        } catch { }
+        // Animate viewport to fit all focused nodes (focused + neighbors) when refit is requested
+        if (refit) {
+            try {
+                const inst = reactFlowRef.current
+                if (inst) {
+                    // Wait a frame so the node list change is applied before fitting
+                    requestAnimationFrame(() => {
+                        try {
+                            inst.fitView({ duration: 600, padding: 0.2 })
+                        } catch { }
+                    })
+                }
+            } catch { }
+        }
         focusingRef.current = false
     }, [processedNodes, processedEdges, nodeToNeighborsMap, setNodes, setEdges, focusedNodeId, animationMode])
 
     // Keep focus edges/nodes consistent if data refreshes or animation mode changes while focused
     useEffect(() => {
         if (!focusedNodeId) return
-        // Reapply focus layout and edge states without exiting
-        focusNode(focusedNodeId, true)
+        // Reapply focus layout and edge states without exiting or refitting viewport
+        focusNode(focusedNodeId, { force: true, refit: false })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [processedNodes, processedEdges, animationMode])
 

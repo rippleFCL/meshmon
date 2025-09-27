@@ -49,7 +49,7 @@ structlog.configure_once(
         structlog.processors.TimeStamper(fmt="iso", utc=False),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.ExceptionRenderer(),
-        structlog.processors.JSONRenderer(),
+        structlog.processors.JSONRenderer(sort_keys=True),
     ],
     logger_factory=structlog.PrintLoggerFactory(),
     wrapper_class=structlog.make_filtering_bound_logger(

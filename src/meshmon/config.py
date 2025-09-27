@@ -85,11 +85,11 @@ class NetworkConfigLoader:
         """
         self.config_dir = Path(config_dir)
         self.file_name = file_name
+        self.logger = get_logger()
         self.node_cfg = self._load_node_config()
         self.networks: dict[str, NetworkConfig] = self._load_all_network_configs()
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
         self.nodecfg_latest_mtime = self.get_netconf_mtime()
-        self.logger = get_logger()
 
     def _load_node_config(self) -> NodeCfg:
         """

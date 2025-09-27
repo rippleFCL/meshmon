@@ -450,11 +450,11 @@ class MonitorManager:
         self.store_manager = store_manager
         self.update_manager = update_manager
         self.config = config
+        self.logger = get_logger()
         self.monitors: dict[str, Monitor] = self._initialize_monitors()
         self.stop_flag = Event()
         self.thread = Thread(target=self.manager, daemon=True)
         self.thread.start()
-        self.logger = get_logger()
         self.logger.debug(
             "MonitorManager initialized with monitors", count=len(self.monitors)
         )

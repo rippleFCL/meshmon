@@ -15,9 +15,9 @@ class UpdateManager:
         self.config_loader = config_loader
         self.stop_event = Event()
         self.update_events: dict[str, list[Event]] = {}
-        self.threads = self._get_threads()
         self.logger = get_logger()
         self.session = Session()
+        self.threads = self._get_threads()
 
     def update(self, net_id: str):
         self.logger.debug("Triggering update for network", net_id=net_id)

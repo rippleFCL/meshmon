@@ -159,7 +159,8 @@ const MeshNode = memo(({ data }: { data: any }) => {
                     width: `${nodeSize}px`,
                     height: `${nodeSize}px`,
                     opacity: nodeOpacity,
-                    willChange: 'transform, opacity'
+                    willChange: 'transform, opacity',
+                    transition: 'opacity 220ms ease'
                 }}
                 onMouseEnter={() => handleHover && handleHover(data.nodeId || data.label)}
                 onMouseLeave={() => handleHover && handleHover(null)}
@@ -227,7 +228,8 @@ const MonitorNode = memo(({ data }: { data: any }) => {
                     width: `${nodeSize}px`,
                     height: `${nodeSize}px`,
                     opacity: nodeOpacity,
-                    willChange: 'transform, opacity'
+                    willChange: 'transform, opacity',
+                    transition: 'opacity 220ms ease'
                 }}
                 onMouseEnter={() => handleHover && handleHover(data.nodeId || data.label)}
                 onMouseLeave={() => handleHover && handleHover(null)}

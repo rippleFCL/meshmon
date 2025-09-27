@@ -1339,7 +1339,6 @@ export default function NetworkGraph() {
     // No removal timer; we keep hidden nodes mounted to allow smooth exit animations
 
     const clearFocus = useCallback(() => {
-        setFocusedNodeId(null)
         // Restore all nodes with a staged animation back to their original positions
         const posMap = new Map<string, { x: number; y: number }>(processedNodes.map(n => [n.id, n.position]))
         // Stage 1: add transitions to all currently mounted nodes
@@ -1368,6 +1367,8 @@ export default function NetworkGraph() {
                         style: { ...rest, pointerEvents: 'auto' as any },
                     }
                 }))
+                // Now that the exit animation is complete, clear focus so base effects resume
+                setFocusedNodeId(null)
             }, CLEANUP_DELAY_MS)
         })
         // Restore edges to base opacity and default label policy
@@ -1416,9 +1417,10 @@ export default function NetworkGraph() {
         prevViewportRef.current = null
     }, [processedNodes, processedEdges, setNodes, setEdges, reactFlowRef, zoom, hideOnlineByDefault, animationMode])
 
-    const focusNode = useCallback((centerId: string, forceOrOptions: boolean | { force?: boolean; refit?: boolean } = false) => {
+    const focusNode = useCallback((centerId: string, forceOrOptions: boolean | { force?: boolean; refit?: boolean; animate?: boolean } = false) => {
         const force = typeof forceOrOptions === 'boolean' ? forceOrOptions : !!forceOrOptions?.force
         const refit = typeof forceOrOptions === 'boolean' ? true : (forceOrOptions?.refit ?? true)
+        const animateRequested = typeof forceOrOptions === 'boolean' ? true : (forceOrOptions?.animate ?? true)
         if (!processedNodes.length) return
         // Prevent spamming while an animation/layout is in progress
         if (focusingRef.current) return
@@ -1466,22 +1468,45 @@ export default function NetworkGraph() {
             const angle = (idx / Math.max(1, N)) * Math.PI * 2
             targetPos.set(id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius })
         })
-        // Stage 1: add transition styles and set visibility flags without moving yet
+        // Determine if we should animate positions: only when entering focus from non-focused state
+        const shouldAnimatePositions = animateRequested && !focusedNodeId
+
+        // Stage 1: set visibility and optionally add transition styles without moving yet
         setNodes(curr => curr.map(n => {
             const isFocusOrNeighbor = n.id === centerId || neighborSet.has(n.id)
+            const baseStyle = { ...(n.style || {}) }
+            const style = shouldAnimatePositions
+                ? { ...baseStyle, transition: 'transform 450ms ease, opacity 300ms ease', opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) }
+                : { ...baseStyle, opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) }
             return {
                 ...n,
-                style: { ...(n.style || {}), transition: 'transform 450ms ease, opacity 300ms ease', opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) },
+                style,
                 data: { ...n.data, isHighlighted: isFocusOrNeighbor, isDimmed: !isFocusOrNeighbor },
             }
         }))
-        // Stage 2 (next frame): move focus + neighbors to target positions
-        requestAnimationFrame(() => {
-            setNodes(curr => curr.map(n => ({
-                ...n,
-                position: targetPos.get(n.id) ?? n.position,
-            })))
-        })
+        // Stage 2: move focus + neighbors to target positions (next frame for animated, immediate for non-animated)
+        const applyPositions = () => setNodes(curr => curr.map(n => ({
+            ...n,
+            position: targetPos.get(n.id) ?? n.position,
+        })))
+        if (shouldAnimatePositions) {
+            requestAnimationFrame(() => {
+                applyPositions()
+            })
+        } else {
+            applyPositions()
+        }
+
+        // After entering focus with animation, remove transitions so in-focus updates don't animate positions
+        if (shouldAnimatePositions) {
+            const CLEANUP_DELAY_MS = 500
+            setTimeout(() => {
+                setNodes(curr => curr.map(n => {
+                    const { transition, ...rest } = (n.style || {}) as any
+                    return { ...n, style: { ...rest } }
+                }))
+            }, CLEANUP_DELAY_MS)
+        }
 
         // Update edges: show only those connected to the focus, with labels
         const relevantEdgeIds = new Set<string>(nodeToEdgesMap.get(centerId) || [])
@@ -1531,8 +1556,8 @@ export default function NetworkGraph() {
     // Keep focus edges/nodes consistent if data refreshes or animation mode changes while focused
     useEffect(() => {
         if (!focusedNodeId) return
-        // Reapply focus layout and edge states without exiting or refitting viewport
-        focusNode(focusedNodeId, { force: true, refit: false })
+        // Reapply focus layout and edge states without exiting or refitting viewport; do not animate while in focus
+        focusNode(focusedNodeId, { force: true, refit: false, animate: false })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [processedNodes, processedEdges, animationMode])
 

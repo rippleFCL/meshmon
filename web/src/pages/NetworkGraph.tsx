@@ -501,8 +501,9 @@ export default function NetworkGraph() {
             const outerRArcMin = monitorCount > 0 ? (monitorCount * monGap) / (2 * Math.PI) : innerMin + 1
             const outerMin = monitorCount > 0 ? Math.max(outerRChordMin, outerRArcMin) : innerMin + 1
 
-            // Desired fixed separation between rings (kept small to bring them closer)
-            const sep = (NODE_SIZE / 2) + (MON_SIZE / 2) + SEP_MARGIN
+            // Desired fixed separation between rings (increase by 15% for more spacing)
+            const sepBase = (NODE_SIZE / 2) + (MON_SIZE / 2) + SEP_MARGIN
+            const sep = sepBase * 1.15
 
             // Couple the radii: if one ring grows, the other grows to maintain sep
             // Choose center radius C so that C >= innerMin and C + sep >= outerMin
@@ -1486,7 +1487,16 @@ export default function NetworkGraph() {
         const neighborSet = new Set<string>(nodeToNeighborsMap.get(centerId) || [])
         // Place focused at center and neighbors around a circle
         const N = neighborSet.size
-        const radius = Math.max(320, Math.min(800, 140 + N * 40))
+        // Compute a compact radius based on neighbor node diameters so spacing is tighter
+        const neighborDiams = Array.from(neighborSet).map(id => estimateDiameterFromLabel(id))
+        const avgDiam = neighborDiams.length ? (neighborDiams.reduce((a, b) => a + b, 0) / neighborDiams.length) : 120
+        const gap = Math.max(22, Math.min(48, avgDiam * 0.22))
+        const circumferenceNeeded = Math.max(1, N) * (avgDiam + gap)
+        // Scale radius: base breathing room (10%) plus additional 15% as requested (~26.5% total)
+        const rCirc = (circumferenceNeeded / (2 * Math.PI)) * 1.265
+        // Clamp radius so small neighbor counts don't get too tight
+        const minRadius = Math.max(260, avgDiam * 1.75)
+        const radius = Math.max(minRadius, Math.min(520, rCirc))
         // Sort neighbors by current polar angle around the focus to keep relative order
         const centerNode = processedNodes.find(n => n.id === centerId)
         const cx0 = centerNode?.position.x || 0
@@ -1564,17 +1574,23 @@ export default function NetworkGraph() {
         })
         setEdges(filtered)
 
-        // Animate viewport to fit all focused nodes (focused + neighbors) when refit is requested
+        // Animate viewport to fit focused + neighbors when refit is requested
         if (refit) {
             try {
                 const inst = reactFlowRef.current
                 if (inst) {
-                    // Wait a frame so the node list change is applied before fitting
-                    requestAnimationFrame(() => {
-                        try {
-                            inst.fitView({ duration: 600, padding: 0.2 })
-                        } catch { }
-                    })
+                    const nodesToFit = [{ id: centerId }, ...neighborsOrdered.map(id => ({ id }))]
+                    const fitNow = () => {
+                        try { inst.fitView({ nodes: nodesToFit as any, duration: 600, padding: 0.12 }) } catch { }
+                    }
+                    if (shouldAnimatePositions) {
+                        // Do a quick initial fit, then refine after the position animation completes
+                        setTimeout(fitNow, 50)
+                        setTimeout(fitNow, 470)
+                    } else {
+                        // No animation: fit immediately next frame
+                        requestAnimationFrame(fitNow)
+                    }
                 }
             } catch { }
         }

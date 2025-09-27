@@ -57,5 +57,5 @@ class ConfigManager:
 
                     self.monitor_manager.reload()
                     self.update_manager.reload()
-            except Exception as e:
-                logger.error(f"Error in config watcher: {e}")
+            except Exception as exc:
+                logger.error("Error in config watcher", exc=exc)

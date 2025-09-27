@@ -82,16 +82,16 @@ def prefill_store(store: SharedStore, network: NetworkConfig):
     ctx.allowed_keys = get_all_monitor_names(network, store.key_mapping.signer.node_id)
 
 
-logger.info(f"Starting server initialization with config file: {CONFIG_FILE_NAME}")
+logger.info("Starting server initialization with config file", config=CONFIG_FILE_NAME)
 
 
 logger.info("Loading network configuration...")
 config = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
-logger.info(f"Loaded {len(config.networks)} network configurations")
+logger.info("Loaded network configurations", count=len(config.networks))
 
 logger.info("Initializing store manager...")
 store_manager = StoreManager(config, prefill_store)
-logger.info(f"Initialized store manager with {len(store_manager.stores)} stores")
+logger.info("Initialized store manager with stores", count=len(store_manager.stores))
 
 logger.info("Initializing update manager...")
 update_manager = UpdateManager(store_manager, config)
@@ -161,9 +161,11 @@ class ViewPingData(BaseModel):
 
 def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
     """Validate message signature using the existing crypto verification system."""
-    logger.debug(f"Validating message for network {network_id}, sig_id: {body.sig_id}")
+    logger.debug(
+        "Validating message for network", net_id=network_id, sig_id=body.sig_id
+    )
     if not authorization or not authorization.startswith("Bearer "):
-        logger.warning(f"Invalid authorization header for network {network_id}")
+        logger.warning("Invalid authorization header for network", net_id=network_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid Bearer token",
@@ -171,7 +173,7 @@ def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
 
     store = store_manager.get_store(network_id)
     if not store:
-        logger.warning(f"Network not found: {network_id}")
+        logger.warning("Network not found", net_id=network_id)
         raise HTTPException(status_code=404, detail="Network not found")
 
     verifier = store.key_mapping.get_verifier(body.sig_id)
@@ -208,9 +210,9 @@ def mon(body: MonBody, network_id: str, authorization: str = Header()):
     mon_store = store_manager.get_store(network_id)
     updated = mon_store.update_from_dump(msg)
     if updated:
-        logger.info(f"Store updated from dump received for network: {network_id}")
+        logger.info("Store updated from dump received for network", net_id=network_id)
         update_manager.update(network_id)
-    logger.debug(f"Successfully processed monitoring data for {network_id}")
+    logger.debug("Successfully processed monitoring data for", net_id=network_id)
     # Convert each value to SignedNodeData
     return mon_store.store
 
@@ -236,10 +238,10 @@ def health():
 @api.get("/api/raw/{network_id}", response_model=StoreData)
 def get_raw_store(network_id: str):
     """Get raw store data for a specific network. Requires JWT authentication."""
-    logger.debug(f"Raw store request for network: {network_id}")
+    logger.debug("Raw store request for network", net_id=network_id)
     store = store_manager.get_store(network_id)
     if not store:
-        logger.warning(f"Network not found: {network_id}")
+        logger.warning("Network not found", net_id=network_id)
         raise HTTPException(status_code=404, detail="Network not found")
     return store.store
 

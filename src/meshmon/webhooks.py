@@ -13,8 +13,6 @@ from .config import NetworkConfigLoader
 from .monitor import AnalysedNodeStatus
 from .pulsewave.distrostore import StoreManager
 
-logger = get_logger()
-
 
 class HashedWebhook(BaseModel):
     hashed_webhook: str
@@ -43,6 +41,7 @@ class WebhookHandler:
         self.thread = threading.Thread(target=self.webhook_thread, daemon=True)
         self.thread.start()
         self.session = requests.Session()
+        self.logger = get_logger()
 
     def _cluster_agrees(self, network_id: str) -> bool:
         store = self.store_manager.stores[network_id]
@@ -64,7 +63,7 @@ class WebhookHandler:
                     return False
             online_nodes += 1
         if online_nodes == 1:
-            logger.warning(
+            self.logger.warning(
                 "Only one online node in network, cluster agreement not possible",
                 node_id=store.key_mapping.signer.node_id,
                 net_id=network_id,
@@ -157,7 +156,7 @@ class WebhookHandler:
             current_status = current_store.get_context(
                 "last_notified_status", AnalysedNodeStatus
             )
-            logger.info(
+            self.logger.info(
                 "Catching up to leader for network",
                 leader_node=leader_node,
                 net_id=network_id,
@@ -167,7 +166,7 @@ class WebhookHandler:
             current_store.set_value("last_notification", leader_last_notification)
 
     def _notify_for_network(self, network_id: str):
-        logger.debug("Processing notifications for network", net_id=network_id)
+        self.logger.debug("Processing notifications for network", net_id=network_id)
         current_store = self.store_manager.get_store(network_id)
         analysis_ctx = current_store.get_context("network_analysis", AnalysedNodeStatus)
 
@@ -175,14 +174,14 @@ class WebhookHandler:
             current_status = current_store.get_context(
                 "last_notified_status", AnalysedNodeStatus
             )
-            logger.debug("Acting as leader for network", net_id=network_id)
+            self.logger.debug("Acting as leader for network", net_id=network_id)
             self._catchup(network_id)
             updated = False
             for node_id, status in analysis_ctx:
                 current_notified_status = current_status.get(node_id)
                 if current_notified_status is not None:
                     if current_notified_status.status != status.status:
-                        logger.info(
+                        self.logger.info(
                             "Status change detected for node in network",
                             net_id=network_id,
                             node_id=node_id,
@@ -193,7 +192,7 @@ class WebhookHandler:
                         current_status.set(node_id, status)
                         updated = True
                 else:
-                    logger.debug(
+                    self.logger.debug(
                         "Setting initial status for node in network",
                         net_id=network_id,
                         node_id=node_id,
@@ -202,7 +201,7 @@ class WebhookHandler:
                     current_status.set(node_id, status)
                     updated = True
             if updated:
-                logger.debug(
+                self.logger.debug(
                     "Updating network due to status changes", net_id=network_id
                 )
                 current_store.set_value(
@@ -214,14 +213,14 @@ class WebhookHandler:
                 self.update_manager.update(network_id)
 
             else:
-                logger.debug(
+                self.logger.debug(
                     "No status changes detected for network", net_id=network_id
                 )
         elif (
             leader_data := self.leader_priority(network_id, exclude_self=True)
         ) is not None:
             leader_node, _ = leader_data
-            logger.debug(
+            self.logger.debug(
                 "Following leader for network",
                 leader_node=leader_node,
                 net_id=network_id,
@@ -233,7 +232,7 @@ class WebhookHandler:
                 "last_notified_status", AnalysedNodeStatus
             )
             if leader_status is None:
-                logger.info(
+                self.logger.info(
                     "No leader status found for leader in network",
                     leader_node=leader_node,
                     net_id=network_id,
@@ -327,7 +326,7 @@ class WebhookHandler:
             try:
                 response = self.session.post(webhook, json=data, timeout=10)
                 if response.status_code != 204:
-                    logger.error(
+                    self.logger.error(
                         "Failed to send webhook for node in network",
                         node_id=node_id,
                         net_id=network_id,
@@ -335,26 +334,26 @@ class WebhookHandler:
                         body=response.text,
                     )
                 else:
-                    logger.info(
+                    self.logger.info(
                         "Successfully sent webhook notification for status change",
                         node_id=node_id,
                         status=status.value,
                     )
             except requests.exceptions.Timeout:
-                logger.error(
+                self.logger.error(
                     "Webhook request timed out for node in network ",
                     node_id=node_id,
                     net_id=network_id,
                 )
             except requests.exceptions.RequestException as exc:
-                logger.error(
+                self.logger.error(
                     "Network error while sending webhook for node in network",
                     node_id=node_id,
                     net_id=network_id,
                     exc=exc,
                 )
             except Exception as exc:
-                logger.error(
+                self.logger.error(
                     "Unexpected error while sending webhook for node in network",
                     node_id=node_id,
                     net_id=network_id,

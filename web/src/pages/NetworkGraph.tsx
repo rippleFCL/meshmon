@@ -850,10 +850,12 @@ export default function NetworkGraph() {
                 }
             } else if (hasAtoB) {
                 strokeColor = aOnline ? '#22c55e' : '#ef4444'
-                strokeDasharray = '0'
+                // Unidirectional down should be dotted/dashed always
+                strokeDasharray = aOnline ? '0' : '6,3'
             } else if (hasBtoA) {
                 strokeColor = bOnline ? '#22c55e' : '#ef4444'
-                strokeDasharray = '0'
+                // Unidirectional down should be dotted/dashed always
+                strokeDasharray = bOnline ? '0' : '6,3'
             }
 
             // Stroke width based on best available RTT for aesthetics

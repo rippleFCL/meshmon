@@ -281,6 +281,8 @@ export default function NetworkGraph() {
     const [isPanning, setIsPanning] = useState<boolean>(false)
     const [layoutMode, setLayoutMode] = useState<'elk' | 'concentric' | 'dense' | 'pretty'>(() => 'pretty')
     const [hideOnlineByDefault, setHideOnlineByDefault] = useState<boolean>(true)
+    // Animation policy for edges
+    const [animationMode, setAnimationMode] = useState<'never' | 'hover' | 'always'>(() => 'hover')
     const [zoom, setZoom] = useState<number>(1)
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
     const reactFlowRef = useRef<ReactFlowInstance | null>(null)
@@ -328,6 +330,8 @@ export default function NetworkGraph() {
             }
             const savedHide = localStorage.getItem('meshmon.hideOnlineByDefault')
             if (savedHide !== null) setHideOnlineByDefault(savedHide === 'true')
+            const savedAnim = localStorage.getItem('meshmon.animationMode')
+            if (savedAnim === 'never' || savedAnim === 'hover' || savedAnim === 'always') setAnimationMode(savedAnim)
         } catch { }
     }, [fetchData, registerRefreshCallback])
 
@@ -336,8 +340,9 @@ export default function NetworkGraph() {
         try {
             localStorage.setItem('meshmon.layoutMode', layoutMode)
             localStorage.setItem('meshmon.hideOnlineByDefault', String(hideOnlineByDefault))
+            localStorage.setItem('meshmon.animationMode', animationMode)
         } catch { }
-    }, [layoutMode, hideOnlineByDefault])
+    }, [layoutMode, hideOnlineByDefault, animationMode])
 
     const networks = useMemo(() => {
         if (!networkData?.networks) return []
@@ -737,10 +742,8 @@ export default function NetworkGraph() {
         DEBUG && console.log('Creating authentic mesh connections for', totalEntities, 'entities (', nodeIds.length, 'nodes +', monitorIds.length, 'monitors)')
         DEBUG && console.log('Using intelligent handle selection: adjacent entities connect face-to-face, distant entities connect toward center')
 
-        // Large graph performance flags
-        const LARGE_GRAPH_ENTITY_THRESHOLD = 35
-        const disableAnimations = totalEntities > LARGE_GRAPH_ENTITY_THRESHOLD
-        const showDefaultLabels = totalEntities <= LARGE_GRAPH_ENTITY_THRESHOLD && !hideOnlineByDefault
+        // Do not show edge labels by default; labels appear only on hover/focus
+        const showDefaultLabels = false
 
         const createdConnections = new Set<string>()
         const mergedPairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
@@ -805,20 +808,21 @@ export default function NetworkGraph() {
             // Labels for default (non-hover) rendering
             let labelText: string | undefined = undefined
             if (hasAtoB && hasBtoA) {
-                const showLabel = (showDefaultLabels && anyOnline) || partial || bothDown
+                // Default labels are disabled; only show on hover/focus
+                const showLabel = (showDefaultLabels && anyOnline)
                 if (showLabel) {
                     const left = aOnline && typeof rttA === 'number' ? `${(rttA as number).toFixed(0)}ms` : 'offline'
                     const right = bOnline && typeof rttB === 'number' ? `${(rttB as number).toFixed(0)}ms` : 'offline'
                     labelText = `${left} →  |  ← ${right}`
                 }
             } else if (hasAtoB) {
-                const showLabel = (showDefaultLabels && (aOnline || !hideOnlineByDefault)) || !aOnline
+                const showLabel = (showDefaultLabels && (aOnline || !hideOnlineByDefault))
                 if (showLabel) {
                     const left = aOnline && typeof rttA === 'number' ? `${(rttA as number).toFixed(0)}ms` : 'offline'
                     labelText = `${left} →`
                 }
             } else if (hasBtoA) {
-                const showLabel = (showDefaultLabels && (bOnline || !hideOnlineByDefault)) || !bOnline
+                const showLabel = (showDefaultLabels && (bOnline || !hideOnlineByDefault))
                 if (showLabel) {
                     const right = bOnline && typeof rttB === 'number' ? `${(rttB as number).toFixed(0)}ms` : 'offline'
                     labelText = `← ${right}`
@@ -882,16 +886,37 @@ export default function NetworkGraph() {
                 return undefined
             })()
 
+            // Orient path so animation flows from the alive direction toward its arrowhead
+            // - If only A->B is up, keep a->b
+            // - If only B->A is up, flip to b->a
+            // - If only one physical direction exists, orient to that direction
+            let orientedSource = a
+            let orientedTarget = b
+            if (partial) {
+                if (aOnline && !bOnline) { orientedSource = a; orientedTarget = b }
+                else if (bOnline && !aOnline) { orientedSource = b; orientedTarget = a }
+            } else if (hasAtoB && !hasBtoA) {
+                orientedSource = a; orientedTarget = b
+            } else if (!hasAtoB && hasBtoA) {
+                orientedSource = b; orientedTarget = a
+            }
+
+            const isUnidirectional = (hasAtoB && !hasBtoA) || (!hasAtoB && hasBtoA)
+            const canAnimate = partial || isUnidirectional
+            // Only animate at creation if the selector is set to 'always'.
+            // Hover/Never modes start non-animated; hover/focus recomputes will add animation as needed.
+            const isAnimatedNow = (animationMode === 'always') ? !!canAnimate : false
             edges.push({
                 id: `${a}-${b}`,
-                source: a,
+                source: orientedSource,
                 sourceHandle: 's',
-                target: b,
+                target: orientedTarget,
                 targetHandle: 't',
                 style: {
                     stroke: strokeColor,
                     strokeWidth,
-                    strokeDasharray,
+                    // If the edge is animated, include dash + animation so stripes flow
+                    ...(isAnimatedNow ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray }),
                     opacity: baseOpacity,
                 },
                 label: labelText,
@@ -911,6 +936,7 @@ export default function NetworkGraph() {
                 data: {
                     isOnline: anyOnline,
                     isMonitorEdge: false,
+                    canAnimate,
                     originalLabel: fullLabelText,
                     originalLabelStyle: fullLabelText ? {
                         fontSize: 11,
@@ -933,21 +959,32 @@ export default function NetworkGraph() {
                     hasBtoA,
                 },
                 // Animation only for fully healthy (solid green) bidirectional links
-                animated: bothOnline && ((rttA ?? rttB ?? 0) < 100) && !disableAnimations,
+                animated: isAnimatedNow,
                 type: 'floating',
                 // Arrowheads: show only for existing directions. Colors reflect that direction's status.
-                markerStart: hasBtoA ? {
-                    type: MarkerType.ArrowClosed,
-                    color: bOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
-                } : undefined,
-                markerEnd: hasAtoB ? {
-                    type: MarkerType.ArrowClosed,
-                    color: aOnline ? '#22c55e' : '#ef4444',
-                    width: 12,
-                    height: 12,
-                } : undefined,
+                // Determine which logical directions exist relative to oriented source/target
+                markerStart: (() => {
+                    // start arrow exists if there is a link from target->source (points back to source)
+                    const backOnline = (orientedSource === a) ? bOnline : aOnline
+                    const exist = (orientedSource === a) ? hasBtoA : hasAtoB
+                    return exist ? {
+                        type: MarkerType.ArrowClosed,
+                        color: backOnline ? '#22c55e' : '#ef4444',
+                        width: 12,
+                        height: 12,
+                    } : undefined
+                })(),
+                markerEnd: (() => {
+                    // end arrow exists if there is a link from source->target (points toward target)
+                    const fwdOnline = (orientedSource === a) ? aOnline : bOnline
+                    const exist = (orientedSource === a) ? hasAtoB : hasBtoA
+                    return exist ? {
+                        type: MarkerType.ArrowClosed,
+                        color: fwdOnline ? '#22c55e' : '#ef4444',
+                        width: 12,
+                        height: 12,
+                    } : undefined
+                })(),
             })
 
             createdConnections.add(`${a}-${b}`)
@@ -983,6 +1020,8 @@ export default function NetworkGraph() {
                 const baseOpacity = isOnline && hideOnlineByDefault ? 0 : computedOpacity
 
                 const edgeId = `${sourceNodeId}-${monitorId}`
+                const canAnimateMon = true
+                const isAnimatedNowMon = (animationMode === 'always') ? true : false
                 edges.push({
                     id: edgeId,
                     source: sourceNodeId,
@@ -992,7 +1031,7 @@ export default function NetworkGraph() {
                     style: {
                         stroke: isOnline ? '#a855f7' : '#ef4444', // Purple for monitor connections
                         strokeWidth,
-                        strokeDasharray: isOnline ? '0' : '6,3',
+                        ...(isAnimatedNowMon ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray: isOnline ? '0' : '6,3' }),
                         opacity: baseOpacity,
                     },
                     label: isOnline && showDefaultLabels ? `${rtt.toFixed(0)}ms` : undefined,
@@ -1012,6 +1051,7 @@ export default function NetworkGraph() {
                     data: {
                         isOnline: isOnline,
                         isMonitorEdge: true,
+                        canAnimate: canAnimateMon,
                         originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
                         originalLabelStyle: isOnline ? {
                             fontSize: 11,
@@ -1029,7 +1069,7 @@ export default function NetworkGraph() {
                         originalOpacity: computedOpacity,
                         baseOpacity,
                     },
-                    animated: isOnline && rtt < 100 && !disableAnimations,
+                    animated: isAnimatedNowMon,
                     type: 'floating',
                     markerEnd: {
                         type: MarkerType.ArrowClosed,
@@ -1052,16 +1092,20 @@ export default function NetworkGraph() {
         const t1 = performance.now()
         logPerf('processGraph:end', { nodes: nodes.length, edges: edges.length, ms: Math.round(t1 - t0) })
         return { processedNodes: nodes, processedEdges: edges }
-    }, [networkData, selectedNetwork, isDark, layoutMode, hideOnlineByDefault])
+    }, [networkData, selectedNetwork, isDark, layoutMode, hideOnlineByDefault, animationMode])
 
     // Update nodes and edges when processed data changes
     // Important: Set nodes first, then edges to avoid React Flow edge creation errors
     useEffect(() => {
+        // When in focus mode, skip the base node reset to avoid briefly showing the unfocused layout.
+        if (focusedNodeId) return
         logPerf('setNodes', processedNodes.length)
         setNodes(processedNodes)
-    }, [processedNodes, setNodes])
+    }, [processedNodes, setNodes, focusedNodeId])
 
     useEffect(() => {
+        // When in focus mode, skip the base edge reset to avoid showing all connections.
+        if (focusedNodeId) return
         // Only set edges after nodes are updated to avoid React Flow errors
         if (processedNodes.length > 0) {
             // Small delay to ensure React Flow has processed the nodes
@@ -1083,7 +1127,7 @@ export default function NetworkGraph() {
             logPerf('clearEdges')
             setEdges([])
         }
-    }, [processedEdges, processedNodes.length, setEdges])
+    }, [processedEdges, processedNodes.length, setEdges, focusedNodeId])
 
     // Layout with ELK to reduce crossings and avoid edges over nodes
     useEffect(() => {
@@ -1200,11 +1244,15 @@ export default function NetworkGraph() {
             }
             // Recompute which edges to mount based on visibility
             const recomputed = processedEdges.map(e => {
-                const baseOpacity = (e.data && (e.data as any).baseOpacity) ?? ((e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6))
+                const baseOpacity = (e.data && (e.data as any).baseOpacity) ?? ((e.data && (e.data as any).originalOpacity) ?? 0.6)
                 const shouldShowDefaultLabel = ((processedNodes.length <= 35) && (zoom >= 0.9) && !hideOnlineByDefault) && !!e.data?.originalLabel && baseOpacity > 0
+                const baseCanAnim = (e.data as any)?.canAnimate
+                const baseAnimated = (animationMode === 'always') && !!baseCanAnim
                 return {
                     ...e,
-                    style: { ...(e.style || {}), opacity: baseOpacity, transition: 'opacity 300ms ease' },
+                    // Reset to base styles and animation state when not hovering
+                    animated: baseAnimated,
+                    style: { ...(e.style || {}), opacity: baseOpacity, strokeWidth: (e.style as any)?.strokeWidth, transition: 'opacity 300ms ease, stroke-width 200ms ease', ...(baseAnimated ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray: (e.style as any)?.strokeDasharray, animation: undefined }) },
                     label: (shouldShowDefaultLabel) ? e.data?.originalLabel : undefined,
                     labelStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelStyle : undefined,
                     labelBgStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelBgStyle : undefined
@@ -1259,9 +1307,16 @@ export default function NetworkGraph() {
                 // In performance mode, default labels are hidden, but on hover we still raise opacity and can show labels if desired
                 const targetOpacity = isRelevant ? hoverOpacity : 0
                 const shouldShowLabel = enableHoverLabels && isRelevant && e.data?.originalLabel
+                const baseSW = (e.style as any)?.strokeWidth ?? 2
+                const canAnim = (e.data as any)?.canAnimate
+                const animatedFlag = (animationMode === 'never') ? false :
+                    (animationMode === 'hover') ? (isRelevant && !!canAnim) :
+                        (animationMode === 'always') ? (!!canAnim) : false
                 return {
                     ...e,
-                    style: { ...(e.style || {}), opacity: targetOpacity, transition: 'opacity 250ms ease' },
+                    // Animate hovered edges with flowing effect and slightly thicker stroke
+                    animated: animatedFlag,
+                    style: { ...(e.style || {}), opacity: targetOpacity, strokeWidth: isRelevant ? Math.min(4, baseSW + 0.8) : baseSW, transition: 'opacity 250ms ease, stroke-width 200ms ease', ...(animatedFlag ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : {}) },
                     label: shouldShowLabel ? e.data?.originalLabel : undefined,
                     labelStyle: shouldShowLabel ? e.data?.originalLabelStyle : undefined,
                     labelBgStyle: shouldShowLabel ? e.data?.originalLabelBgStyle : undefined
@@ -1274,7 +1329,7 @@ export default function NetworkGraph() {
             })
             setEdges(filtered)
         }
-    }, [hoveredNode, setNodes, setEdges, nodeToEdgesMap, nodeToNeighborsMap, isDragging, isPanning, processedNodes.length, zoom, hideOnlineByDefault, focusedNodeId])
+    }, [hoveredNode, setNodes, setEdges, nodeToEdgesMap, nodeToNeighborsMap, isDragging, isPanning, processedNodes.length, zoom, hideOnlineByDefault, focusedNodeId, animationMode])
 
     // Focus mode: center a node and arrange its neighbors around it, dim others, and show only its edges with labels
     // Remember viewport before entering focus so we can restore it on exit
@@ -1317,9 +1372,14 @@ export default function NetworkGraph() {
         const recomputed = processedEdges.map(e => {
             const baseOpacity = (e.data && (e.data as any).baseOpacity) ?? ((e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6))
             const shouldShowDefaultLabel = ((processedNodes.length <= 35) && (zoom >= 0.9) && !hideOnlineByDefault) && !!e.data?.originalLabel && baseOpacity > 0
+            const canAnim = (e.data as any)?.canAnimate
+            const animatedFlag = (animationMode === 'never') ? false :
+                (animationMode === 'always') ? (!!canAnim) :
+                    false
             return {
                 ...e,
-                style: { ...(e.style || {}), opacity: baseOpacity, transition: 'opacity 350ms ease' },
+                animated: animatedFlag,
+                style: { ...(e.style || {}), opacity: baseOpacity, strokeWidth: (e.style as any)?.strokeWidth ?? 2, transition: 'opacity 350ms ease, stroke-width 200ms ease' },
                 label: (shouldShowDefaultLabel) ? e.data?.originalLabel : undefined,
                 labelStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelStyle : undefined,
                 labelBgStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelBgStyle : undefined
@@ -1352,14 +1412,14 @@ export default function NetworkGraph() {
         } catch { }
         // Clear saved viewport after restoring
         prevViewportRef.current = null
-    }, [processedNodes, processedEdges, setNodes, setEdges, reactFlowRef, zoom, hideOnlineByDefault])
+    }, [processedNodes, processedEdges, setNodes, setEdges, reactFlowRef, zoom, hideOnlineByDefault, animationMode])
 
-    const focusNode = useCallback((centerId: string) => {
+    const focusNode = useCallback((centerId: string, force: boolean = false) => {
         if (!processedNodes.length) return
         // Prevent spamming while an animation/layout is in progress
         if (focusingRef.current) return
         // If we're already focused on this node, do nothing
-        if (focusedNodeId === centerId) return
+        if (!force && focusedNodeId === centerId) return
         focusingRef.current = true
         // Save current viewport once when entering focus mode
         try {
@@ -1426,9 +1486,15 @@ export default function NetworkGraph() {
             const hoverOpacity = (e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6)
             const targetOpacity = isRelevant ? hoverOpacity : 0
             const shouldShowLabel = isRelevant && e.data?.originalLabel
+            const baseSW = (e.style as any)?.strokeWidth ?? 2
+            const canAnim = (e.data as any)?.canAnimate
+            const animatedFlag = (animationMode === 'never') ? false :
+                (animationMode === 'hover') ? (isRelevant && !!canAnim) :
+                    (animationMode === 'always') ? (!!canAnim) : false
             return {
                 ...e,
-                style: { ...(e.style || {}), opacity: targetOpacity, transition: 'opacity 350ms ease' },
+                animated: animatedFlag,
+                style: { ...(e.style || {}), opacity: targetOpacity, strokeWidth: isRelevant ? Math.min(4, baseSW + 0.8) : baseSW, transition: 'opacity 350ms ease, stroke-width 200ms ease', ...(animatedFlag ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : {}) },
                 label: shouldShowLabel ? e.data?.originalLabel : undefined,
                 labelStyle: shouldShowLabel ? e.data?.originalLabelStyle : undefined,
                 labelBgStyle: shouldShowLabel ? e.data?.originalLabelBgStyle : undefined
@@ -1454,14 +1520,15 @@ export default function NetworkGraph() {
             }
         } catch { }
         focusingRef.current = false
-    }, [processedNodes, processedEdges, nodeToNeighborsMap, setNodes, setEdges, focusedNodeId])
+    }, [processedNodes, processedEdges, nodeToNeighborsMap, setNodes, setEdges, focusedNodeId, animationMode])
 
-    // Keep focus edges/nodes consistent if data refreshes while focused
+    // Keep focus edges/nodes consistent if data refreshes or animation mode changes while focused
     useEffect(() => {
         if (!focusedNodeId) return
-        focusNode(focusedNodeId)
+        // Reapply focus layout and edge states without exiting
+        focusNode(focusedNodeId, true)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [processedNodes, processedEdges])
+    }, [processedNodes, processedEdges, animationMode])
 
     // Track zoom to gate default labels progressively (throttled to animation frame)
     const zoomRaf = useRef<number | null>(null)
@@ -1765,6 +1832,18 @@ export default function NetworkGraph() {
                                                     <input type="checkbox" checked={hideOnlineByDefault} onChange={(e) => setHideOnlineByDefault(e.target.checked)} />
                                                     <span className="text-gray-600 dark:text-gray-400">Hide online edges (show on hover)</span>
                                                 </label>
+                                            </div>
+                                            <div className="mt-2">
+                                                <label className="text-gray-600 dark:text-gray-400 mr-2">Animate:</label>
+                                                <select
+                                                    value={animationMode}
+                                                    onChange={(e) => setAnimationMode(e.target.value as any)}
+                                                    className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                                                >
+                                                    <option value="never">Never</option>
+                                                    <option value="hover">On hover/focus</option>
+                                                    <option value="always">Always</option>
+                                                </select>
                                             </div>
                                         </div>
                                     </div>

@@ -63,3 +63,8 @@
   50% { opacity: 0.8; transform: scale(1.02); }
   100% { opacity: 1; transform: scale(1); }
 }
+
+/* Animated dashed-line flow for graph edges */
+@keyframes dashdraw {
+  to { stroke-dashoffset: -12; }
+}

@@ -1,11 +1,12 @@
-from enum import Enum
-from pydantic import BaseModel
-import datetime
 import base64
-from .crypto import Signer, KeyMapping, Verifier
+import datetime
 import json
+from enum import Enum
 
+from pydantic import BaseModel
 from structlog.stdlib import get_logger
+
+from .crypto import KeyMapping, Signer, Verifier
 
 logger = get_logger()
 

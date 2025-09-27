@@ -1,12 +1,13 @@
 import datetime
-from pydantic import BaseModel
 from enum import Enum
 
-from meshmon.config import NetworkConfigLoader
-from .store import NodePingStatus, get_network_data, NetworkData, NodeStatus
-
-from meshmon.pulsewave.distrostore import StoreManager
+from pydantic import BaseModel
 from structlog.stdlib import get_logger
+
+from meshmon.config import NetworkConfigLoader
+from meshmon.pulsewave.distrostore import StoreManager
+
+from .store import NetworkData, NodePingStatus, NodeStatus, get_network_data
 
 logger = get_logger()
 

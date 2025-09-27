@@ -1,11 +1,12 @@
+import base64
+import json
+from threading import Event, Thread
+
+import requests
+from structlog.stdlib import get_logger
+
 from .config import NetworkConfigLoader, NetworkNodeInfo
 from .pulsewave.distrostore import StoreManager
-from threading import Event, Thread
-import json
-import base64
-import requests
-
-from structlog.stdlib import get_logger
 
 logger = get_logger()
 

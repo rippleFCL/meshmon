@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from .crypto import Verifier, Signer
+from .crypto import Signer, Verifier
 
 
 class NodeConfig(BaseModel):

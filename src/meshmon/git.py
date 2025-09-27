@@ -48,7 +48,7 @@ class Repo:
         self, args: list, capture_output: bool = True, check: bool = True
     ) -> subprocess.CompletedProcess:
         cmd = ["git"] + args
-        logger.debug(f"Running git command: {' '.join(cmd)}")
+        logger.debug("Running git command", cmd=cmd)
 
         try:
             result = subprocess.run(

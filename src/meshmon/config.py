@@ -33,23 +33,39 @@ class NodeCfg(BaseModel):
     networks: list[NodeCfgNetwork]
 
 
+class MonitorTypes(Enum):
+    PING = "ping"
+    HTTP = "http"
+
+
+class NetworkMonitor(BaseModel):
+    monitor_id: str
+    monitor_type: MonitorTypes
+    host: str
+    interval: int = 10
+    retry: int = 2
+
+
 class NetworkNodeInfo(BaseModel):
     node_id: Annotated[str, StringConstraints(to_lower=True)]
     url: str | None = None
     poll_rate: int = 10
     retry: int = 2
+    local_monitors: list[NetworkMonitor] = []
 
 
 class NetworkRootConfig(BaseModel):
     node_config: list[NetworkNodeInfo]
     network_id: Annotated[str, StringConstraints(to_lower=True)]
     node_version: list[str] | None = None
+    monitors: list[NetworkMonitor] = []
 
 
 @dataclass
 class NetworkConfig:
     key_mapping: KeyMapping
     node_config: list[NetworkNodeInfo]
+    monitors: list[NetworkMonitor]
     network_id: str
     node_id: str
     node_cfg: NodeCfgNetwork
@@ -164,6 +180,7 @@ class NetworkConfigLoader:
         return NetworkConfig(
             node_config=root.node_config,
             network_id=root.network_id,
+            monitors=root.monitors,
             key_mapping=key_mapping,
             node_id=net_cfg.node_id,
             node_cfg=net_cfg,

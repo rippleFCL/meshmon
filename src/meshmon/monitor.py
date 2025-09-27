@@ -2,12 +2,14 @@ import datetime
 import logging
 from threading import Thread, Event
 import time
+from typing import Protocol
+
 
 from .update import UpdateManager
 
 from .version import VERSION
 
-from .config import NetworkConfigLoader, NetworkNodeInfo
+from .config import NetworkConfigLoader, NetworkNodeInfo, NetworkMonitor, MonitorTypes
 from .distrostore import (
     MutableStoreCtxView,
     NodeInfo,
@@ -17,8 +19,8 @@ from .distrostore import (
 )
 import requests
 import json
-from .analysis.analysis import analyze_node_status
-from .analysis.store import NodeStatus as AnalysisNodeStatus
+from .analysis.analysis import analyze_monitor_status, analyze_node_status
+from .analysis.store import NodeStatus as AnalysisNodeStatus, NodePingStatus
 from pydantic import BaseModel
 
 # Set up logger for this module
@@ -36,22 +38,39 @@ class AnalysedNodeStatus(BaseModel):
     status: AnalysisNodeStatus
 
 
-class Monitor:
+class AnalysedMonitorStatus(BaseModel):
+    status: NodePingStatus
+
+
+class MonitorProto(Protocol):
+    def run(self) -> None: ...
+
+    def setup(self) -> None: ...
+
+    @property
+    def net_id(self) -> str: ...
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def poll_rate(self) -> int: ...
+
+
+class MeshMonitor(MonitorProto):
     def __init__(
         self,
         store_manager: StoreManager,
-        update_manager: UpdateManager,
         net_id: str,
         remote_node: NetworkNodeInfo,
+        config_loader: NetworkConfigLoader,
         local_node: NetworkNodeInfo,
     ):
         self.store = store_manager
-        self.net_id = net_id
-        self.update_manager = update_manager
+        self._net_id = net_id
+        self.config_loader = config_loader
         self.remote_node = remote_node
         self.local_node = local_node
-        self.thread = Thread(target=self.monitor, daemon=True)
-        self.stop_flag = Event()
         self.error_count = 0
 
         logger.debug(
@@ -61,8 +80,20 @@ class Monitor:
             f"Remote node URL: {remote_node.url}, poll rate: {remote_node.poll_rate}s, retry limit: {remote_node.retry}"
         )
 
+    @property
+    def name(self) -> str:
+        return f"Monitor-{self._net_id}-{self.remote_node.node_id}"
+
+    @property
+    def poll_rate(self) -> int:
+        return self.remote_node.poll_rate
+
+    @property
+    def net_id(self) -> str:
+        return self._net_id
+
     def setup(self):
-        store = self.store.get_store(self.net_id)
+        store = self.store.get_store(self._net_id)
         ctx = store.get_context("ping_data", PingData)
         ctx.set(
             self.remote_node.node_id,
@@ -77,22 +108,18 @@ class Monitor:
         )
 
     def _sent_ping(self):
-        store = self.store.get_store(self.net_id)
+        store = self.store.get_store(self._net_id)
         ctx = store.get_context("ping_data", PingData)
         try:
             st = time.time()
             response = requests.get(f"{self.remote_node.url}/api/health", timeout=10)
             rtt = (time.time() - st) * 1000
         except requests.RequestException as e:
-            logger.debug(
-                f"Request timed out for {self.net_id} -> {self.remote_node.node_id}: {e}"
-            )
+            logger.debug(f"Request timed out for {self.name}: {e}")
             self._handle_error(ctx)
             return
         if rtt > 9500:
-            logger.warning(
-                f"High RTT detected for {self.net_id} -> {self.remote_node.node_id}: {rtt}ms"
-            )
+            logger.warning(f"High RTT detected for {self.name}: {rtt}ms")
             self._handle_error(ctx)
         elif response.status_code != 200:
             logger.warning(
@@ -116,42 +143,21 @@ class Monitor:
 
     def _analyse_node_status(self):
         node_statuses = analyze_node_status(
-            self.store, self.update_manager.config_loader, self.net_id
+            self.store, self.config_loader, self._net_id
         )
-        store = self.store.get_store(self.net_id)
+        store = self.store.get_store(self._net_id)
         analysis_ctx = store.get_context("network_analysis", AnalysedNodeStatus)
         if node_statuses is None:
-            logger.warning(f"Failed to analyze node statuses for network {self.net_id}")
+            logger.warning(
+                f"Failed to analyze node statuses for network {self._net_id}"
+            )
             return
 
         for node_id, status in node_statuses.items():
             analysis_ctx.set(node_id, AnalysedNodeStatus(status=status))
 
-    def monitor(self):
-        logger.debug(
-            f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id}"
-        )
-        self.setup()
-        while True:
-            try:
-                self._sent_ping()
-                self._analyse_node_status()
-                self.update_manager.update(self.net_id)
-            except Exception as e:
-                logger.error(
-                    f"Error in monitor loop for {self.net_id} -> {self.remote_node.node_id}: {e}"
-                )
-            val = self.stop_flag.wait(self.remote_node.poll_rate)
-            if val:
-                break
-        logger.debug(
-            f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
-        )
-
     def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
-        logger.debug(
-            f"Error count increased to {self.error_count} for {self.net_id} -> {self.remote_node.node_id}"
-        )
+        logger.debug(f"Error count increased to {self.error_count} for {self.name}")
         current_node = ctx.get(self.remote_node.node_id)
         if self.error_count >= self.remote_node.retry:
             if current_node:
@@ -207,21 +213,202 @@ class Monitor:
                 )
         self.error_count += 1
 
+    def run(self) -> None:
+        logger.debug(
+            f"Sending ping to {self.remote_node.node_id} at {self.remote_node.url}"
+        )
+        self._sent_ping()
+        self._analyse_node_status()
+
+
+class HTTPMonitor(MonitorProto):
+    def __init__(
+        self,
+        store_manager: StoreManager,
+        net_id: str,
+        monitor_info: NetworkMonitor,
+        config: NetworkConfigLoader,
+    ):
+        self.store = store_manager
+        self._net_id = net_id
+        self.monitor_info = monitor_info
+        self.config = config
+        self.error_count = 0
+
+    @property
+    def net_id(self) -> str:
+        return self._net_id
+
+    @property
+    def name(self) -> str:
+        return f"HTTPMonitor-{self._net_id}-{self.monitor_info.monitor_id}"
+
+    @property
+    def poll_rate(self) -> int:
+        return self.monitor_info.interval
+
+    def setup(self):
+        store = self.store.get_store(self._net_id)
+        ctx = store.get_context("monitor_data", PingData)
+        ctx.set(
+            self.monitor_info.monitor_id,
+            PingData(
+                status=NodeStatus.UNKNOWN,
+                req_time_rtt=-1,
+                date=datetime.datetime.now(datetime.timezone.utc),
+                current_retry=0,
+                max_retrys=self.monitor_info.retry,
+                ping_rate=self.monitor_info.interval,
+            ),
+        )
+
+    def _sent_ping(self):
+        store = self.store.get_store(self._net_id)
+        ctx = store.get_context("monitor_data", PingData)
+        try:
+            st = time.time()
+            response = requests.get(f"{self.monitor_info.host}", timeout=10)
+            rtt = (time.time() - st) * 1000
+        except requests.RequestException as e:
+            logger.debug(f"Request timed out for {self.name}: {e}")
+            self._handle_error(ctx)
+            return
+        if rtt > 9500:
+            logger.warning(f"High RTT detected for {self.name}: {rtt}ms")
+            self._handle_error(ctx)
+        elif response.status_code != 200:
+            logger.warning(
+                f"HTTP {response.status_code} response from {self.monitor_info.monitor_id}: {response.text}"
+            )
+            self._handle_error(ctx)
+        else:
+            logger.debug(f"Successful response from {self.monitor_info.monitor_id}")
+            self.error_count = 0
+            ctx.set(
+                self.monitor_info.monitor_id,
+                PingData(
+                    status=NodeStatus.ONLINE,
+                    req_time_rtt=rtt,
+                    date=datetime.datetime.now(datetime.timezone.utc),
+                    current_retry=0,
+                    max_retrys=self.monitor_info.retry,
+                    ping_rate=self.monitor_info.interval,
+                ),
+            )
+
+    def _analyse_node_status(self):
+        monitor_analysis = analyze_monitor_status(self.store, self.config, self.net_id)
+        store = self.store.get_store(self.net_id)
+        analysis_ctx = store.get_context("monitor_analysis", AnalysedMonitorStatus)
+        if monitor_analysis is None:
+            logger.warning(
+                f"Failed to analyze monitor statuses for network {self.net_id}"
+            )
+            return
+        for monitor_id, status in monitor_analysis.items():
+            analysis_ctx.set(monitor_id, AnalysedMonitorStatus(status=status))
+
+    def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
+        logger.debug(f"Error count increased to {self.error_count} for {self.name}")
+        current_node = ctx.get(self.monitor_info.monitor_id)
+        if self.error_count >= self.monitor_info.retry:
+            if current_node:
+                if current_node.status != NodeStatus.OFFLINE:
+                    logger.info(
+                        f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.monitor_id}, marking as OFFLINE"
+                    )
+            else:
+                logger.info(
+                    f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.monitor_id}, marking as OFFLINE"
+                )
+
+            ctx.set(
+                self.monitor_info.monitor_id,
+                PingData(
+                    status=NodeStatus.OFFLINE,
+                    req_time_rtt=-1,
+                    date=datetime.datetime.now(datetime.timezone.utc),
+                    current_retry=self.monitor_info.retry,
+                    max_retrys=self.monitor_info.retry,
+                    ping_rate=self.monitor_info.interval,
+                ),
+            )
+        else:
+            if current_node:
+                logger.debug(
+                    f"Incrementing retry count for {self.monitor_info.monitor_id}"
+                )
+                current_node.current_retry += 1
+                ctx.set(
+                    self.monitor_info.monitor_id,
+                    PingData(
+                        status=current_node.status,
+                        req_time_rtt=current_node.req_time_rtt,
+                        date=datetime.datetime.now(datetime.timezone.utc),
+                        current_retry=current_node.current_retry,
+                        max_retrys=self.monitor_info.retry,
+                        ping_rate=self.monitor_info.interval,
+                    ),
+                )
+            else:
+                logger.debug(
+                    f"Setting initial UNKNOWN status for {self.monitor_info.monitor_id}"
+                )
+                ctx.set(
+                    self.monitor_info.monitor_id,
+                    PingData(
+                        status=NodeStatus.UNKNOWN,
+                        req_time_rtt=-1,
+                        date=datetime.datetime.now(datetime.timezone.utc),
+                        current_retry=0,
+                        max_retrys=self.monitor_info.retry,
+                        ping_rate=self.monitor_info.interval,
+                    ),
+                )
+        self.error_count += 1
+
+    def run(self) -> None:
+        logger.debug(
+            f"Sending ping to {self.monitor_info.monitor_id} at {self.monitor_info.host}"
+        )
+        self._sent_ping()
+        self._analyse_node_status()
+
+
+class Monitor:
+    def __init__(self, monitor: MonitorProto, update_manager: UpdateManager):
+        self.monitor = monitor
+        self.update_manager = update_manager
+        self.thread = Thread(target=self.monitor_thread, daemon=True)
+        self.stop_flag = Event()
+
+    def monitor_thread(self):
+        logger.debug(f"Starting monitor thread for {self.monitor.name}")
+        self.monitor.setup()
+        while True:
+            try:
+                self.monitor.run()
+                self.update_manager.update(self.monitor.net_id)
+            except Exception as e:
+                logger.error(f"Error in monitor loop for {self.monitor.name}: {e}")
+            val = self.stop_flag.wait(self.monitor.poll_rate)
+            if val:
+                break
+        logger.debug(f"Monitor thread stopped for {self.monitor.name}")
+
     def start(self) -> None:
         logger.info(
-            f"Starting monitor thread for {self.net_id} -> {self.remote_node.node_id} at interval {self.remote_node.poll_rate}s"
+            f"Starting monitor thread for {self.monitor.name} at interval {self.monitor.poll_rate}s"
         )
         self.thread.start()
 
     def stop(self):
-        logger.info(f"Stopping monitor for {self.net_id} -> {self.remote_node.node_id}")
+        logger.info(f"Stopping monitor for {self.monitor.name}")
         self.stop_flag.set()
 
     def join(self):
         self.thread.join()
-        logger.debug(
-            f"Monitor thread stopped for {self.net_id} -> {self.remote_node.node_id}"
-        )
+        logger.debug(f"Monitor thread stopped for {self.monitor.name}")
 
 
 class MonitorManager:
@@ -269,21 +456,44 @@ class MonitorManager:
                 continue  # Skip this network if local node not found
 
             logger.debug(f"Found local node {local_node.node_id} in network {net_id}")
-
+            global_monitors = network.monitors
             # Create monitors for all other nodes in the network
             for node in network.node_config:
                 if node.node_id != local_node.node_id and node.url:
                     monitor_key = f"{net_id}_{node.node_id}"
                     logger.debug(f"Creating monitor: {monitor_key}")
-                    monitor = Monitor(
+                    monitor = MeshMonitor(
                         self.store_manager,
-                        self.update_manager,
                         net_id,
                         node,
+                        self.config,
                         local_node,
                     )
-                    monitors[monitor_key] = monitor
-                    monitor.start()
+                    monitor_wrapper = Monitor(monitor, self.update_manager)
+                    monitors[monitor_key] = monitor_wrapper
+                    monitor_wrapper.start()
+
+            unique_monitors = {m.monitor_id: m for m in global_monitors}
+            for monitor in local_node.local_monitors:
+                unique_monitors[monitor.monitor_id] = monitor
+
+            for monitor_info in unique_monitors.values():
+                if monitor_info.monitor_type == MonitorTypes.HTTP:
+                    monitor_key = f"{net_id}_monitor_{monitor_info.monitor_id}"
+                    logger.debug(f"Creating HTTP monitor: {monitor_key}")
+                    monitor = HTTPMonitor(
+                        self.store_manager,
+                        net_id,
+                        monitor_info,
+                        self.config,
+                    )
+                    monitor_wrapper = Monitor(monitor, self.update_manager)
+                    monitors[monitor_key] = monitor_wrapper
+                    monitor_wrapper.start()
+                else:
+                    logger.warning(
+                        f"Unsupported monitor type {monitor_info.monitor_type} for monitor {monitor_info.monitor_id} in network {net_id}, skipping"
+                    )
 
         logger.debug(f"Successfully initialized {len(monitors)} monitors")
         return monitors

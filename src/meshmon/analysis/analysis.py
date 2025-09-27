@@ -61,6 +61,17 @@ class NodeAnalysis(BaseModel):
     node_info: NodeInfo
 
 
+class MonitorDetail(BaseModel):
+    status: PingStatus
+    rtt: float
+
+
+class MonitorAnalysis(BaseModel):
+    monitor_status: NodePingStatus
+    inbound_info: dict[str, MonitorDetail]
+    inbound_status: AggregatedConnectionDetail
+
+
 class NetworkAnalysis(BaseModel):
     """Analysis of the entire network"""
 
@@ -68,6 +79,7 @@ class NetworkAnalysis(BaseModel):
     online_nodes: int
     offline_nodes: int
     node_analyses: dict[str, NodeAnalysis]
+    monitor_analyses: dict[str, MonitorAnalysis]
 
 
 class MultiNetworkAnalysis(BaseModel):
@@ -104,6 +116,25 @@ def get_node_statuses(network_data: NetworkData) -> dict[str, NodeStatus]:
     return node_statuses
 
 
+def get_monitor_statuses(network_data: NetworkData) -> dict[str, NodePingStatus]:
+    """Get the monitor status of all nodes in a specific network"""
+    node_status = get_node_statuses(network_data)
+    monitor_statuses: dict[str, NodePingStatus] = {}
+    for node_id, node_data in network_data.nodes.items():
+        if node_status.get(node_id, NodeStatus.OFFLINE) == NodeStatus.OFFLINE:
+            continue
+        for ping_node_id, ping in node_data.monitor_data.items():
+            if monitor_statuses.get(ping_node_id) == NodePingStatus.ONLINE:
+                continue
+            if (
+                monitor_statuses.get(ping_node_id) == NodePingStatus.OFFLINE
+                and ping.status == NodePingStatus.UNKNOWN
+            ):
+                continue
+            monitor_statuses[ping_node_id] = ping.status
+    return monitor_statuses
+
+
 def get_aggregate_status(online: int, offline: int) -> AggregateStatus:
     if online == offline == 0:
         return AggregateStatus.OFFLINE
@@ -118,6 +149,7 @@ def get_aggregate_status(online: int, offline: int) -> AggregateStatus:
 def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
     node_statuses = get_node_statuses(network_data)
     node_analyses: dict[str, NodeAnalysis] = {}
+    node_monitor_info: dict[str, dict[str, MonitorDetail]] = {}
     status_map = {
         NodePingStatus.ONLINE: PingStatus.ONLINE,
         NodePingStatus.OFFLINE: PingStatus.OFFLINE,
@@ -131,7 +163,6 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
 
         inbound_info: dict[str, NodeConnectionDetail] = {}
         outbound_info: dict[str, NodeConnectionDetail] = {}
-
         # Analyze inbound connections
         if node_status == NodeStatus.ONLINE:
             for other_node_id, other_node_data in network_data.nodes.items():
@@ -154,6 +185,17 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
                 outbound_info[other_node_id] = NodeConnectionDetail(
                     status=status, rtt=ping.rtt
                 )
+            for monitor_id, ping in node_data.monitor_data.items():
+                status = status_map[ping.status]
+                if ping.status == NodePingStatus.OFFLINE:
+                    status = PingStatus.OFFLINE
+                elif ping.status == NodePingStatus.UNKNOWN:
+                    status = PingStatus.UNKNOWN
+                else:
+                    status = PingStatus.ONLINE
+
+                monitor_info = node_monitor_info.setdefault(monitor_id, {})
+                monitor_info[node_id] = MonitorDetail(status=status, rtt=ping.rtt)
 
         online_inbound = sum(
             1 for info in inbound_info.values() if info.status == PingStatus.ONLINE
@@ -210,6 +252,43 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
             ),
         )
         node_analyses[node_id] = node_analysis
+    monitor_analyses: dict[str, MonitorAnalysis] = {}
+    for monitor_id, monitor_info in node_monitor_info.items():
+        if not monitor_info:
+            continue
+        online_inbound = sum(
+            1 for info in monitor_info.values() if info.status == PingStatus.ONLINE
+        )
+        offline_inbound = sum(
+            1 for info in monitor_info.values() if info.status == PingStatus.OFFLINE
+        )
+        total_inbound = online_inbound + offline_inbound
+
+        inbound_status = get_aggregate_status(online_inbound, offline_inbound)
+
+        monitor_status = NodePingStatus.OFFLINE
+        if any(info.status == PingStatus.ONLINE for info in monitor_info.values()):
+            monitor_status = NodePingStatus.ONLINE
+        elif all(info.status == PingStatus.UNKNOWN for info in monitor_info.values()):
+            monitor_status = NodePingStatus.UNKNOWN
+
+        monitor_analysis = MonitorAnalysis(
+            monitor_status=monitor_status,
+            inbound_info=monitor_info,
+            inbound_status=AggregatedConnectionDetail(
+                total_connections=total_inbound,
+                online_connections=online_inbound,
+                offline_connections=offline_inbound,
+                average_rtt=sum(
+                    info.rtt
+                    for info in monitor_info.values()
+                    if info.status == PingStatus.ONLINE
+                )
+                / (online_inbound or 1),
+                status=inbound_status,
+            ),
+        )
+        monitor_analyses[monitor_id] = monitor_analysis
 
     return NetworkAnalysis(
         total_nodes=len(network_data.nodes),
@@ -220,6 +299,7 @@ def analyze_network(network_data: NetworkData) -> NetworkAnalysis:
             1 for status in node_statuses.values() if status == NodeStatus.OFFLINE
         ),
         node_analyses=node_analyses,
+        monitor_analyses=monitor_analyses,
     )
 
 
@@ -230,6 +310,15 @@ def analyze_node_status(
     if network_id not in network_data.networks:
         return None
     return get_node_statuses(network_data.networks[network_id])
+
+
+def analyze_monitor_status(
+    store_manager: StoreManager, config: NetworkConfigLoader, network_id: str
+) -> dict[str, NodePingStatus] | None:
+    network_data = get_network_data(store_manager, config)
+    if network_id not in network_data.networks:
+        return None
+    return get_monitor_statuses(network_data.networks[network_id])
 
 
 def analyze_all_networks(

@@ -21,7 +21,6 @@ class UpdateManager:
         logger.debug(f"Triggering update for network: {net_id}")
         update_events = self.update_events.get(net_id, [])
         if not update_events:
-            logger.warning(f"No update events found for network: {net_id}")
             return
         for event in update_events:
             event.set()

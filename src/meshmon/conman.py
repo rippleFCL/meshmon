@@ -3,10 +3,8 @@ import time
 
 from structlog.stdlib import get_logger
 
-from server import PingData
-
 from .config import NetworkConfigLoader, get_allowed_keys
-from .distrostore import StoreManager
+from .distrostore import PingData, StoreManager
 from .monitor import MonitorManager
 from .update import UpdateManager
 from .webhooks import AnalysedNodeStatus

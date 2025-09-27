@@ -287,6 +287,48 @@ export default function NetworkGraph() {
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
     const reactFlowRef = useRef<ReactFlowInstance | null>(null)
     const focusingRef = useRef<boolean>(false)
+    // Track current nodes for animation snapshots
+    const nodesRef = useRef<Node[]>([])
+    useEffect(() => { nodesRef.current = nodes }, [nodes])
+    // Position animation control
+    const posAnimIdRef = useRef<number>(0)
+    const posAnimFrameRef = useRef<number | null>(null)
+
+    const cancelPositionAnimation = useCallback(() => {
+        posAnimIdRef.current++
+        if (posAnimFrameRef.current != null) {
+            cancelAnimationFrame(posAnimFrameRef.current)
+            posAnimFrameRef.current = null
+        }
+    }, [])
+
+    const animateNodePositions = useCallback((targetPos: Map<string, { x: number; y: number }>, durationMs = 450) => {
+        cancelPositionAnimation()
+        const startId = ++posAnimIdRef.current
+        const startTime = performance.now()
+        const startPos = new Map<string, { x: number; y: number }>(
+            (nodesRef.current || []).map((n) => [n.id, { x: n.position.x, y: n.position.y }])
+        )
+        const step = (now: number) => {
+            if (startId !== posAnimIdRef.current) return // canceled/newer animation started
+            const t = Math.min(1, (now - startTime) / durationMs)
+            const ease = (u: number) => 1 - Math.pow(1 - u, 3) // easeOutCubic
+            const k = ease(t)
+            setNodes((curr) => curr.map((n) => {
+                const s = startPos.get(n.id) || n.position
+                const tgt = targetPos.get(n.id) || n.position
+                const x = s.x + (tgt.x - s.x) * k
+                const y = s.y + (tgt.y - s.y) * k
+                return { ...n, position: { x, y } }
+            }))
+            if (t < 1) {
+                posAnimFrameRef.current = requestAnimationFrame(step)
+            } else {
+                posAnimFrameRef.current = null
+            }
+        }
+        posAnimFrameRef.current = requestAnimationFrame(step)
+    }, [cancelPositionAnimation, setNodes])
 
     // Function to handle node hover and update opacity
     // Throttle hover updates to animation frames to avoid excessive re-renders
@@ -1339,38 +1381,26 @@ export default function NetworkGraph() {
     // No removal timer; we keep hidden nodes mounted to allow smooth exit animations
 
     const clearFocus = useCallback(() => {
-        // Restore all nodes with a staged animation back to their original positions
+        // Animate node positions back to their original positions stored in processedNodes
         const posMap = new Map<string, { x: number; y: number }>(processedNodes.map(n => [n.id, n.position]))
-        // Stage 1: add transitions to all currently mounted nodes
+        cancelPositionAnimation()
+        // Stage: update flags and fade in hidden nodes (opacity only)
         setNodes(curr => curr.map(n => ({
             ...n,
-            // Enable transform + opacity transitions
-            style: { ...(n.style || {}), transition: 'transform 450ms ease, opacity 350ms ease', pointerEvents: 'auto' as any },
+            style: { ...(n.style || {}), transition: 'opacity 350ms ease', opacity: 1, pointerEvents: 'auto' as any },
             data: { ...n.data, isHighlighted: false, isDimmed: false },
         })))
-        // Stage 2 (next frame): move to original positions and fade in
-        requestAnimationFrame(() => {
-            setNodes(curr => curr.map(n => ({
-                ...n,
-                position: posMap.get(n.id) ?? n.position,
-                style: { ...(n.style || {}), opacity: 1, pointerEvents: 'auto' as any },
-                data: { ...n.data, isHighlighted: false, isDimmed: false },
-            })))
-
-            // After the animation completes, remove transitions so normal dragging isn't animated
-            const CLEANUP_DELAY_MS = 500
-            setTimeout(() => {
-                setNodes(curr => curr.map(n => {
-                    const { transition, ...rest } = (n.style || {}) as any
-                    return {
-                        ...n,
-                        style: { ...rest, pointerEvents: 'auto' as any },
-                    }
-                }))
-                // Now that the exit animation is complete, clear focus so base effects resume
-                setFocusedNodeId(null)
-            }, CLEANUP_DELAY_MS)
-        })
+        // Animate positions back so edges track with nodes
+        animateNodePositions(posMap, 450)
+        // After the animation completes, clear focus so base effects resume
+        setTimeout(() => {
+            // Remove transition styling cleanup
+            setNodes(curr => curr.map(n => {
+                const { transition, ...rest } = (n.style || {}) as any
+                return { ...n, style: { ...rest, pointerEvents: 'auto' as any } }
+            }))
+            setFocusedNodeId(null)
+        }, 500)
         // Restore edges to base opacity and default label policy
         const recomputed = processedEdges.map(e => {
             const baseOpacity = (e.data && (e.data as any).baseOpacity) ?? ((e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6))
@@ -1471,12 +1501,13 @@ export default function NetworkGraph() {
         // Determine if we should animate positions: only when entering focus from non-focused state
         const shouldAnimatePositions = animateRequested && !focusedNodeId
 
-        // Stage 1: set visibility and optionally add transition styles without moving yet
+        cancelPositionAnimation()
+        // Stage 1: set visibility and optionally add transition for opacity (not for transform)
         setNodes(curr => curr.map(n => {
             const isFocusOrNeighbor = n.id === centerId || neighborSet.has(n.id)
             const baseStyle = { ...(n.style || {}) }
             const style = shouldAnimatePositions
-                ? { ...baseStyle, transition: 'transform 450ms ease, opacity 300ms ease', opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) }
+                ? { ...baseStyle, transition: 'opacity 300ms ease', opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) }
                 : { ...baseStyle, opacity: isFocusOrNeighbor ? 1 : 0, pointerEvents: isFocusOrNeighbor ? (n.style as any)?.pointerEvents : ('none' as any) }
             return {
                 ...n,
@@ -1484,28 +1515,14 @@ export default function NetworkGraph() {
                 data: { ...n.data, isHighlighted: isFocusOrNeighbor, isDimmed: !isFocusOrNeighbor },
             }
         }))
-        // Stage 2: move focus + neighbors to target positions (next frame for animated, immediate for non-animated)
-        const applyPositions = () => setNodes(curr => curr.map(n => ({
-            ...n,
-            position: targetPos.get(n.id) ?? n.position,
-        })))
+        // Stage 2: move focus + neighbors to target positions
         if (shouldAnimatePositions) {
-            requestAnimationFrame(() => {
-                applyPositions()
-            })
+            animateNodePositions(targetPos, 450)
         } else {
-            applyPositions()
-        }
-
-        // After entering focus with animation, remove transitions so in-focus updates don't animate positions
-        if (shouldAnimatePositions) {
-            const CLEANUP_DELAY_MS = 500
-            setTimeout(() => {
-                setNodes(curr => curr.map(n => {
-                    const { transition, ...rest } = (n.style || {}) as any
-                    return { ...n, style: { ...rest } }
-                }))
-            }, CLEANUP_DELAY_MS)
+            setNodes(curr => curr.map(n => ({
+                ...n,
+                position: targetPos.get(n.id) ?? n.position,
+            })))
         }
 
         // Update edges: show only those connected to the focus, with labels

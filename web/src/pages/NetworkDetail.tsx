@@ -6,7 +6,9 @@ import { useRefresh } from '../contexts/RefreshContext'
 import {
     NetworkAnalysis,
     NodeAnalysis,
-    NodeConnectionDetail
+    NodeConnectionDetail,
+    MonitorAnalysis,
+    MonitorDetail
 } from '../types'
 import { useTheme } from '../contexts/ThemeContext'
 
@@ -19,12 +21,206 @@ interface ConnectionListProps {
     status: string
 }
 
+interface MonitorDetailCardProps {
+    monitorId: string
+    monitor: MonitorAnalysis
+    isExpanded: boolean
+    onToggle: () => void
+    useUnifiedLayout: boolean
+}
+
 interface NodeDetailCardProps {
     nodeId: string
     node: NodeAnalysis
     isExpanded: boolean
     onToggle: () => void
     useUnifiedLayout: boolean
+}
+
+interface MonitorConnectionListProps {
+    title: string
+    connections: { [nodeId: string]: MonitorDetail }
+    averageRtt: number
+    onlineCount: number
+    totalCount: number
+    status: string
+}
+
+const MonitorConnectionList: React.FC<MonitorConnectionListProps> = ({
+    title,
+    connections,
+    averageRtt,
+    onlineCount,
+    totalCount,
+    status
+}) => {
+    const { isDark } = useTheme()
+
+    return (
+        <div className={`mt-2 border rounded-lg p-3 ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+            <div className="flex items-center justify-between mb-2">
+                <div>
+                    <h5 className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{title}</h5>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Nodes that can reach this monitor
+                    </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(status)}`}>
+                        {status}
+                    </span>
+                    <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        {onlineCount}/{totalCount} reachable
+                    </span>
+                </div>
+            </div>
+
+            {totalCount > 0 && (
+                <div className={`mb-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Average response time: {averageRtt.toFixed(2)}ms
+                </div>
+            )}
+
+            <div className="space-y-1">
+                {Object.entries(connections).map(([targetNodeId, connection]) => (
+                    <div key={targetNodeId} className={`flex items-center justify-between py-2 px-3 rounded ${isDark ? 'bg-gray-700' : 'bg-gray-50'
+                        }`}>
+                        <span className={`font-medium text-sm ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{targetNodeId}</span>
+                        <div className="flex items-center space-x-2">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(connection.status)}`}>
+                                {connection.status === 'node_down' ? 'node down' : connection.status}
+                            </span>
+                            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                                {connection.rtt > 0 ? `${connection.rtt.toFixed(2)}ms` : 'N/A'}
+                            </span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+const MonitorDetailCard: React.FC<MonitorDetailCardProps> = ({ monitorId, monitor, isExpanded, onToggle, useUnifiedLayout }) => {
+    const { isDark } = useTheme()
+    const avgRtt = monitor.inbound_status.average_rtt || 0
+
+    const renderMonitorContent = () => {
+        if (useUnifiedLayout) {
+            // Unified layout for monitors - similar to nodes but simpler since monitors only have inbound connections
+            return (
+                <div className={`border rounded-lg p-3 ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                        <h5 className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>Monitor Connections</h5>
+                        <div className="flex items-center space-x-4 text-xs">
+                            <div className="flex items-center space-x-1">
+                                <span className={`w-2 h-2 rounded-full bg-green-500`}></span>
+                                <span className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>→ Node can reach monitor</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                                <span className={`w-2 h-2 rounded-full bg-red-500`}></span>
+                                <span className={`${isDark ? 'text-gray-400' : 'text-gray-600'}`}>✕ Cannot reach monitor</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                        {Object.entries(monitor.inbound_info).map(([targetNodeId, connection]) => {
+                            const isOnline = connection.status === 'online'
+                            const connectionType = isOnline ? '→' : '✕'
+                            const connectionColor = isOnline
+                                ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                : connection.status === 'node_down'
+                                    ? 'border-gray-500 bg-gray-50 dark:bg-gray-900/20'
+                                    : 'border-red-500 bg-red-50 dark:bg-red-900/20'
+
+                            return (
+                                <div key={targetNodeId} className={`border-2 rounded p-1.5 ${connectionColor} ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                        <h6 className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'} truncate pr-1`}>
+                                            {targetNodeId} {connectionType} {monitorId}
+                                        </h6>
+                                        <div className={`text-lg ${isDark ? 'text-gray-300' : 'text-gray-700'} flex-shrink-0`}>
+                                            {connectionType}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-0">
+                                        <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            Status: <span className={`font-medium ${isOnline ? 'text-green-600 dark:text-green-400' : connection.status === 'node_down' ? 'text-gray-600 dark:text-gray-400' : 'text-red-600 dark:text-red-400'}`}>
+                                                {connection.status === 'node_down' ? 'node down' : connection.status}
+                                            </span>
+                                        </div>
+                                        <div className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            RTT: <span className="font-mono font-medium">
+                                                {connection.rtt > 0 ? `${connection.rtt.toFixed(1)}ms` : 'N/A'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )
+        } else {
+            // Traditional table layout
+            return (
+                <MonitorConnectionList
+                    title="Incoming Monitor Connections"
+                    connections={monitor.inbound_info}
+                    averageRtt={monitor.inbound_status.average_rtt}
+                    onlineCount={monitor.inbound_status.online_connections}
+                    totalCount={monitor.inbound_status.total_connections}
+                    status={monitor.inbound_status.status}
+                />
+            )
+        }
+    }
+
+    return (
+        <div className="card p-2">
+            <div
+                className={`flex items-center justify-between cursor-pointer py-1 px-2 rounded-lg transition-colors duration-200 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50'
+                    }`}
+                onClick={onToggle}
+            >
+                <div className="flex items-center space-x-3">
+                    <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        {isExpanded ? '▼' : '▶'}
+                    </span>
+                    <h4 className={`text-base font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{monitorId}</h4>
+                    <span className={`px-2 py-1 text-xs font-medium rounded ${isDark ? 'bg-purple-900/30 text-purple-400' : 'bg-purple-100 text-purple-700'}`}>
+                        Monitor
+                    </span>
+                </div>
+
+                <div className={`flex items-center gap-6 text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <div className="text-center min-w-[4rem]">
+                        <div className="font-medium">Status</div>
+                        <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(monitor.monitor_status)}`}>
+                            {monitor.monitor_status}
+                        </div>
+                    </div>
+                    <div className="text-center min-w-[4rem]">
+                        <div className="font-medium">Avg Ping</div>
+                        <div className="font-mono text-sm">{avgRtt.toFixed(1)}ms</div>
+                    </div>
+                    <div className="text-center min-w-[4rem]">
+                        <div className="font-medium">Monitored By</div>
+                        <div className={`px-2 py-0.5 text-xs font-medium rounded-full ${getConnectionStatusColor(monitor.inbound_status.online_connections, monitor.inbound_status.total_connections)}`}>
+                            {monitor.inbound_status.online_connections}/{monitor.inbound_status.total_connections}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {isExpanded && (
+                <div className="mt-3">
+                    {renderMonitorContent()}
+                </div>
+            )}
+        </div>
+    )
 }
 
 const getStatusColor = (status: string) => {
@@ -346,6 +542,7 @@ export default function NetworkDetail() {
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
+    const [expandedMonitors, setExpandedMonitors] = useState<Set<string>>(new Set())
     const [useUnifiedLayout, setUseUnifiedLayout] = useState(true)
 
     const fetchData = async (isInitialLoad = false) => {
@@ -428,14 +625,26 @@ export default function NetworkDetail() {
         setExpandedNodes(newExpanded)
     }
 
+    const toggleMonitor = (monitorId: string) => {
+        const newExpanded = new Set(expandedMonitors)
+        if (newExpanded.has(monitorId)) {
+            newExpanded.delete(monitorId)
+        } else {
+            newExpanded.add(monitorId)
+        }
+        setExpandedMonitors(newExpanded)
+    }
+
     const expandAll = () => {
         if (network) {
             setExpandedNodes(new Set(Object.keys(network.node_analyses)))
+            setExpandedMonitors(new Set(Object.keys(network.monitor_analyses || {})))
         }
     }
 
     const collapseAll = () => {
         setExpandedNodes(new Set())
+        setExpandedMonitors(new Set())
     }
 
     if (loading) {
@@ -615,7 +824,7 @@ export default function NetworkDetail() {
 
             {/* Node Details */}
             <div className="data-fade">
-                <h3 className="text-lg font-medium text-gray-100 mb-3">Node Details</h3>
+                <h3 className={`text-lg font-medium mb-3 ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>Node Details</h3>
                 <div className="space-y-2">
                     {Object.entries(network.node_analyses).map(([nodeId, node]) => (
                         <NodeDetailCard
@@ -629,6 +838,25 @@ export default function NetworkDetail() {
                     ))}
                 </div>
             </div>
+
+            {/* Monitor Details */}
+            {network.monitor_analyses && Object.keys(network.monitor_analyses).length > 0 && (
+                <div className="data-fade">
+                    <h3 className={`text-lg font-medium mb-3 ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>Monitor Details</h3>
+                    <div className="space-y-2">
+                        {Object.entries(network.monitor_analyses).map(([monitorId, monitor]) => (
+                            <MonitorDetailCard
+                                key={monitorId}
+                                monitorId={monitorId}
+                                monitor={monitor}
+                                isExpanded={expandedMonitors.has(monitorId)}
+                                onToggle={() => toggleMonitor(monitorId)}
+                                useUnifiedLayout={useUnifiedLayout}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

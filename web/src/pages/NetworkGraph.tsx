@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState, useEffect, useRef, memo } from 'react'
 import ReactFlow, {
     Node,
     Edge,
@@ -11,222 +11,260 @@ import ReactFlow, {
     Background,
     Panel,
     NodeTypes,
-    Handle,
-    Position,
     MarkerType,
     BackgroundVariant,
+    BaseEdge,
+    EdgeLabelRenderer,
+    getBezierPath,
+    useReactFlow,
+    Handle,
+    Position,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { meshmonApi } from '../api'
 import { MultiNetworkAnalysis } from '../types'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
-import { Wifi, WifiOff, Activity, Zap } from 'lucide-react'
+import { Activity, Zap, WifiOff } from 'lucide-react'
 
-// Custom node component for mesh nodes
-const MeshNode = ({ data }: { data: any }) => {
-    const { isDark } = useTheme()
+// Toggle for verbose console logging in this module
+const DEBUG = false
+// Toggle for performance/graph mutation logs
+const PERF_LOG = false
+const logPerf = (...args: any[]) => {
+    if (PERF_LOG) console.log('[Graph]', ...args)
+}
 
-    const isOnline = data.status === 'online'
-    const statusColor = isOnline ? 'bg-green-500' : 'bg-red-500'
-    const statusIcon = isOnline ? Wifi : WifiOff
-    const StatusIcon = statusIcon
+// Estimate a node diameter from its label length to pre-allocate space/layout
+const estimateDiameterFromLabel = (label?: string) => {
+    const baseSize = 120
+    const len = (label?.length ?? 0)
+    const estWidth = Math.round(len * 8.5 + 40)
+    return Math.max(baseSize, Math.min(220, estWidth))
+}
 
-    // Calculate node importance based on inbound connections (true hub metric)
-    const nodeSize = 140
-    // Apply opacity based on hover state
-    const isHighlighted = data.isHighlighted
-    const isDimmed = data.isDimmed
-    const nodeOpacity = isDimmed ? 0.3 : isHighlighted ? 1 : 1
-    const handleHover = data.onHover
-    console.log(`Node ${data.label} - Online: ${isOnline}, Inbound: ${data.inboundCount}, Outbound: ${data.outboundCount}`)
+// (Radial handle logic removed in favor of floating edges)
+
+function FloatingBezierEdge({ id, source, target, markerEnd, style, label, labelStyle }: any) {
+    const rf = useReactFlow()
+    const sourceNode = rf.getNode(source)
+    const targetNode = rf.getNode(target)
+    if (!sourceNode || !targetNode) return null
+
+    const sPos = sourceNode.positionAbsolute || sourceNode.position
+    const tPos = targetNode.positionAbsolute || targetNode.position
+    const sW = sourceNode.width || 0
+    const sH = sourceNode.height || 0
+    const tW = targetNode.width || 0
+    const tH = targetNode.height || 0
+
+    // With nodeOrigin set to [0.5, 0.5], positionAbsolute is already the node center
+    const sCenter = { x: (sPos.x || 0), y: (sPos.y || 0) }
+    const tCenter = { x: (tPos.x || 0), y: (tPos.y || 0) }
+
+    const rsRaw = (sourceNode.data && sourceNode.data.nodeRadius) ? sourceNode.data.nodeRadius : Math.max(20, Math.min(sW, sH) / 2)
+    const rtRaw = (targetNode.data && targetNode.data.nodeRadius) ? targetNode.data.nodeRadius : Math.max(20, Math.min(tW, tH) / 2)
+    // Account for border/antialiasing and marker size so the arrow tip lands on the circle border
+    const strokeW = (style && (style as any).strokeWidth) ? Number((style as any).strokeWidth) : 2
+    // Use no additional marker offset so the path endpoint is the border contact
+    const markerOffset = 0
+    const radiusInset = 2
+    const rs = Math.max(0, rsRaw - radiusInset - strokeW * 0.5)
+    const rt = Math.max(0, rtRaw - radiusInset - strokeW * 0.5)
+
+    const dx = tCenter.x - sCenter.x
+    const dy = tCenter.y - sCenter.y
+    const len = Math.max(1, Math.hypot(dx, dy))
+    const ux = dx / len
+    const uy = dy / len
+
+    const sourceX = sCenter.x + ux * rs
+    const sourceY = sCenter.y + uy * rs
+    // Pull the target point slightly inward to compensate for the arrowhead length
+    const targetX = tCenter.x - ux * (rt + markerOffset)
+    const targetY = tCenter.y - uy * (rt + markerOffset)
+
+    // Choose positions based on dominant axis for nicer curvature
+    const horizontal = Math.abs(dx) >= Math.abs(dy)
+    const sourcePosition = horizontal
+        ? (dx >= 0 ? 'right' : 'left')
+        : (dy >= 0 ? 'bottom' : 'top')
+    const targetPosition = horizontal
+        ? (dx >= 0 ? 'left' : 'right')
+        : (dy >= 0 ? 'top' : 'bottom')
+
+    const [edgePath, labelX, labelY] = getBezierPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        sourcePosition: sourcePosition as any,
+        targetPosition: targetPosition as any,
+    })
+
     return (
         <>
-            {/* Outbound connection handles (source) - positioned at outer corners to avoid crossovers */}
-            <Handle
-                type="source"
-                position={Position.Top}
-                id="top-out"
-                style={{
-                    background: '#3b82f6', // Blue for outbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    top: -5,
-                    left: '15%', // Far left on top edge
-                }}
-            />
-            <Handle
-                type="source"
-                position={Position.Right}
-                id="right-out"
-                style={{
-                    background: '#3b82f6', // Blue for outbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    right: -5,
-                    top: '15%', // High on right edge
-                }}
-            />
-            <Handle
-                type="source"
-                position={Position.Bottom}
-                id="bottom-out"
-                style={{
-                    background: '#3b82f6', // Blue for outbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    bottom: -5,
-                    left: '85%', // Far right on bottom edge
-                }}
-            />
-            <Handle
-                type="source"
-                position={Position.Left}
-                id="left-out"
-                style={{
-                    background: '#3b82f6', // Blue for outbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    left: -5,
-                    top: '85%', // Low on left edge
-                }}
-            />
-
-            {/* Inbound connection handles (target) - positioned at inner corners to avoid crossovers */}
-            <Handle
-                type="target"
-                position={Position.Top}
-                id="top-in"
-                style={{
-                    background: '#f59e0b', // Orange for inbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    top: -5,
-                    left: '85%', // Far right on top edge
-                }}
-            />
-            <Handle
-                type="target"
-                position={Position.Right}
-                id="right-in"
-                style={{
-                    background: '#f59e0b', // Orange for inbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    right: -5,
-                    top: '85%', // Low on right edge
-                }}
-            />
-            <Handle
-                type="target"
-                position={Position.Bottom}
-                id="bottom-in"
-                style={{
-                    background: '#f59e0b', // Orange for inbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    bottom: -5,
-                    left: '15%', // Far left on bottom edge
-                }}
-            />
-            <Handle
-                type="target"
-                position={Position.Left}
-                id="left-in"
-                style={{
-                    background: '#f59e0b', // Orange for inbound
-                    border: '2px solid',
-                    borderColor: isOnline ? '#22c55e' : '#ef4444',
-                    width: 10,
-                    height: 10,
-                    left: -5,
-                    top: '15%', // High on left edge
-                }}
-            />
-
-            <div
-                className={`
-                    px-4 py-3 rounded-2xl border-2 shadow-lg backdrop-blur-sm
-                    transition-all duration-300 hover:scale-105 hover:shadow-xl
-                    ${isOnline
-                        ? isDark
-                            ? 'bg-gray-800/90 border-green-400 text-white shadow-green-400/20'
-                            : 'bg-white/95 border-green-500 text-gray-900 shadow-green-500/20'
-                        : isDark
-                            ? 'bg-gray-800/70 border-red-400 text-gray-300 shadow-red-400/20'
-                            : 'bg-white/85 border-red-500 text-gray-700 shadow-red-500/20'
-                    }
-                `}
-                style={{
-                    minWidth: `${nodeSize}px`,
-                    maxWidth: `${nodeSize + 40}px`,
-                    opacity: nodeOpacity,
-                    transition: 'opacity 0.2s ease-in-out, transform 0.3s ease-in-out'
-                }}
-                onMouseEnter={() => handleHover && handleHover(data.label)}
-                onMouseLeave={() => handleHover && handleHover(null)}
-            >
-                <div className="flex items-center justify-between mb-2">
-                    <div className={`
-                        w-4 h-4 rounded-full shadow-sm
-                        ${statusColor}
-                        ${isOnline ? 'animate-pulse' : ''}
-                    `} />
-                    <StatusIcon className={`
-                        w-5 h-5
-                        ${isOnline ? 'text-green-500' : 'text-red-500'}
-                    `} />
-                </div>
-
-                <div className="text-sm font-bold truncate mb-1" title={data.label}>
-                    {data.label}
-                </div>
-
-                <div className={`
-                    text-xs font-medium mb-2
-                    ${isOnline ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}
-                `}>
-                    {isOnline ? 'Online' : 'Offline'}
-                </div>
-
-                {data.avgRtt !== undefined && data.avgRtt > 0 && isOnline && (
-                    <div className="text-xs opacity-80 mb-1">
-                        Avg RTT: {data.avgRtt.toFixed(1)}ms
+            <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+            {label && (
+                <EdgeLabelRenderer>
+                    <div
+                        style={{
+                            position: 'absolute',
+                            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+                            pointerEvents: 'all',
+                            ...(labelStyle || {}),
+                        }}
+                        className="nodrag nopan"
+                    >
+                        {label}
                     </div>
-                )}
-
-                <div className="flex justify-between text-xs opacity-70">
-                    <span title="Online/Total inbound connections">↓{data.inboundOnlineCount}/{data.inboundCount}</span>
-                    <span title="Outbound connections">↑{data.outboundCount}</span>
-                </div>
-
-                {data.inboundOnlineCount > 0 && isOnline && (
-                    <div className="mt-1 px-2 py-1 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400 text-xs text-center">
-                        Hub Node
-                    </div>
-                )}
-            </div>
+                </EdgeLabelRenderer>
+            )}
         </>
     )
 }
 
+// Custom node component for mesh nodes
+const MeshNode = memo(({ data }: { data: any }) => {
+    const { isDark } = useTheme()
+
+    const isOnline = data.status === 'online'
+    // keep a simple status dot to reduce DOM; no icon to minimize SVG cost
+
+    // Dynamic node size based on label length (fits bigger content)
+    const baseSize = 120
+    const labelLen = (data.label?.length ?? 0)
+    // Approximate text width at text-sm bold ~8.5px per char + padding
+    const estWidth = Math.round(labelLen * 8.5 + 40)
+    const nodeSize = Math.max(baseSize, Math.min(220, estWidth))
+    // Apply opacity based on hover state
+    const isHighlighted = data.isHighlighted
+    const isDimmed = data.isDimmed
+    // effects removed for performance
+    const nodeOpacity = isDimmed ? 0.1 : isHighlighted ? 1 : 1
+    const handleHover = data.onHover
+    DEBUG && console.log(`Node ${data.label} - Online: ${isOnline}, Inbound: ${data.inboundCount}, Outbound: ${data.outboundCount}`)
+    return (
+        <>
+            <div
+                className={`
+                    relative flex flex-col items-center justify-center rounded-full border-2 shadow-none overflow-hidden
+                    ${isOnline
+                        ? (isDark ? 'bg-green-900/90 border-green-400 text-white' : 'bg-green-600 border-green-500 text-white')
+                        : (isDark ? 'bg-red-900/90 border-red-400 text-white' : 'bg-red-600 border-red-500 text-white')
+                    }
+                `}
+                style={{
+                    width: `${nodeSize}px`,
+                    height: `${nodeSize}px`,
+                    opacity: nodeOpacity,
+                    willChange: 'transform, opacity'
+                }}
+                onMouseEnter={() => handleHover && handleHover(data.nodeId || data.label)}
+                onMouseLeave={() => handleHover && handleHover(null)}
+            >
+
+                <div className="text-sm font-bold truncate" title={data.label}>
+                    {data.label}
+                </div>
+
+
+                <div className="text-xs opacity-80 mt-0.5">
+                    Avg RTT: {Number.isFinite(data.avgRtt) ? `${(data.avgRtt as number).toFixed(1)}ms` : '—'}
+                </div>
+
+                <div className="flex items-center justify-center gap-4 text-xs opacity-80 mt-1">
+                    <span title="Online/Total inbound connections">↓{data.inboundOnlineCount}/{data.inboundCount}</span>
+                    <span title="Outbound connections">↑{data.outboundCount}</span>
+                </div>
+
+                {/* Minimal hidden handles to satisfy React Flow edge validation (inside node) */}
+                <Handle type="source" id="s" position={Position.Right} isConnectable={false} style={{ width: 6, height: 6, opacity: 0, pointerEvents: 'none' }} />
+                <Handle type="target" id="t" position={Position.Left} isConnectable={false} style={{ width: 6, height: 6, opacity: 0, pointerEvents: 'none' }} />
+            </div>
+        </>
+    )
+}, (prev, next) => {
+    const a = prev.data, b = next.data
+    return (
+        a.isHighlighted === b.isHighlighted &&
+        a.isDimmed === b.isDimmed &&
+        a.status === b.status &&
+        a.label === b.label &&
+        a.avgRtt === b.avgRtt &&
+        a.inboundOnlineCount === b.inboundOnlineCount &&
+        a.inboundCount === b.inboundCount &&
+        a.outboundCount === b.outboundCount
+    )
+})
+
+// Custom node component for monitors
+const MonitorNode = memo(({ data }: { data: any }) => {
+    const { isDark } = useTheme()
+
+    const isOnline = data.status === 'online'
+
+    // Dynamic node size based on label length (fits bigger content)
+    const nodeSize = estimateDiameterFromLabel(data.label)
+    const isHighlighted = data.isHighlighted
+    const isDimmed = data.isDimmed
+    // effects removed for performance
+    const nodeOpacity = isDimmed ? 0.1 : isHighlighted ? 1 : 1
+    const handleHover = data.onHover
+
+    return (
+        <>
+            <div
+                className={`
+                    relative flex flex-col items-center justify-center rounded-full border-2 shadow-none overflow-hidden
+                    ${isOnline
+                        ? (isDark ? 'bg-purple-900/90 border-purple-400 text-white' : 'bg-purple-600 border-purple-500 text-white')
+                        : (isDark ? 'bg-red-900/90 border-red-400 text-white' : 'bg-red-600 border-red-500 text-white')
+                    }
+                `}
+                style={{
+                    width: `${nodeSize}px`,
+                    height: `${nodeSize}px`,
+                    opacity: nodeOpacity,
+                    willChange: 'transform, opacity'
+                }}
+                onMouseEnter={() => handleHover && handleHover(data.nodeId || data.label)}
+                onMouseLeave={() => handleHover && handleHover(null)}
+            >
+                <div className="text-sm font-bold truncate" title={data.label}>
+                    {data.label}
+                </div>
+                <div className="text-xs opacity-80 mt-0.5">
+                    Avg RTT: {Number.isFinite(data.avgRtt) ? `${(data.avgRtt as number).toFixed(1)}ms` : '—'}
+                </div>
+
+                <div className="flex justify-center text-xs opacity-80 mt-1">
+                    <span title="Nodes monitoring this monitor">←{data.inboundOnlineCount}/{data.inboundCount}</span>
+                </div>
+                {/* Minimal hidden handles to satisfy React Flow edge validation (inside node) */}
+                <Handle type="source" id="s" position={Position.Right} isConnectable={false} style={{ width: 6, height: 6, opacity: 0, pointerEvents: 'none' }} />
+                <Handle type="target" id="t" position={Position.Left} isConnectable={false} style={{ width: 6, height: 6, opacity: 0, pointerEvents: 'none' }} />
+            </div>
+        </>
+    )
+}, (prev, next) => {
+    const a = prev.data, b = next.data
+    return (
+        a.isHighlighted === b.isHighlighted &&
+        a.isDimmed === b.isDimmed &&
+        a.status === b.status &&
+        a.label === b.label &&
+        a.avgRtt === b.avgRtt &&
+        a.inboundOnlineCount === b.inboundOnlineCount &&
+        a.inboundCount === b.inboundCount
+    )
+})
+
 const nodeTypes: NodeTypes = {
     meshNode: MeshNode,
+    monitorNode: MonitorNode,
 }
+const edgeTypes = { floating: FloatingBezierEdge }
 
 export default function NetworkGraph() {
     const { isDark } = useTheme()
@@ -238,121 +276,30 @@ export default function NetworkGraph() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+    const [isDragging, setIsDragging] = useState<boolean>(false)
+    const [isPanning, setIsPanning] = useState<boolean>(false)
+    const [layoutMode, setLayoutMode] = useState<'elk' | 'concentric' | 'dense' | 'pretty'>(() => 'pretty')
+    const [hideOnlineByDefault, setHideOnlineByDefault] = useState<boolean>(true)
+    const [zoom, setZoom] = useState<number>(1)
 
     // Function to handle node hover and update opacity
+    // Throttle hover updates to animation frames to avoid excessive re-renders
+    const hoverRaf = useRef<number | null>(null)
+    const pendingHover = useRef<string | null>(null)
     const handleNodeHover = useCallback((hoveredNodeId: string | null) => {
-        setHoveredNode(hoveredNodeId)
+        pendingHover.current = hoveredNodeId
+        if (hoverRaf.current !== null) return
+        hoverRaf.current = requestAnimationFrame(() => {
+            hoverRaf.current = null
+            setHoveredNode(pendingHover.current)
+        })
     }, [])
 
-    // Update nodes and edges based on hover state without triggering viewport reset
-    useEffect(() => {
-        if (!hoveredNode) {
-            // Reset all nodes and edges to normal state
-            setNodes(currentNodes => {
-                const updated = currentNodes.map(node => {
-                    if (node.data.isHighlighted || node.data.isDimmed) {
-                        return {
-                            ...node,
-                            data: {
-                                ...node.data,
-                                isHighlighted: false,
-                                isDimmed: false
-                            }
-                        }
-                    }
-                    return node
-                })
-                return updated
-            })
-            setEdges(currentEdges => {
-                const updated = currentEdges.map(edge => {
-                    const originalOpacity = edge.animated ? 0.9 : 0.6
-                    const needsUpdate = edge.style?.opacity !== originalOpacity ||
-                        edge.label !== edge.data?.originalLabel
-
-                    if (needsUpdate) {
-                        return {
-                            ...edge,
-                            style: {
-                                ...edge.style,
-                                opacity: originalOpacity
-                            },
-                            label: edge.data?.originalLabel,
-                            labelStyle: edge.data?.originalLabelStyle,
-                            labelBgStyle: edge.data?.originalLabelBgStyle
-                        }
-                    }
-                    return edge
-                })
-                return updated
-            })
-        } else {
-            // Find connected nodes and edges
-            const connectedNodeIds = new Set<string>([hoveredNode])
-            const relevantEdgeIds = new Set<string>()
-
-            // Find all edges connected to the hovered node
-            edges.forEach(edge => {
-                if (edge.source === hoveredNode || edge.target === hoveredNode) {
-                    connectedNodeIds.add(edge.source)
-                    connectedNodeIds.add(edge.target)
-                    relevantEdgeIds.add(edge.id)
-                }
-            })
-
-            // Update nodes with hover state only if changes are needed
-            setNodes(currentNodes => {
-                const updated = currentNodes.map(node => {
-                    const shouldHighlight = node.id === hoveredNode
-                    const shouldDim = !connectedNodeIds.has(node.id)
-
-                    if (node.data.isHighlighted !== shouldHighlight || node.data.isDimmed !== shouldDim) {
-                        return {
-                            ...node,
-                            data: {
-                                ...node.data,
-                                isHighlighted: shouldHighlight,
-                                isDimmed: shouldDim
-                            }
-                        }
-                    }
-                    return node
-                })
-                return updated
-            })
-
-            // Update edges with hover state only if changes are needed
-            setEdges(currentEdges => {
-                const updated = currentEdges.map(edge => {
-                    const isRelevant = relevantEdgeIds.has(edge.id)
-                    const originalOpacity = edge.animated ? 0.9 : 0.6
-                    const targetOpacity = isRelevant ? originalOpacity : 0
-
-                    // Show labels only for relevant edges
-                    const shouldShowLabel = isRelevant && edge.data?.originalLabel
-                    const currentHasLabel = edge.label !== undefined
-
-                    if (edge.style?.opacity !== targetOpacity || (shouldShowLabel !== currentHasLabel)) {
-                        return {
-                            ...edge,
-                            style: {
-                                ...edge.style,
-                                opacity: targetOpacity
-                            },
-                            label: shouldShowLabel ? edge.data?.originalLabel : undefined,
-                            labelStyle: shouldShowLabel ? edge.data?.originalLabelStyle : undefined,
-                            labelBgStyle: shouldShowLabel ? edge.data?.originalLabelBgStyle : undefined
-                        }
-                    }
-                    return edge
-                })
-                return updated
-            })
-        }
-    }, [hoveredNode, edges, setNodes, setEdges])
+    // (Moved hover effect below processed graph data and adjacency maps)
 
     const fetchData = useCallback(async () => {
         try {
+            logPerf('fetchData:start')
             setLoading(true)
             setError(null)
             const response = await meshmonApi.getViewData()
@@ -361,6 +308,7 @@ export default function NetworkGraph() {
             setError('Failed to load network data')
             console.error('Error fetching network data:', err)
         } finally {
+            logPerf('fetchData:end')
             setLoading(false)
         }
     }, [])
@@ -368,7 +316,24 @@ export default function NetworkGraph() {
     useEffect(() => {
         fetchData()
         registerRefreshCallback(fetchData)
+        // Load user settings
+        try {
+            const savedLayout = localStorage.getItem('meshmon.layoutMode')
+            if (savedLayout === 'elk' || savedLayout === 'concentric' || savedLayout === 'dense' || savedLayout === 'pretty') {
+                setLayoutMode(savedLayout)
+            }
+            const savedHide = localStorage.getItem('meshmon.hideOnlineByDefault')
+            if (savedHide !== null) setHideOnlineByDefault(savedHide === 'true')
+        } catch { }
     }, [fetchData, registerRefreshCallback])
+
+    // Persist user settings
+    useEffect(() => {
+        try {
+            localStorage.setItem('meshmon.layoutMode', layoutMode)
+            localStorage.setItem('meshmon.hideOnlineByDefault', String(hideOnlineByDefault))
+        } catch { }
+    }, [layoutMode, hideOnlineByDefault])
 
     const networks = useMemo(() => {
         if (!networkData?.networks) return []
@@ -379,10 +344,25 @@ export default function NetworkGraph() {
         }))
     }, [networkData])
 
+    // Initialize selected network from saved setting or first available
+    useEffect(() => {
+        if (!selectedNetwork && networks.length > 0) {
+            let target = networks[0].id
+            try {
+                const savedNet = localStorage.getItem('meshmon.selectedNetwork')
+                if (savedNet && networks.some(n => n.id === savedNet)) target = savedNet
+            } catch { }
+            setSelectedNetwork(target)
+        }
+    }, [networks, selectedNetwork])
+
 
     // Convert mesh data to nodes and edges
     const { processedNodes, processedEdges } = useMemo(() => {
+        const t0 = performance.now()
+        logPerf('processGraph:start')
         if (!networkData?.networks || !selectedNetwork) {
+            logPerf('processGraph:empty')
             return { processedNodes: [], processedEdges: [] }
         }
 
@@ -392,9 +372,11 @@ export default function NetworkGraph() {
         const nodes: Node[] = []
         const edges: Edge[] = []
         const nodeIds = Object.keys(network.node_analyses)
+        const monitorIds = Object.keys(network.monitor_analyses || {})
 
-        console.log('Network data for', selectedNetwork, ':', network)
-        console.log('Node IDs:', nodeIds)
+        DEBUG && console.log('Network data for', selectedNetwork, ':', network)
+        DEBUG && console.log('Node IDs:', nodeIds)
+        DEBUG && console.log('Monitor IDs:', monitorIds)
 
         // Create nodes with circular layout optimized for mesh networks
         const nodeMap = new Map<string, any>()
@@ -403,309 +385,591 @@ export default function NetworkGraph() {
         const sortedNodes = nodeIds
             .map(nodeId => ({
                 id: nodeId,
+                type: 'node',
                 analysis: network.node_analyses[nodeId],
                 totalConnections: (network.node_analyses[nodeId].inbound_status?.total_connections || 0) +
                     (network.node_analyses[nodeId].outbound_status?.total_connections || 0)
             }))
             .sort((a, b) => b.totalConnections - a.totalConnections)
 
-        sortedNodes.forEach((nodeInfo, index) => {
-            const { id: nodeId, analysis: nodeAnalysis, totalConnections } = nodeInfo
+        // Add monitors to the entity list
+        const sortedMonitors = monitorIds.map(monitorId => ({
+            id: monitorId,
+            type: 'monitor',
+            analysis: network.monitor_analyses![monitorId],
+            totalConnections: network.monitor_analyses![monitorId].inbound_status?.total_connections || 0
+        }))
 
-            let x, y
+        // Precompute entity counts
+        const totalEntities = sortedNodes.length + sortedMonitors.length
 
-            if (nodeIds.length === 1) {
-                // Single node in center
-                x = 0
-                y = 0
-            } else if (nodeIds.length === 2) {
-                // Two nodes side by side with better spacing
-                x = index === 0 ? -300 : 300 // Increased from 200
-                y = 0
-            } else if (nodeIds.length <= 12) {
-                // Single circle for small to medium networks with better spacing
-                const angle = (index / nodeIds.length) * 2 * Math.PI
-                const radius = Math.max(350, nodeIds.length * 55) // Increased spacing significantly
+        // Estimate diameters to inform spacing for dynamic-sized nodes
+        const estNodeDiameters = sortedNodes.map(n => estimateDiameterFromLabel(n.id))
+        const estMonDiameters = sortedMonitors.map(m => estimateDiameterFromLabel(m.id))
+        const maxNodeDiam = estNodeDiameters.length ? Math.max(...estNodeDiameters) : 120
+        const maxMonDiam = estMonDiameters.length ? Math.max(...estMonDiameters) : 120
 
-                x = Math.cos(angle) * radius
-                y = Math.sin(angle) * radius
-            } else {
-                // Concentric circles for larger networks with improved spacing
-                const highConnectivityNodes = Math.min(6, Math.ceil(nodeIds.length * 0.3))
+        // Positioning by mode
+        // - elk (Stacked): positions computed later by ELK, we still seed with a reasonable placement
+        // - concentric: place nodes on inner ring and monitors on outer ring with coupled radii
+        // - dense: compact grid centered on origin
+        // - pretty: phyllotaxis (golden-angle) spiral for a pleasing arrangement
+        if (layoutMode === 'concentric' || layoutMode === 'elk') {
+            const nodeCount = sortedNodes.length
+            const monitorCount = sortedMonitors.length
+            // Spacing targets
+            const NODE_SIZE = maxNodeDiam // px (mesh nodes)
+            const MON_SIZE = maxMonDiam // px (monitor nodes)
+            const CHORD_MARGIN = 24 // extra space between adjacent nodes on a ring
+            const SEP_MARGIN = 80 // separation between rings
+            // Arc-length targets scale with size so larger nodes get more space
+            const nodeGap = NODE_SIZE + 60
+            const monGap = MON_SIZE + 90
 
-                if (index < highConnectivityNodes) {
-                    // Inner circle for high-connectivity nodes
-                    const innerAngle = (index / highConnectivityNodes) * 2 * Math.PI
-                    const innerRadius = 280 // Increased from 180
-                    x = Math.cos(innerAngle) * innerRadius
-                    y = Math.sin(innerAngle) * innerRadius
+            // Minimal radii per ring based on chord and arc spacing
+            const innerRChordMin = nodeCount > 1
+                ? (NODE_SIZE + CHORD_MARGIN) / (2 * Math.sin(Math.PI / nodeCount))
+                : 220
+            const innerRArcMin = nodeCount > 0 ? (nodeCount * nodeGap) / (2 * Math.PI) : 220
+            const innerMin = nodeCount > 0 ? Math.max(220, innerRChordMin, innerRArcMin) : 220
+
+            const outerRChordMin = monitorCount > 1
+                ? (MON_SIZE + CHORD_MARGIN) / (2 * Math.sin(Math.PI / monitorCount))
+                : innerMin + 1 // placeholder; will be coupled below
+            const outerRArcMin = monitorCount > 0 ? (monitorCount * monGap) / (2 * Math.PI) : innerMin + 1
+            const outerMin = monitorCount > 0 ? Math.max(outerRChordMin, outerRArcMin) : innerMin + 1
+
+            // Desired fixed separation between rings (kept small to bring them closer)
+            const sep = (NODE_SIZE / 2) + (MON_SIZE / 2) + SEP_MARGIN
+
+            // Couple the radii: if one ring grows, the other grows to maintain sep
+            // Choose center radius C so that C >= innerMin and C + sep >= outerMin
+            let C = Math.max(innerMin, outerMin - sep)
+            const innerRadius = C
+            const outerRadius = monitorCount > 0 ? C + sep : C + sep
+
+            sortedNodes.forEach((entityInfo, index) => {
+                const { id: entityId, analysis: entityAnalysis, totalConnections } = entityInfo
+                const angle = (index / Math.max(1, nodeCount)) * 2 * Math.PI
+                const x = Math.cos(angle) * innerRadius
+                const y = Math.sin(angle) * innerRadius
+                const nodeAnalysis = entityAnalysis as any
+                const nodeData = {
+                    id: entityId,
+                    type: 'meshNode',
+                    position: { x, y },
+                    data: {
+                        label: entityId,
+                        status: nodeAnalysis.node_status,
+                        avgRtt: nodeAnalysis.inbound_status?.average_rtt || 0,
+                        inboundCount: nodeAnalysis.inbound_status?.total_connections || 0,
+                        inboundOnlineCount: nodeAnalysis.inbound_status?.online_connections || 0,
+                        outboundCount: nodeAnalysis.outbound_status?.total_connections || 0,
+                        totalConnections,
+                        version: nodeAnalysis.node_info?.version || 'unknown',
+                        onHover: handleNodeHover,
+                        isHighlighted: false,
+                        isDimmed: false,
+                        isPanning,
+
+                    },
+                }
+                nodes.push(nodeData)
+                nodeMap.set(entityId, nodeData)
+            })
+
+            sortedMonitors.forEach((entityInfo, index) => {
+                const { id: entityId, analysis: entityAnalysis, totalConnections } = entityInfo
+                const angle = (index / Math.max(1, monitorCount)) * 2 * Math.PI
+                const x = Math.cos(angle) * outerRadius
+                const y = Math.sin(angle) * outerRadius
+                const monitorAnalysis = entityAnalysis as any
+                const monitorData = {
+                    id: entityId,
+                    type: 'monitorNode',
+                    position: { x, y },
+                    data: {
+                        label: entityId,
+                        status: monitorAnalysis.monitor_status,
+                        avgRtt: monitorAnalysis.inbound_status?.average_rtt || 0,
+                        inboundCount: monitorAnalysis.inbound_status?.total_connections || 0,
+                        inboundOnlineCount: monitorAnalysis.inbound_status?.online_connections || 0,
+                        totalConnections,
+                        onHover: handleNodeHover,
+                        isHighlighted: false,
+                        isDimmed: false,
+                        isPanning,
+
+                    },
+                }
+                nodes.push(monitorData)
+                nodeMap.set(entityId, monitorData)
+            })
+        } else if (layoutMode === 'dense') {
+            // Compact grid centered at origin: nodes first, then monitors
+            const MAX_DIAM = Math.max(maxNodeDiam, maxMonDiam)
+            const CELL = MAX_DIAM + 24
+            const allEntities = [...sortedNodes, ...sortedMonitors]
+            const total = allEntities.length
+            const cols = Math.max(1, Math.ceil(Math.sqrt(total)))
+            const rows = Math.max(1, Math.ceil(total / cols))
+            const gridW = cols * CELL
+            const gridH = rows * CELL
+            allEntities.forEach((entityInfo, index) => {
+                const { id: entityId, type: entityType, analysis: entityAnalysis, totalConnections } = entityInfo as any
+                const r = Math.floor(index / cols)
+                const c = index % cols
+                const x = (c + 0.5) * CELL - gridW / 2
+                const y = (r + 0.5) * CELL - gridH / 2
+                if (entityType === 'node') {
+                    const nodeAnalysis = entityAnalysis
+                    const nodeData = {
+                        id: entityId,
+                        type: 'meshNode',
+                        position: { x, y },
+                        data: {
+                            label: entityId,
+                            status: nodeAnalysis.node_status,
+                            avgRtt: nodeAnalysis.inbound_status?.average_rtt || 0,
+                            inboundCount: nodeAnalysis.inbound_status?.total_connections || 0,
+                            inboundOnlineCount: nodeAnalysis.inbound_status?.online_connections || 0,
+                            outboundCount: nodeAnalysis.outbound_status?.total_connections || 0,
+                            totalConnections,
+                            version: nodeAnalysis.node_info?.version || 'unknown',
+                            onHover: handleNodeHover,
+                            isHighlighted: false,
+                            isDimmed: false,
+                            isPanning,
+
+                        },
+                    }
+                    nodes.push(nodeData)
+                    nodeMap.set(entityId, nodeData)
                 } else {
-                    // Outer circle for remaining nodes
-                    const outerIndex = index - highConnectivityNodes
-                    const outerTotal = nodeIds.length - highConnectivityNodes
-                    const outerAngle = (outerIndex / outerTotal) * 2 * Math.PI
-                    const outerRadius = 580 // Increased from 380
+                    const monitorAnalysis = entityAnalysis
+                    const monitorData = {
+                        id: entityId,
+                        type: 'monitorNode',
+                        position: { x, y },
+                        data: {
+                            label: entityId,
+                            status: monitorAnalysis.monitor_status,
+                            avgRtt: monitorAnalysis.inbound_status?.average_rtt || 0,
+                            inboundCount: monitorAnalysis.inbound_status?.total_connections || 0,
+                            inboundOnlineCount: monitorAnalysis.inbound_status?.online_connections || 0,
+                            totalConnections,
+                            onHover: handleNodeHover,
+                            isHighlighted: false,
+                            isDimmed: false,
+                            isPanning,
 
-                    x = Math.cos(outerAngle) * outerRadius
-                    y = Math.sin(outerAngle) * outerRadius
+                        },
+                    }
+                    nodes.push(monitorData)
+                    nodeMap.set(entityId, monitorData)
+                }
+            })
+        } else if (layoutMode === 'pretty') {
+            // Improved phyllotaxis (golden-angle) spiral with collision avoidance
+            const golden = Math.PI * (3 - Math.sqrt(5)) // ~2.39996 rad
+            const NODE_RADIUS = Math.max(60, Math.round(maxNodeDiam / 2))
+            const MON_RADIUS = Math.max(60, Math.round(maxMonDiam / 2))
+            const MARGIN = 16
+            const NODE_DIAM = NODE_RADIUS * 2
+            const MON_DIAM = MON_RADIUS * 2
+            // Extra separation between different types to avoid tight boundaries
+            const TYPE_SEP = Math.max(24, Math.round((NODE_RADIUS + MON_RADIUS) * 0.25))
+
+            // Scale parameters derived from desired area per point: pi*c^2 ≈ s^2 => c ≈ s/√pi
+            const cNode = (NODE_DIAM + MARGIN) / Math.sqrt(Math.PI)
+            const cMon = (MON_DIAM + MARGIN) / Math.sqrt(Math.PI)
+
+            type Placed = { x: number, y: number, r: number, type: 'node' | 'monitor' }
+            const placed: Placed[] = []
+
+            const placeEntity = (
+                id: string,
+                entityType: 'node' | 'monitor',
+                analysis: any,
+                totalConnections: number,
+                index: number,
+                angleOffset: number,
+            ) => {
+                const selfR = entityType === 'node' ? NODE_RADIUS : MON_RADIUS
+                const c = entityType === 'node' ? cNode : cMon
+                let angle = angleOffset + index * golden
+                // Start monitors slightly farther out to create a soft band separation
+                let r = c * Math.sqrt(index + 1) + (entityType === 'monitor' ? TYPE_SEP : 0)
+
+                const maxIter = 30
+                for (let iter = 0; iter < maxIter; iter++) {
+                    const cx = Math.cos(angle) * r
+                    const cy = Math.sin(angle) * r
+                    let ok = true
+                    for (const p of placed) {
+                        const dx = cx - p.x
+                        const dy = cy - p.y
+                        const dist = Math.hypot(dx, dy)
+                        const crossTypeMargin = (p.type !== entityType) ? TYPE_SEP : 0
+                        if (dist < p.r + selfR + MARGIN + crossTypeMargin) {
+                            ok = false
+                            break
+                        }
+                    }
+                    if (ok) {
+                        placed.push({ x: cx, y: cy, r: selfR, type: entityType })
+                        const dataCommon = {
+                            label: id,
+                            avgRtt: analysis.inbound_status?.average_rtt || 0,
+                            inboundCount: analysis.inbound_status?.total_connections || 0,
+                            inboundOnlineCount: analysis.inbound_status?.online_connections || 0,
+                            totalConnections,
+                            onHover: handleNodeHover,
+                            isHighlighted: false,
+                            isDimmed: false,
+                        }
+                        if (entityType === 'node') {
+                            const nodeData = {
+                                id,
+                                type: 'meshNode' as const,
+                                position: { x: cx, y: cy },
+                                data: {
+                                    ...dataCommon,
+                                    status: analysis.node_status,
+                                    outboundCount: analysis.outbound_status?.total_connections || 0,
+                                    version: analysis.node_info?.version || 'unknown',
+                                },
+                            }
+                            nodes.push(nodeData)
+                            nodeMap.set(id, nodeData)
+                        } else {
+                            const monitorData = {
+                                id,
+                                type: 'monitorNode' as const,
+                                position: { x: cx, y: cy },
+                                data: {
+                                    ...dataCommon,
+                                    status: analysis.monitor_status,
+                                },
+                            }
+                            nodes.push(monitorData)
+                            nodeMap.set(id, monitorData)
+                        }
+                        return
+                    }
+                    // If collision, expand radius slightly and nudge angle a bit
+                    r += (selfR + MARGIN) * 0.6
+                    angle += 0.03
+                }
+                // Fallback: push far out to avoid blocking
+                const cx = Math.cos(angle) * (r + 200)
+                const cy = Math.sin(angle) * (r + 200)
+                placed.push({ x: cx, y: cy, r: selfR, type: entityType })
+                if (entityType === 'node') {
+                    const nodeData = {
+                        id,
+                        type: 'meshNode' as const,
+                        position: { x: cx, y: cy },
+                        data: {
+                            label: id,
+                            status: analysis.node_status,
+                            avgRtt: analysis.inbound_status?.average_rtt || 0,
+                            inboundCount: analysis.inbound_status?.total_connections || 0,
+                            inboundOnlineCount: analysis.inbound_status?.online_connections || 0,
+                            outboundCount: analysis.outbound_status?.total_connections || 0,
+                            totalConnections,
+                            version: analysis.node_info?.version || 'unknown',
+                            onHover: handleNodeHover,
+                            isHighlighted: false,
+                            isDimmed: false,
+                            isPanning,
+
+                        },
+                    }
+                    nodes.push(nodeData)
+                    nodeMap.set(id, nodeData)
+                } else {
+                    const monitorData = {
+                        id,
+                        type: 'monitorNode' as const,
+                        position: { x: cx, y: cy },
+                        data: {
+                            label: id,
+                            status: analysis.monitor_status,
+                            avgRtt: analysis.inbound_status?.average_rtt || 0,
+                            inboundCount: analysis.inbound_status?.total_connections || 0,
+                            inboundOnlineCount: analysis.inbound_status?.online_connections || 0,
+                            totalConnections,
+                            onHover: handleNodeHover,
+                            isHighlighted: false,
+                            isDimmed: false,
+                            isPanning,
+
+                        },
+                    }
+                    nodes.push(monitorData)
+                    nodeMap.set(id, monitorData)
                 }
             }
 
-            const nodeData = {
-                id: nodeId,
-                type: 'meshNode',
-                position: { x, y },
-                data: {
-                    label: nodeId,
-                    status: nodeAnalysis.node_status,
-                    avgRtt: nodeAnalysis.inbound_status?.average_rtt || 0,
-                    inboundCount: nodeAnalysis.inbound_status?.total_connections || 0,
-                    inboundOnlineCount: nodeAnalysis.inbound_status?.online_connections || 0,
-                    outboundCount: nodeAnalysis.outbound_status?.total_connections || 0,
-                    totalConnections,
-                    version: nodeAnalysis.node_info?.version || 'unknown',
-                    onHover: handleNodeHover,
-                    isHighlighted: false,
-                    isDimmed: false,
-                },
-            }
+            // Place nodes and monitors on two interleaved spirals for visual balance
+            sortedNodes.forEach((n, i) => placeEntity(n.id, 'node', n.analysis as any, n.totalConnections, i, 0))
+            sortedMonitors.forEach((m, i) => placeEntity(m.id, 'monitor', m.analysis as any, m.totalConnections, i, golden / 2))
+        }
 
-            nodes.push(nodeData)
-            nodeMap.set(nodeId, nodeData)
-        })
-
-        // Helper function to determine the best connection handles based on node positions
-        // Adjacent nodes connect on facing sides, distant nodes connect toward center
-        const getOptimalHandles = (sourceX: number, sourceY: number, targetX: number, targetY: number, totalNodes: number) => {
+        // Simple adjacency check by straight-line distance (for styling)
+        const isAdjacentByDistance = (sourceX: number, sourceY: number, targetX: number, targetY: number) => {
             const dx = targetX - sourceX
             const dy = targetY - sourceY
             const distance = Math.sqrt(dx * dx + dy * dy)
-
-            // Calculate network center (assuming nodes are arranged around origin)
-            const networkCenterX = 0
-            const networkCenterY = 0
-
-            // Determine if nodes are adjacent based on distance
-            // For small networks, nodes are more likely to be considered adjacent
-            // For larger networks, we need a stricter threshold
-            let adjacencyThreshold: number
-            if (totalNodes <= 4) {
-                adjacencyThreshold = 500 // More lenient for small networks
-            } else if (totalNodes <= 8) {
-                adjacencyThreshold = 400 // Increased from 300
-            } else if (totalNodes <= 12) {
-                adjacencyThreshold = 350 // Increased from 250
-            } else {
-                adjacencyThreshold = 300 // Increased from 200 - more connections will be face-to-face
-            }
-
-            const areAdjacent = distance < adjacencyThreshold
-
-            if (areAdjacent) {
-                // Adjacent nodes: connect on the sides that truly face each other
-                // Using angle-based calculation for precise face-to-face connections
-                // Calculate the angle between the two nodes to determine facing sides
-                const angle = Math.atan2(dy, dx) // Angle from source to target
-                const angleInDegrees = (angle * 180 / Math.PI + 360) % 360
-
-                // Determine source handle based on direction to target
-                let sourceHandle: string
-                if (angleInDegrees >= 315 || angleInDegrees < 45) {
-                    // Target is to the right
-                    sourceHandle = 'right-out'
-                } else if (angleInDegrees >= 45 && angleInDegrees < 135) {
-                    // Target is below
-                    sourceHandle = 'bottom-out'
-                } else if (angleInDegrees >= 135 && angleInDegrees < 225) {
-                    // Target is to the left
-                    sourceHandle = 'left-out'
-                } else {
-                    // Target is above
-                    sourceHandle = 'top-out'
-                }
-
-                // Determine target handle (opposite side from source perspective)
-                let targetHandle: string
-                if (angleInDegrees >= 315 || angleInDegrees < 45) {
-                    // Source is to the left of target
-                    targetHandle = 'left-in'
-                } else if (angleInDegrees >= 45 && angleInDegrees < 135) {
-                    // Source is above target
-                    targetHandle = 'top-in'
-                } else if (angleInDegrees >= 135 && angleInDegrees < 225) {
-                    // Source is to the right of target
-                    targetHandle = 'right-in'
-                } else {
-                    // Source is below target
-                    targetHandle = 'bottom-in'
-                }
-
-                return { sourceHandle, targetHandle, isAdjacent: true }
-            } else {
-                // Distant nodes: connect toward the center for both source and target
-
-                // Calculate direction from source to center
-                const sourceToCenterX = networkCenterX - sourceX
-                const sourceToCenterY = networkCenterY - sourceY
-
-                // Calculate direction from target to center
-                const targetToCenterX = networkCenterX - targetX
-                const targetToCenterY = networkCenterY - targetY
-
-                // Determine source handle (side facing toward center)
-                let sourceHandle: string
-                if (Math.abs(sourceToCenterX) > Math.abs(sourceToCenterY)) {
-                    sourceHandle = sourceToCenterX > 0 ? 'right-out' : 'left-out'
-                } else {
-                    sourceHandle = sourceToCenterY > 0 ? 'bottom-out' : 'top-out'
-                }
-
-                // Determine target handle (side facing toward center)
-                let targetHandle: string
-                if (Math.abs(targetToCenterX) > Math.abs(targetToCenterY)) {
-                    targetHandle = targetToCenterX > 0 ? 'right-in' : 'left-in'
-                } else {
-                    targetHandle = targetToCenterY > 0 ? 'bottom-in' : 'top-in'
-                }
-
-                return { sourceHandle, targetHandle, isAdjacent: false }
-            }
+            const adjacencyThreshold = 350
+            return distance < adjacencyThreshold
         }
 
         // Create edges based exclusively on real outbound connections
-        console.log('Creating authentic mesh connections for', nodeIds.length, 'nodes')
-        console.log('Using intelligent handle selection: adjacent nodes connect face-to-face, distant nodes connect toward center')
+        DEBUG && console.log('Creating authentic mesh connections for', totalEntities, 'entities (', nodeIds.length, 'nodes +', monitorIds.length, 'monitors)')
+        DEBUG && console.log('Using intelligent handle selection: adjacent entities connect face-to-face, distant entities connect toward center')
+
+        // Large graph performance flags
+        const LARGE_GRAPH_ENTITY_THRESHOLD = 35
+        const disableAnimations = totalEntities > LARGE_GRAPH_ENTITY_THRESHOLD
+        const showDefaultLabels = totalEntities <= LARGE_GRAPH_ENTITY_THRESHOLD && !hideOnlineByDefault
 
         const createdConnections = new Set<string>()
+        const mergedPairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+        const pairMap = new Map<string, { aToB?: { online: boolean, rtt: number }, bToA?: { online: boolean, rtt: number } }>()
         let realConnectionCount = 0
         let adjacentConnections = 0
         let centerConnections = 0
 
         // Debug: Track some example connections
-        const debugConnections: Array<{ source: string, target: string, sourceHandle: string, targetHandle: string, isAdjacent: boolean }> = []
+        const debugConnections: Array<{ source: string, target: string, isAdjacent: boolean }> = []
 
-        // Create all real connections from outbound_info
+        // Collect node-to-node connections (both directions)
         nodeIds.forEach(sourceNodeId => {
             const nodeAnalysis = network.node_analyses[sourceNodeId]
             const outboundInfo = nodeAnalysis.outbound_info || {}
-
             Object.keys(outboundInfo).forEach(targetNodeId => {
-                if (nodeIds.includes(targetNodeId)) {
-                    const connection = outboundInfo[targetNodeId]
-                    const edgeId = `${sourceNodeId}-${targetNodeId}`
-
-                    // Don't create duplicate connections
-                    if (!createdConnections.has(edgeId)) {
-                        const isOnline = connection.status === 'online'
-                        const rtt = connection.rtt || 0
-
-                        // Get node positions for handle calculation
-                        const sourceNode = nodeMap.get(sourceNodeId)
-                        const targetNode = nodeMap.get(targetNodeId)
-                        const handleResult = getOptimalHandles(
-                            sourceNode?.position.x || 0,
-                            sourceNode?.position.y || 0,
-                            targetNode?.position.x || 0,
-                            targetNode?.position.y || 0,
-                            nodeIds.length
-                        )
-
-                        // Track connection types for debugging
-                        if (handleResult.isAdjacent) {
-                            adjacentConnections++
-                        } else {
-                            centerConnections++
-                        }
-
-                        // Track some example connections for debugging
-                        if (debugConnections.length < 5) {
-                            debugConnections.push({
-                                source: sourceNodeId,
-                                target: targetNodeId,
-                                sourceHandle: handleResult.sourceHandle,
-                                targetHandle: handleResult.targetHandle,
-                                isAdjacent: handleResult.isAdjacent
-                            })
-                        }
-
-                        // Calculate edge strength based on RTT and status
-                        const strength = isOnline ? Math.max(1, 5 - (rtt / 50)) : 0.5
-
-                        // Different visual styles for adjacent vs center-oriented connections
-                        const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
-                        const strokeWidth = handleResult.isAdjacent ? baseStrokeWidth : baseStrokeWidth * 0.8 // Adjacent connections slightly thicker
-                        const edgeOpacity = isOnline ? (handleResult.isAdjacent ? 0.9 : 0.7) : 0.6 // Adjacent connections more visible
-
-                        edges.push({
-                            id: edgeId,
-                            source: sourceNodeId,
-                            target: targetNodeId,
-                            sourceHandle: handleResult.sourceHandle,
-                            targetHandle: handleResult.targetHandle,
-                            style: {
-                                stroke: isOnline ? '#22c55e' : '#ef4444',
-                                strokeWidth: strokeWidth,
-                                strokeDasharray: isOnline ? '0' : '6,3',
-                                opacity: edgeOpacity,
-                            },
-                            label: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
-                            labelStyle: isOnline ? {
-                                fontSize: 11,
-                                fontWeight: '600',
-                                fill: '#16a34a',
-                                background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                                padding: '2px 6px',
-                                borderRadius: '12px',
-                                border: '1px solid #22c55e',
-                            } : undefined,
-                            labelBgStyle: isOnline ? {
-                                fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                                fillOpacity: 0.9,
-                            } : undefined,
-                            data: {
-                                originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
-                                originalLabelStyle: isOnline ? {
-                                    fontSize: 11,
-                                    fontWeight: '600',
-                                    fill: '#16a34a',
-                                    background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                                    padding: '2px 6px',
-                                    borderRadius: '12px',
-                                    border: '1px solid #22c55e',
-                                } : undefined,
-                                originalLabelBgStyle: isOnline ? {
-                                    fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
-                                    fillOpacity: 0.9,
-                                } : undefined,
-                            },
-                            animated: isOnline && rtt < 100,
-                            type: 'bezier',
-                            markerEnd: {
-                                type: MarkerType.ArrowClosed,
-                                color: isOnline ? '#22c55e' : '#ef4444',
-                                width: 12,
-                                height: 12,
-                            },
-                        })
-
-                        createdConnections.add(edgeId)
-                        realConnectionCount++
-                    }
+                if (!nodeIds.includes(targetNodeId)) return
+                const connection = outboundInfo[targetNodeId]
+                const key = mergedPairKey(sourceNodeId, targetNodeId)
+                const rec = pairMap.get(key) || {}
+                if (sourceNodeId < targetNodeId) {
+                    rec.aToB = { online: connection.status === 'online', rtt: connection.rtt || 0 }
+                } else {
+                    rec.bToA = { online: connection.status === 'online', rtt: connection.rtt || 0 }
                 }
+                pairMap.set(key, rec)
             })
         })
 
-        console.log(`Created ${realConnectionCount} authentic connections from outbound data`)
-        console.log(`Connection types: ${adjacentConnections} adjacent (face-to-face), ${centerConnections} center-oriented`)
-        console.log(`Sample face-to-face connections:`, debugConnections.filter(c => c.isAdjacent))
+        // Emit one edge per bidirectional pair
+        for (const [key, rec] of pairMap.entries()) {
+            const [a, b] = key.split('|')
+            const aNode = nodeMap.get(a)
+            const bNode = nodeMap.get(b)
+            if (!aNode || !bNode) continue
 
-        console.log('Generated edges:', edges)
+            const adjacent = isAdjacentByDistance(
+                aNode?.position.x || 0,
+                aNode?.position.y || 0,
+                bNode?.position.x || 0,
+                bNode?.position.y || 0,
+            )
+
+            if (adjacent) adjacentConnections++
+            else centerConnections++
+
+            if (debugConnections.length < 5) {
+                debugConnections.push({ source: a, target: b, isAdjacent: adjacent })
+            }
+
+            const aOnline = rec.aToB?.online ?? false
+            const bOnline = rec.bToA?.online ?? false
+            const anyOnline = aOnline || bOnline
+            const rttA = rec.aToB?.rtt
+            const rttB = rec.bToA?.rtt
+
+            const labelText = (showDefaultLabels && anyOnline)
+                ? [rttA, rttB].filter(v => typeof v === 'number').map(v => `${(v as number).toFixed(0)}ms`).join(' ⇄ ')
+                : undefined
+
+            const strength = anyOnline ? Math.max(1, 5 - (((rttA ?? rttB ?? 0) as number) / 50)) : 0.5
+            const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+            const strokeWidth = adjacent ? baseStrokeWidth : baseStrokeWidth * 0.8
+            const computedOpacity = anyOnline ? (adjacent ? 0.9 : 0.7) : 0.6
+            const baseOpacity = anyOnline && hideOnlineByDefault ? 0 : computedOpacity
+
+            edges.push({
+                id: `${a}-${b}`,
+                source: a,
+                sourceHandle: 's',
+                target: b,
+                targetHandle: 't',
+                style: {
+                    stroke: anyOnline ? '#22c55e' : '#ef4444',
+                    strokeWidth,
+                    strokeDasharray: anyOnline ? '0' : '6,3',
+                    opacity: baseOpacity,
+                },
+                label: labelText,
+                labelStyle: labelText ? {
+                    fontSize: 11,
+                    fontWeight: '600',
+                    fill: '#16a34a',
+                    background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                    padding: '2px 6px',
+                    borderRadius: '12px',
+                    border: '1px solid #22c55e',
+                } : undefined,
+                labelBgStyle: labelText ? {
+                    fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                    fillOpacity: 0.9,
+                } : undefined,
+                data: {
+                    isOnline: anyOnline,
+                    isMonitorEdge: false,
+                    originalLabel: labelText,
+                    originalLabelStyle: labelText ? {
+                        fontSize: 11,
+                        fontWeight: '600',
+                        fill: '#16a34a',
+                        background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                        padding: '2px 6px',
+                        borderRadius: '12px',
+                        border: '1px solid #22c55e',
+                    } : undefined,
+                    originalLabelBgStyle: labelText ? {
+                        fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                        fillOpacity: 0.9,
+                    } : undefined,
+                    originalOpacity: computedOpacity,
+                    baseOpacity,
+                },
+                animated: anyOnline && ((rttA ?? rttB ?? 0) < 100) && !disableAnimations,
+                type: 'floating',
+                markerStart: {
+                    type: MarkerType.ArrowClosed,
+                    color: anyOnline ? '#22c55e' : '#ef4444',
+                    width: 12,
+                    height: 12,
+                },
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: anyOnline ? '#22c55e' : '#ef4444',
+                    width: 12,
+                    height: 12,
+                },
+            })
+
+            createdConnections.add(`${a}-${b}`)
+            realConnectionCount++
+        }
+
+        // Create connections from nodes to monitors
+        nodeIds.forEach(sourceNodeId => {
+            monitorIds.forEach(monitorId => {
+                const inbound = network.monitor_analyses![monitorId].inbound_info[sourceNodeId]
+                if (!inbound) return
+
+                const isOnline = inbound.status === 'online'
+                const rtt = inbound.rtt || 0
+
+                // Get positions
+                const sourceNode = nodeMap.get(sourceNodeId)
+                const targetMonitor = nodeMap.get(monitorId)
+                const adjacent = isAdjacentByDistance(
+                    sourceNode?.position.x || 0,
+                    sourceNode?.position.y || 0,
+                    targetMonitor?.position.x || 0,
+                    targetMonitor?.position.y || 0,
+                )
+
+                if (adjacent) adjacentConnections++
+                else centerConnections++
+
+                const strength = isOnline ? Math.max(1, 5 - (rtt / 50)) : 0.5
+                const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+                const strokeWidth = adjacent ? baseStrokeWidth : baseStrokeWidth * 0.8
+                const computedOpacity = isOnline ? (adjacent ? 0.9 : 0.7) : 0.6
+                const baseOpacity = isOnline && hideOnlineByDefault ? 0 : computedOpacity
+
+                const edgeId = `${sourceNodeId}-${monitorId}`
+                edges.push({
+                    id: edgeId,
+                    source: sourceNodeId,
+                    sourceHandle: 's',
+                    target: monitorId,
+                    targetHandle: 't',
+                    style: {
+                        stroke: isOnline ? '#a855f7' : '#ef4444', // Purple for monitor connections
+                        strokeWidth,
+                        strokeDasharray: isOnline ? '0' : '6,3',
+                        opacity: baseOpacity,
+                    },
+                    label: isOnline && showDefaultLabels ? `${rtt.toFixed(0)}ms` : undefined,
+                    labelStyle: isOnline && showDefaultLabels ? {
+                        fontSize: 11,
+                        fontWeight: '600',
+                        fill: '#9333ea',
+                        background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                        padding: '2px 6px',
+                        borderRadius: '12px',
+                        border: '1px solid #a855f7',
+                    } : undefined,
+                    labelBgStyle: isOnline && showDefaultLabels ? {
+                        fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                        fillOpacity: 0.9,
+                    } : undefined,
+                    data: {
+                        isOnline: isOnline,
+                        isMonitorEdge: true,
+                        originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
+                        originalLabelStyle: isOnline ? {
+                            fontSize: 11,
+                            fontWeight: '600',
+                            fill: '#9333ea',
+                            background: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                            padding: '2px 6px',
+                            borderRadius: '12px',
+                            border: '1px solid #a855f7',
+                        } : undefined,
+                        originalLabelBgStyle: isOnline ? {
+                            fill: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                            fillOpacity: 0.9,
+                        } : undefined,
+                        originalOpacity: computedOpacity,
+                        baseOpacity,
+                    },
+                    animated: isOnline && rtt < 100 && !disableAnimations,
+                    type: 'floating',
+                    markerEnd: {
+                        type: MarkerType.ArrowClosed,
+                        color: isOnline ? '#a855f7' : '#ef4444',
+                        width: 12,
+                        height: 12,
+                    },
+                })
+
+                createdConnections.add(edgeId)
+                realConnectionCount++
+            })
+        })
+
+        DEBUG && console.log(`Created ${realConnectionCount} authentic connections (node-to-node + node-to-monitor)`)
+        DEBUG && console.log(`Connection types: ${adjacentConnections} adjacent (face-to-face), ${centerConnections} center-oriented`)
+        DEBUG && console.log(`Sample face-to-face connections:`, debugConnections.filter(c => c.isAdjacent))
+
+        DEBUG && console.log('Generated edges:', edges)
+        const t1 = performance.now()
+        logPerf('processGraph:end', { nodes: nodes.length, edges: edges.length, ms: Math.round(t1 - t0) })
         return { processedNodes: nodes, processedEdges: edges }
-    }, [networkData, selectedNetwork, isDark])
+    }, [networkData, selectedNetwork, isDark, layoutMode, hideOnlineByDefault])
 
     // Update nodes and edges when processed data changes
     // Important: Set nodes first, then edges to avoid React Flow edge creation errors
     useEffect(() => {
+        logPerf('setNodes', processedNodes.length)
         setNodes(processedNodes)
     }, [processedNodes, setNodes])
 
@@ -714,13 +978,229 @@ export default function NetworkGraph() {
         if (processedNodes.length > 0) {
             // Small delay to ensure React Flow has processed the nodes
             const timer = setTimeout(() => {
-                setEdges(processedEdges)
+                // Filter out edges that would be fully hidden to reduce DOM work
+                const renderedEdges = processedEdges.filter(e => {
+                    const opacity = e.style?.opacity
+                    const hasOpacity = typeof opacity === 'number'
+                    const isVisible = hasOpacity ? opacity! > 0.02 : true
+                    // If label is hidden and opacity ~0, skip mounting
+                    const hasLabel = !!e.label
+                    return isVisible || hasLabel
+                })
+                logPerf('setEdges', { total: processedEdges.length, rendered: renderedEdges.length })
+                setEdges(renderedEdges)
             }, 100)
             return () => clearTimeout(timer)
         } else {
+            logPerf('clearEdges')
             setEdges([])
         }
     }, [processedEdges, processedNodes.length, setEdges])
+
+    // Layout with ELK to reduce crossings and avoid edges over nodes
+    useEffect(() => {
+        if (layoutMode !== 'elk') return
+        let cancelled = false
+        const runLayout = async () => {
+            if (processedNodes.length === 0) return
+            const t0 = performance.now()
+            logPerf('elk:start')
+            const { default: ELK } = await import('elkjs/lib/elk.bundled.js')
+            const elk = new ELK()
+
+            // Match ELK node sizes to our actual circle diameters (estimate from labels)
+            const estimate = (id?: string) => estimateDiameterFromLabel(id || '')
+            const children = processedNodes.map(n => ({
+                id: n.id,
+                width: estimate(n.id),
+                height: estimate(n.id),
+            }))
+            const edges = processedEdges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] }))
+            const graph = {
+                id: 'root',
+                layoutOptions: {
+                    // Layered tends to be more stable/compact than force
+                    'elk.algorithm': 'layered',
+                    'elk.direction': 'RIGHT',
+                    // Increase spacing with larger nodes
+                    'elk.spacing.nodeNode': '80',
+                    'elk.spacing.edgeNode': '40',
+                    'elk.spacing.edgeEdge': '30',
+                    'elk.layered.mergeEdges': 'true',
+                    'elk.layered.considerModelOrder': 'true',
+                },
+                children,
+                edges,
+            }
+            try {
+                const res = await elk.layout(graph as any)
+                if (cancelled) return
+                const laidChildren = (res.children || []) as Array<{ id: string, x: number, y: number, width: number, height: number }>
+
+                // Convert ELK top-left to React Flow center (nodeOrigin = [0.5, 0.5])
+                const centers = laidChildren.map(c => ({ id: c.id, cx: c.x + c.width / 2, cy: c.y + c.height / 2 }))
+                // Normalize to center around (0,0) so it doesn't appear off-screen/huge
+                const minX = Math.min(...centers.map(c => c.cx))
+                const maxX = Math.max(...centers.map(c => c.cx))
+                const minY = Math.min(...centers.map(c => c.cy))
+                const maxY = Math.max(...centers.map(c => c.cy))
+                const normCx = (minX + maxX) / 2
+                const normCy = (minY + maxY) / 2
+                const pos = new Map<string, { x: number, y: number }>(centers.map(c => [c.id, { x: c.cx - normCx, y: c.cy - normCy }]))
+
+                setNodes(curr => curr.map(n => pos.has(n.id) ? { ...n, position: pos.get(n.id)! } : n))
+                const t1 = performance.now()
+                logPerf('elk:end', { nodes: processedNodes.length, edges: processedEdges.length, ms: Math.round(t1 - t0) })
+            } catch (e) {
+                // Fallback silently if layout fails
+            }
+        }
+        runLayout()
+        return () => {
+            cancelled = true
+        }
+    }, [processedNodes, processedEdges, setNodes, layoutMode])
+
+    // Precompute adjacency for fast hover updates (computed after processedEdges exists)
+    const { nodeToEdgesMap, nodeToNeighborsMap } = useMemo(() => {
+        const edgeMap = new Map<string, Set<string>>()
+        const neighborMap = new Map<string, Set<string>>()
+        processedEdges.forEach((edge) => {
+            // Map node -> edge ids
+            if (!edgeMap.has(edge.source)) edgeMap.set(edge.source, new Set())
+            if (!edgeMap.has(edge.target)) edgeMap.set(edge.target, new Set())
+            edgeMap.get(edge.source)!.add(edge.id)
+            edgeMap.get(edge.target)!.add(edge.id)
+
+            // Map node -> neighbor nodes
+            if (!neighborMap.has(edge.source)) neighborMap.set(edge.source, new Set())
+            if (!neighborMap.has(edge.target)) neighborMap.set(edge.target, new Set())
+            neighborMap.get(edge.source)!.add(edge.target)
+            neighborMap.get(edge.target)!.add(edge.source)
+        })
+        return { nodeToEdgesMap: edgeMap, nodeToNeighborsMap: neighborMap }
+    }, [processedEdges])
+
+    // Update nodes and edges based on hover state without triggering viewport reset
+    useEffect(() => {
+        if (isDragging) return // skip hover updates while dragging to reduce churn
+        if (isPanning) return // skip hover updates while panning the viewport
+        const largePerfGraph = processedNodes.length > 120
+        if (!hoveredNode) {
+            logPerf('hover:none:reset')
+            // Reset all nodes and edges to normal state
+            if (!largePerfGraph) {
+                setNodes(currentNodes => {
+                    const updated = currentNodes.map(node => {
+                        if (node.data.isHighlighted || node.data.isDimmed) {
+                            return {
+                                ...node,
+                                data: {
+                                    ...node.data,
+                                    isHighlighted: false,
+                                    isDimmed: false
+                                }
+                            }
+                        }
+                        return node
+                    })
+                    return updated
+                })
+            }
+            // Recompute which edges to mount based on visibility
+            const recomputed = processedEdges.map(e => {
+                const baseOpacity = (e.data && (e.data as any).baseOpacity) ?? ((e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6))
+                const shouldShowDefaultLabel = ((processedNodes.length <= 35) && (zoom >= 0.9) && !hideOnlineByDefault) && !!e.data?.originalLabel && baseOpacity > 0
+                return {
+                    ...e,
+                    style: { ...(e.style || {}), opacity: baseOpacity },
+                    label: (shouldShowDefaultLabel) ? e.data?.originalLabel : undefined,
+                    labelStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelStyle : undefined,
+                    labelBgStyle: (shouldShowDefaultLabel) ? e.data?.originalLabelBgStyle : undefined
+                }
+            })
+            const filtered = recomputed.filter(e => {
+                const op = e.style?.opacity
+                const visible = typeof op === 'number' ? op > 0.02 : true
+                return visible || !!e.label
+            })
+            setEdges(filtered)
+        } else {
+            // Find connected nodes and edges using precomputed maps
+            const connectedNodeIds = new Set<string>([hoveredNode])
+            const relevantEdgeIds = new Set<string>(nodeToEdgesMap.get(hoveredNode) || [])
+            // Allow hover labels even in performance mode to expose online connections
+            const enableHoverLabels = relevantEdgeIds.size <= 50
+            logPerf('hover:update', { node: hoveredNode, edges: relevantEdgeIds.size })
+            const neighbors = nodeToNeighborsMap.get(hoveredNode)
+            if (neighbors) {
+                neighbors.forEach(n => connectedNodeIds.add(n))
+            }
+
+            // Update nodes with hover state only if changes are needed (skip for very large graphs in performance mode)
+            if (!largePerfGraph) {
+                setNodes(currentNodes => {
+                    const updated = currentNodes.map(node => {
+                        const shouldHighlight = node.id === hoveredNode
+                        const shouldDim = !connectedNodeIds.has(node.id)
+
+                        if (node.data.isHighlighted !== shouldHighlight || node.data.isDimmed !== shouldDim) {
+                            return {
+                                ...node,
+                                data: {
+                                    ...node.data,
+                                    isHighlighted: shouldHighlight,
+                                    isDimmed: shouldDim
+                                }
+                            }
+                        }
+                        return node
+                    })
+                    return updated
+                })
+            }
+
+            // Update edges with hover state only if changes are needed
+            // Recompute from canonical edges to ensure relevant hidden edges are mounted
+            const recomputed = processedEdges.map(e => {
+                const isRelevant = relevantEdgeIds.has(e.id)
+                const hoverOpacity = (e.data && (e.data as any).originalOpacity) ?? (e.animated ? 0.9 : 0.6)
+                // In performance mode, default labels are hidden, but on hover we still raise opacity and can show labels if desired
+                const targetOpacity = isRelevant ? hoverOpacity : 0
+                const shouldShowLabel = enableHoverLabels && isRelevant && e.data?.originalLabel
+                return {
+                    ...e,
+                    style: { ...(e.style || {}), opacity: targetOpacity },
+                    label: shouldShowLabel ? e.data?.originalLabel : undefined,
+                    labelStyle: shouldShowLabel ? e.data?.originalLabelStyle : undefined,
+                    labelBgStyle: shouldShowLabel ? e.data?.originalLabelBgStyle : undefined
+                }
+            })
+            const filtered = recomputed.filter(e => {
+                const op = e.style?.opacity
+                const visible = typeof op === 'number' ? op > 0.02 : true
+                return visible || !!e.label
+            })
+            setEdges(filtered)
+        }
+    }, [hoveredNode, setNodes, setEdges, nodeToEdgesMap, nodeToNeighborsMap, isDragging, isPanning, processedNodes.length, zoom, hideOnlineByDefault])
+
+    // Track zoom to gate default labels progressively (throttled to animation frame)
+    const zoomRaf = useRef<number | null>(null)
+    const pendingZoom = useRef<number | null>(null)
+    const lastZoom = useRef<number>(1)
+    const handleMove = useCallback((_e: any, viewport: { zoom: number }) => {
+        const z = viewport.zoom
+        // Only update zoom state when change is noticeable (reduces re-renders when panning)
+        if (Math.abs(z - lastZoom.current) < 0.05) return
+        lastZoom.current = z
+        pendingZoom.current = z
+        if (zoomRaf.current !== null) return
+        zoomRaf.current = requestAnimationFrame(() => {
+            zoomRaf.current = null
+            if (pendingZoom.current != null) setZoom(pendingZoom.current)
+        })
+    }, [])
 
     // Auto-select first network if none selected
     useEffect(() => {
@@ -764,7 +1244,7 @@ export default function NetworkGraph() {
                         Network Graph
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400 mt-1">
-                        Interactive visualization of mesh network topology
+                        Interactive visualization of mesh network topology • Drag to pan • Scroll to zoom
                     </p>
                 </div>
                 <div className="flex items-center justify-center h-96">
@@ -795,7 +1275,7 @@ export default function NetworkGraph() {
                 <div className="flex items-center space-x-4">
                     <select
                         value={selectedNetwork || ''}
-                        onChange={(e) => setSelectedNetwork(e.target.value)}
+                        onChange={(e) => { setSelectedNetwork(e.target.value); try { localStorage.setItem('meshmon.selectedNetwork', e.target.value) } catch { } }}
                         className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
                         {networks.map(network => (
@@ -809,48 +1289,31 @@ export default function NetworkGraph() {
 
             {selectedNetwork && (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                            <div className="text-sm text-gray-600 dark:text-gray-400">Total Nodes</div>
-                            <div className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                                {networks.find(n => n.id === selectedNetwork)?.total_nodes || 0}
-                            </div>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                            <div className="text-sm text-gray-600 dark:text-gray-400">Online Nodes</div>
-                            <div className="text-xl font-bold text-green-600 dark:text-green-400">
-                                {networks.find(n => n.id === selectedNetwork)?.online_nodes || 0}
-                            </div>
-                        </div>
-                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                            <div className="text-sm text-gray-600 dark:text-gray-400">Connections</div>
-                            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                                {processedEdges.length}
-                            </div>
-                        </div>
-                    </div>
-
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-                        <div className="p-3 border-b border-gray-200 dark:border-gray-700">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                                Network Topology
-                            </h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                Drag nodes to rearrange • Scroll to zoom • Click and drag to pan
-                            </p>
-                        </div>
-                        <div className="h-[calc(100vh-24rem)] min-h-[300px] relative">
+                        <div className="h-[calc(100vh-12rem)] min-h-[500px] relative max-h-[calc(100vh-12rem)]">
                             <ReactFlow
                                 nodes={nodes}
                                 edges={edges}
                                 onNodesChange={onNodesChange}
                                 onEdgesChange={onEdgesChange}
                                 onConnect={onConnect}
+                                edgeTypes={edgeTypes}
+                                onMove={handleMove}
+                                onMoveStart={() => {
+                                    setIsPanning(true)
+                                    // update node flags quickly without recompute
+                                    setNodes(curr => curr.map(n => ({ ...n, data: { ...n.data, isPanning: true } })))
+                                }}
+                                onMoveEnd={() => {
+                                    setIsPanning(false)
+                                    setNodes(curr => curr.map(n => ({ ...n, data: { ...n.data, isPanning: false } })))
+                                }}
                                 nodeTypes={nodeTypes}
                                 attributionPosition="bottom-left"
                                 className={isDark ? 'dark' : ''}
+                                proOptions={{ hideAttribution: true }}
                                 defaultEdgeOptions={{
-                                    type: 'bezier',
+                                    type: 'floating',
                                     animated: false,
                                     style: { strokeWidth: 2 }
                                 }}
@@ -869,6 +1332,10 @@ export default function NetworkGraph() {
                                 maxZoom={3.0}
                                 zoomOnPinch={true}
                                 nodeOrigin={[0.5, 0.5]}
+                                onlyRenderVisibleElements
+                                onNodeDragStart={() => setIsDragging(true)}
+                                onNodeDrag={() => setIsDragging(true)}
+                                onNodeDragStop={() => setIsDragging(false)}
                             >
                                 <Background
                                     color={isDark ? '#374151' : '#e5e7eb'}
@@ -883,18 +1350,20 @@ export default function NetworkGraph() {
                                     `}
                                     showInteractive={false}
                                 />
-                                <MiniMap
-                                    nodeColor={(node) => {
-                                        const isOnline = node.data?.status === 'online'
-                                        return isOnline ? '#22c55e' : '#ef4444'
-                                    }}
-                                    className={`
-                                        ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-300'}
-                                        shadow-lg rounded-lg
-                                    `}
-                                    position="bottom-left"
-                                    maskColor={isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)'}
-                                />
+                                {(processedNodes.length <= 30 && processedEdges.length <= 200) && (
+                                    <MiniMap
+                                        nodeColor={(node) => {
+                                            const isOnline = node.data?.status === 'online'
+                                            return isOnline ? '#22c55e' : '#ef4444'
+                                        }}
+                                        className={`
+                                            ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-300'}
+                                            shadow-lg rounded-lg
+                                        `}
+                                        position="bottom-left"
+                                        maskColor={isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)'}
+                                    />
+                                )}
                                 <Panel position="top-right" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3">
                                     <div className="space-y-3 text-xs">
                                         <div>
@@ -918,30 +1387,37 @@ export default function NetworkGraph() {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div>
-                                            <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Connection Handles</div>
-                                            <div className="space-y-1.5">
-                                                <div className="flex items-center space-x-2">
-                                                    <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
-                                                    <span className="text-gray-600 dark:text-gray-400">Outbound Handle</span>
-                                                </div>
-                                                <div className="flex items-center space-x-2">
-                                                    <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
-                                                    <span className="text-gray-600 dark:text-gray-400">Inbound Handle</span>
-                                                </div>
+                                        <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Layout</div>
+                                            <div className="flex items-center space-x-2 mb-2">
+                                                <label className="text-gray-600 dark:text-gray-400">Layout:</label>
+                                                <select
+                                                    value={layoutMode}
+                                                    onChange={(e) => setLayoutMode(e.target.value as any)}
+                                                    className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                                                >
+                                                    <option value="pretty">Golden Spiral</option>
+                                                    <option value="concentric">Concentric</option>
+                                                    <option value="dense">Dense Grid</option>
+                                                    <option value="elk">Stacked</option>
+                                                </select>
+                                            </div>
+                                            <div className="mt-2">
+                                                <label className="inline-flex items-center space-x-2 cursor-pointer">
+                                                    <input type="checkbox" checked={hideOnlineByDefault} onChange={(e) => setHideOnlineByDefault(e.target.checked)} />
+                                                    <span className="text-gray-600 dark:text-gray-400">Hide online edges (show on hover)</span>
+                                                </label>
                                             </div>
                                         </div>
                                     </div>
                                 </Panel>
                                 <Panel position="bottom-right" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-2">
                                     <div className="space-y-1 text-xs">
-                                        <div className="font-medium text-gray-900 dark:text-gray-100">Debug Info</div>
-                                        <div className="text-gray-600 dark:text-gray-400">
-                                            Nodes: {processedNodes.length}
-                                        </div>
-                                        <div className="text-gray-600 dark:text-gray-400">
-                                            Edges: {processedEdges.length}
-                                        </div>
+                                        <div className="font-medium text-gray-900 dark:text-gray-100">Connection Info</div>
+                                        <div className="text-gray-600 dark:text-gray-400">Total Nodes: {networks.find(n => n.id === selectedNetwork)?.total_nodes || 0}</div>
+                                        <div className="text-gray-600 dark:text-gray-400">Online Nodes: {networks.find(n => n.id === selectedNetwork)?.online_nodes || 0}</div>
+                                        <div className="text-gray-600 dark:text-gray-400">Connections: {processedEdges.length}</div>
+                                        <div className="text-gray-600 dark:text-gray-400">Shown Connections: {edges.filter(e => (typeof e.style?.opacity === 'number' ? e.style!.opacity! > 0.02 : true) || !!e.label).length}</div>
                                     </div>
                                 </Panel>
                             </ReactFlow>

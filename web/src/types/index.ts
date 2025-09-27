@@ -12,6 +12,9 @@ export interface NetworkAnalysis {
   node_analyses: {
     [nodeId: string]: NodeAnalysis
   }
+  monitor_analyses: {
+    [monitorId: string]: MonitorAnalysis
+  }
 }
 
 export interface NodeAnalysis {
@@ -43,6 +46,19 @@ export interface AggregatedConnectionDetail {
   offline_connections: number
   average_rtt: number
   status: 'online' | 'degraded' | 'offline'
+}
+
+export interface MonitorDetail {
+  status: 'online' | 'offline' | 'unknown' | 'node_down'
+  rtt: number
+}
+
+export interface MonitorAnalysis {
+  monitor_status: 'online' | 'offline' | 'unknown'
+  inbound_info: {
+    [nodeId: string]: MonitorDetail
+  }
+  inbound_status: AggregatedConnectionDetail
 }
 
 // Legacy ViewResponse for backward compatibility

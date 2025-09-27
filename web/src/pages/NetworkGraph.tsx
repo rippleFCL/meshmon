@@ -279,10 +279,31 @@ export default function NetworkGraph() {
     const [hoveredNode, setHoveredNode] = useState<string | null>(null)
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [isPanning, setIsPanning] = useState<boolean>(false)
-    const [layoutMode, setLayoutMode] = useState<'elk' | 'concentric' | 'dense' | 'pretty'>(() => 'pretty')
-    const [hideOnlineByDefault, setHideOnlineByDefault] = useState<boolean>(true)
+    const [layoutMode, setLayoutMode] = useState<'elk' | 'concentric' | 'dense' | 'pretty'>(() => {
+        try {
+            const v = localStorage.getItem('meshmon.layoutMode')
+            return (v === 'elk' || v === 'concentric' || v === 'dense' || v === 'pretty') ? v : 'pretty'
+        } catch {
+            return 'pretty'
+        }
+    })
+    const [hideOnlineByDefault, setHideOnlineByDefault] = useState<boolean>(() => {
+        try {
+            const v = localStorage.getItem('meshmon.hideOnlineByDefault')
+            return v === null ? true : (v === 'true')
+        } catch {
+            return true
+        }
+    })
     // Animation policy for edges
-    const [animationMode, setAnimationMode] = useState<'never' | 'hover' | 'always'>(() => 'hover')
+    const [animationMode, setAnimationMode] = useState<'never' | 'hover' | 'always'>(() => {
+        try {
+            const v = localStorage.getItem('meshmon.animationMode')
+            return (v === 'never' || v === 'hover' || v === 'always') ? v : 'hover'
+        } catch {
+            return 'hover'
+        }
+    })
     const [zoom, setZoom] = useState<number>(1)
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
     const reactFlowRef = useRef<ReactFlowInstance | null>(null)
@@ -364,17 +385,7 @@ export default function NetworkGraph() {
     useEffect(() => {
         fetchData()
         registerRefreshCallback(fetchData)
-        // Load user settings
-        try {
-            const savedLayout = localStorage.getItem('meshmon.layoutMode')
-            if (savedLayout === 'elk' || savedLayout === 'concentric' || savedLayout === 'dense' || savedLayout === 'pretty') {
-                setLayoutMode(savedLayout)
-            }
-            const savedHide = localStorage.getItem('meshmon.hideOnlineByDefault')
-            if (savedHide !== null) setHideOnlineByDefault(savedHide === 'true')
-            const savedAnim = localStorage.getItem('meshmon.animationMode')
-            if (savedAnim === 'never' || savedAnim === 'hover' || savedAnim === 'always') setAnimationMode(savedAnim)
-        } catch { }
+        // Settings are initialized from localStorage in state initializers
     }, [fetchData, registerRefreshCallback])
 
     // Persist user settings
@@ -1866,7 +1877,7 @@ export default function NetworkGraph() {
                                                 <label className="text-gray-600 dark:text-gray-400">Layout:</label>
                                                 <select
                                                     value={layoutMode}
-                                                    onChange={(e) => setLayoutMode(e.target.value as any)}
+                                                    onChange={(e) => { const v = e.target.value as any; setLayoutMode(v); try { localStorage.setItem('meshmon.layoutMode', v) } catch { } }}
                                                     className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                                                 >
                                                     <option value="pretty">Golden Spiral</option>
@@ -1877,7 +1888,7 @@ export default function NetworkGraph() {
                                             </div>
                                             <div className="mt-2">
                                                 <label className="inline-flex items-center space-x-2 cursor-pointer">
-                                                    <input type="checkbox" checked={hideOnlineByDefault} onChange={(e) => setHideOnlineByDefault(e.target.checked)} />
+                                                    <input type="checkbox" checked={hideOnlineByDefault} onChange={(e) => { const v = e.target.checked; setHideOnlineByDefault(v); try { localStorage.setItem('meshmon.hideOnlineByDefault', String(v)) } catch { } }} />
                                                     <span className="text-gray-600 dark:text-gray-400">Hide online edges (show on hover)</span>
                                                 </label>
                                             </div>
@@ -1885,7 +1896,7 @@ export default function NetworkGraph() {
                                                 <label className="text-gray-600 dark:text-gray-400 mr-2">Animate:</label>
                                                 <select
                                                     value={animationMode}
-                                                    onChange={(e) => setAnimationMode(e.target.value as any)}
+                                                    onChange={(e) => { const v = e.target.value as any; setAnimationMode(v); try { localStorage.setItem('meshmon.animationMode', v) } catch { } }}
                                                     className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                                                 >
                                                     <option value="never">Never</option>

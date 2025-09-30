@@ -1,14 +1,14 @@
-from typing import Callable
-from pydantic import BaseModel
-
-
-from ..config import NetworkConfig, NetworkConfigLoader
 import datetime
 from enum import Enum
-import logging
+from typing import Callable
+
+import structlog
+from pydantic import BaseModel
+
+from ..config import NetworkConfig, NetworkConfigLoader
 from .store import SharedStore
 
-logger = logging.getLogger("meshmon.distrostore")
+logger = structlog.stdlib.get_logger().bind(module="pulsewave.distrostore")
 
 
 class NodeStatus(Enum):
@@ -51,17 +51,24 @@ class StoreManager:
             new_store = SharedStore(network.key_mapping)
             if network.network_id in self.stores:
                 logger.info(
-                    f"Network ID {network.network_id} already exists; loading data from existing store."
+                    "Store already exists; loading data from existing store",
+                    network_id=network.network_id,
                 )
                 new_store.update_from_dump(self.stores[network.network_id].dump())
             else:
-                logger.info(f"Creating new store for network ID {network.network_id}.")
+                logger.info(
+                    "Creating new store",
+                    network_id=network.network_id,
+                )
                 self.store_prefiller(new_store, network)
             self.stores[network.network_id] = new_store
-            logger.debug(f"Loaded store for network ID {network.network_id}")
+            logger.debug("Loaded store", network_id=network.network_id)
         for network_id in list(self.stores.keys()):
             if network_id not in self.config.networks:
-                logger.info(f"Removing store for obsolete network ID {network_id}.")
+                logger.info(
+                    "Removing obsolete store",
+                    network_id=network_id,
+                )
                 del self.stores[network_id]
 
     def reload(self):

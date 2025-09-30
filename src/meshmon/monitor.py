@@ -1,30 +1,26 @@
 import datetime
-import logging
-from threading import Thread, Event
+import json
 import time
+from threading import Event, Thread
 from typing import Protocol
 
+import requests
+from pydantic import BaseModel
+from structlog.stdlib import get_logger
 
-from .update import UpdateManager
-
-from .version import VERSION
-
-from .config import NetworkConfigLoader, NetworkNodeInfo, NetworkMonitor, MonitorTypes
+from .analysis.analysis import analyze_monitor_status, analyze_node_status
+from .analysis.store import NodePingStatus
+from .analysis.store import NodeStatus as AnalysisNodeStatus
+from .config import MonitorTypes, NetworkConfigLoader, NetworkMonitor, NetworkNodeInfo
 from .pulsewave.distrostore import (
     NodeInfo,
     NodeStatus,
-    StoreManager,
     PingData,
+    StoreManager,
 )
 from .pulsewave.views import MutableStoreCtxView
-import requests
-import json
-from .analysis.analysis import analyze_monitor_status, analyze_node_status
-from .analysis.store import NodeStatus as AnalysisNodeStatus, NodePingStatus
-from pydantic import BaseModel
-
-# Set up logger for this module
-logger = logging.getLogger("meshmon.monitor")
+from .update import UpdateManager
+from .version import VERSION
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -72,11 +68,15 @@ class MeshMonitor(MonitorProto):
         self.remote_node = remote_node
         self.local_node = local_node
         self.error_count = 0
+        self.logger = get_logger().bind(name=self.name, net_id=net_id)
+        self.session = requests.Session()
 
-        logger.debug(
-            f"Initialized monitor for network {net_id}: local={local_node.node_id} -> remote={remote_node.node_id}"
+        self.logger.debug(
+            "Initialized monitor for network",
+            local=local_node.node_id,
+            remote=remote_node.node_id,
         )
-        logger.debug(
+        self.logger.debug(
             f"Remote node URL: {remote_node.url}, poll rate: {remote_node.poll_rate}s, retry limit: {remote_node.retry}"
         )
 
@@ -114,20 +114,25 @@ class MeshMonitor(MonitorProto):
             st = time.time()
             response = requests.get(f"{self.remote_node.url}/api/health", timeout=10)
             rtt = (time.time() - st) * 1000
-        except requests.RequestException as e:
-            logger.debug(f"Request timed out for {self.name}: {e}")
+        except requests.RequestException as exc:
+            self.logger.debug("Request timed out", exc=exc)
             self._handle_error(ctx)
             return
         if rtt > 9500:
-            logger.warning(f"High RTT detected for {self.name}: {rtt}ms")
+            self.logger.warning("High RTT detected", rtt_ms=rtt)
             self._handle_error(ctx)
         elif response.status_code != 200:
-            logger.warning(
-                f"HTTP {response.status_code} response from {self.remote_node.node_id}: {response.text}"
+            self.logger.warning(
+                "Invalid response from remote",
+                status=response.status_code,
+                body=response.text,
+                remote=self.remote_node.node_id,
             )
             self._handle_error(ctx)
         else:
-            logger.debug(f"Successful response from {self.remote_node.node_id}")
+            self.logger.debug(
+                "Successful response from remote", remote=self.remote_node.node_id
+            )
             self.error_count = 0
             ctx.set(
                 self.remote_node.node_id,
@@ -148,26 +153,28 @@ class MeshMonitor(MonitorProto):
         store = self.store.get_store(self._net_id)
         analysis_ctx = store.get_context("network_analysis", AnalysedNodeStatus)
         if node_statuses is None:
-            logger.warning(
-                f"Failed to analyze node statuses for network {self._net_id}"
-            )
+            self.logger.warning("Failed to analyze node statuses for network")
             return
 
         for node_id, status in node_statuses.items():
             analysis_ctx.set(node_id, AnalysedNodeStatus(status=status))
 
     def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
-        logger.debug(f"Error count increased to {self.error_count} for {self.name}")
+        self.logger.debug("Error count increased", count=self.error_count)
         current_node = ctx.get(self.remote_node.node_id)
         if self.error_count >= self.remote_node.retry:
             if current_node:
                 if current_node.status != NodeStatus.OFFLINE:
-                    logger.info(
-                        f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
+                    self.logger.info(
+                        "Max retries exceeded for remote, marking as OFFLINE",
+                        retry=self.remote_node.retry,
+                        remote=self.remote_node.node_id,
                     )
             else:
-                logger.info(
-                    f"Max retries ({self.remote_node.retry}) exceeded for {self.remote_node.node_id}, marking as OFFLINE"
+                self.logger.info(
+                    "Max retries exceeded for remote, marking as OFFLINE",
+                    retry=self.remote_node.retry,
+                    remote=self.remote_node.node_id,
                 )
 
             ctx.set(
@@ -183,7 +190,10 @@ class MeshMonitor(MonitorProto):
             )
         else:
             if current_node:
-                logger.debug(f"Incrementing retry count for {self.remote_node.node_id}")
+                self.logger.debug(
+                    "Incrementing retry count for remote",
+                    remote=self.remote_node.node_id,
+                )
                 current_node.current_retry += 1
                 ctx.set(
                     self.remote_node.node_id,
@@ -197,8 +207,9 @@ class MeshMonitor(MonitorProto):
                     ),
                 )
             else:
-                logger.debug(
-                    f"Setting initial UNKNOWN status for {self.remote_node.node_id}"
+                self.logger.debug(
+                    "Setting initial UNKNOWN status for remote",
+                    remote=self.remote_node.node_id,
                 )
                 ctx.set(
                     self.remote_node.node_id,
@@ -214,8 +225,10 @@ class MeshMonitor(MonitorProto):
         self.error_count += 1
 
     def run(self) -> None:
-        logger.debug(
-            f"Sending ping to {self.remote_node.node_id} at {self.remote_node.url}"
+        self.logger.debug(
+            "Sending ping to remote",
+            remote=self.remote_node.node_id,
+            url=self.remote_node.url,
         )
         self._sent_ping()
         self._analyse_node_status()
@@ -234,6 +247,8 @@ class HTTPMonitor(MonitorProto):
         self.monitor_info = monitor_info
         self.config = config
         self.error_count = 0
+        self.logger = get_logger().bind(name=self.name, net_id=net_id)
+        self.session = requests.Session()
 
     @property
     def net_id(self) -> str:
@@ -269,20 +284,26 @@ class HTTPMonitor(MonitorProto):
             st = time.time()
             response = requests.get(f"{self.monitor_info.host}", timeout=10)
             rtt = (time.time() - st) * 1000
-        except requests.RequestException as e:
-            logger.debug(f"Request timed out for {self.name}: {e}")
+        except requests.RequestException as exc:
+            self.logger.debug("Request timed out", exc=exc)
             self._handle_error(ctx)
             return
         if rtt > 9500:
-            logger.warning(f"High RTT detected for {self.name}: {rtt}ms")
+            self.logger.warning("High RTT detected", rtt_ms=rtt)
             self._handle_error(ctx)
         elif response.status_code != 200:
-            logger.warning(
-                f"HTTP {response.status_code} response from {self.monitor_info.name}: {response.text}"
+            self.logger.warning(
+                "Invalid response from monitor",
+                status=response.status_code,
+                body=response.text,
+                monitor=self.monitor_info.name,
             )
             self._handle_error(ctx)
         else:
-            logger.debug(f"Successful response from {self.monitor_info.name}")
+            self.logger.debug(
+                "Successful response from monitor",
+                monitor=self.monitor_info.name,
+            )
             self.error_count = 0
             ctx.set(
                 self.monitor_info.name,
@@ -301,25 +322,31 @@ class HTTPMonitor(MonitorProto):
         store = self.store.get_store(self.net_id)
         analysis_ctx = store.get_context("monitor_analysis", AnalysedMonitorStatus)
         if monitor_analysis is None:
-            logger.warning(
-                f"Failed to analyze monitor statuses for network {self.net_id}"
-            )
+            self.logger.warning("Failed to analyze monitor statuses for network")
             return
         for monitor_id, status in monitor_analysis.items():
             analysis_ctx.set(monitor_id, AnalysedMonitorStatus(status=status))
 
     def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
-        logger.debug(f"Error count increased to {self.error_count} for {self.name}")
+        self.logger.debug(
+            "Error count increased",
+            count=self.error_count,
+            monitor=self.monitor_info.name,
+        )
         current_node = ctx.get(self.monitor_info.name)
         if self.error_count >= self.monitor_info.retry:
             if current_node:
                 if current_node.status != NodeStatus.OFFLINE:
-                    logger.info(
-                        f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.name}, marking as OFFLINE"
+                    self.logger.info(
+                        "Max retries exceeded for monitor, marking as OFFLINE",
+                        retry=self.monitor_info.retry,
+                        monitor=self.monitor_info.name,
                     )
             else:
-                logger.info(
-                    f"Max retries ({self.monitor_info.retry}) exceeded for {self.monitor_info.name}, marking as OFFLINE"
+                self.logger.info(
+                    "Max retries exceeded for monitor, marking as OFFLINE",
+                    retry=self.monitor_info.retry,
+                    monitor=self.monitor_info.name,
                 )
 
             ctx.set(
@@ -335,7 +362,10 @@ class HTTPMonitor(MonitorProto):
             )
         else:
             if current_node:
-                logger.debug(f"Incrementing retry count for {self.monitor_info.name}")
+                self.logger.debug(
+                    "Incrementing retry count for remote",
+                    monitor=self.monitor_info.name,
+                )
                 current_node.current_retry += 1
                 ctx.set(
                     self.monitor_info.name,
@@ -349,8 +379,9 @@ class HTTPMonitor(MonitorProto):
                     ),
                 )
             else:
-                logger.debug(
-                    f"Setting initial UNKNOWN status for {self.monitor_info.name}"
+                self.logger.debug(
+                    "Setting initial UNKNOWN status for remote",
+                    monitor=self.monitor_info.name,
                 )
                 ctx.set(
                     self.monitor_info.name,
@@ -366,8 +397,10 @@ class HTTPMonitor(MonitorProto):
         self.error_count += 1
 
     def run(self) -> None:
-        logger.debug(
-            f"Sending ping to {self.monitor_info.name} at {self.monitor_info.host}"
+        self.logger.debug(
+            "Sending ping to monitor",
+            monitor=self.monitor_info.name,
+            url=self.monitor_info.host,
         )
         self._sent_ping()
         self._analyse_node_status()
@@ -379,34 +412,35 @@ class Monitor:
         self.update_manager = update_manager
         self.thread = Thread(target=self.monitor_thread, daemon=True)
         self.stop_flag = Event()
+        self.logger = get_logger().bind(name=self.monitor.name)
 
     def monitor_thread(self):
-        logger.debug(f"Starting monitor thread for {self.monitor.name}")
+        self.logger.debug("Starting monitor thread")
         self.monitor.setup()
         while True:
             try:
                 self.monitor.run()
                 self.update_manager.update(self.monitor.net_id)
-            except Exception as e:
-                logger.error(f"Error in monitor loop for {self.monitor.name}: {e}")
+            except Exception as exc:
+                self.logger.error("Error in monitor loop", exc=exc)
             val = self.stop_flag.wait(self.monitor.poll_rate)
             if val:
                 break
-        logger.debug(f"Monitor thread stopped for {self.monitor.name}")
+        self.logger.debug("Monitor thread stopped")
 
     def start(self) -> None:
-        logger.info(
-            f"Starting monitor thread for {self.monitor.name} at interval {self.monitor.poll_rate}s"
+        self.logger.info(
+            "Starting monitor thread at interval", interval_s=self.monitor.poll_rate
         )
         self.thread.start()
 
     def stop(self):
-        logger.info(f"Stopping monitor for {self.monitor.name}")
+        self.logger.info("Stopping monitor")
         self.stop_flag.set()
 
     def join(self):
         self.thread.join()
-        logger.debug(f"Monitor thread stopped for {self.monitor.name}")
+        self.logger.debug("Monitor thread stopped")
 
 
 class MonitorManager:
@@ -419,11 +453,14 @@ class MonitorManager:
         self.store_manager = store_manager
         self.update_manager = update_manager
         self.config = config
+        self.logger = get_logger()
         self.monitors: dict[str, Monitor] = self._initialize_monitors()
         self.stop_flag = Event()
         self.thread = Thread(target=self.manager, daemon=True)
         self.thread.start()
-        logger.debug(f"MonitorManager initialized with {len(self.monitors)} monitors")
+        self.logger.debug(
+            "MonitorManager initialized with monitors", count=len(self.monitors)
+        )
 
     def manager(self):
         while True:
@@ -431,17 +468,17 @@ class MonitorManager:
                 for store in self.store_manager.stores.values():
                     node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
                     store.set_value("node_info", node_info)
-            except Exception as e:
-                logger.error(f"Error in MonitorManager heartbeat: {e}")
+            except Exception as exc:
+                self.logger.error("Error in MonitorManager heartbeat", exc=exc)
             val = self.stop_flag.wait(5)
             if val:
                 break
 
     def _initialize_monitors(self) -> dict[str, Monitor]:
-        logger.debug("Initializing monitors from network configuration")
+        self.logger.debug("Initializing monitors from network configuration")
         monitors = {}
         for net_id, network in self.config.networks.items():
-            logger.debug(f"Processing network: {net_id}")
+            self.logger.debug("Processing network", net_id=net_id)
             # Find the local node in this network
             local_node = None
             for node in network.node_config:
@@ -450,16 +487,22 @@ class MonitorManager:
                     break
 
             if local_node is None:
-                logger.warning(f"Local node not found in network {net_id}, skipping")
+                self.logger.warning(
+                    "Local node not found in network, skipping", net_id=net_id
+                )
                 continue  # Skip this network if local node not found
 
-            logger.debug(f"Found local node {local_node.node_id} in network {net_id}")
+            self.logger.debug(
+                "Found local node in network",
+                local=local_node.node_id,
+                net_id=net_id,
+            )
             global_monitors = network.monitors
             # Create monitors for all other nodes in the network
             for node in network.node_config:
                 if node.node_id != local_node.node_id and node.url:
                     monitor_key = f"{net_id}_{node.node_id}"
-                    logger.debug(f"Creating monitor: {monitor_key}")
+                    self.logger.debug("Creating monitor", key=monitor_key)
                     monitor = MeshMonitor(
                         self.store_manager,
                         net_id,
@@ -478,7 +521,7 @@ class MonitorManager:
             for monitor_info in unique_monitors.values():
                 if monitor_info.type == MonitorTypes.HTTP:
                     monitor_key = f"{net_id}_monitor_{monitor_info.name}"
-                    logger.debug(f"Creating HTTP monitor: {monitor_key}")
+                    self.logger.debug("Creating HTTP monitor", key=monitor_key)
                     monitor = HTTPMonitor(
                         self.store_manager,
                         net_id,
@@ -489,36 +532,38 @@ class MonitorManager:
                     monitors[monitor_key] = monitor_wrapper
                     monitor_wrapper.start()
                 else:
-                    logger.warning(
-                        f"Unsupported monitor type {monitor_info.type} for monitor {monitor_info.name} in network {net_id}, skipping"
+                    self.logger.warning(
+                        f"Unsupported monitor type {monitor_info.type} for monitor, skipping",
+                        net_id=net_id,
+                        monitor=monitor_info.name,
                     )
 
-        logger.debug(f"Successfully initialized {len(monitors)} monitors")
+        self.logger.debug("Successfully initialized monitors", count=len(monitors))
         return monitors
 
     def reload(self):
-        logger.info("Reloading MonitorManager configuration")
+        self.logger.info("Reloading MonitorManager configuration")
         # Stop all existing monitors
-        logger.debug(f"Stopping {len(self.monitors)} existing monitors")
+        self.logger.debug("Stopping existing monitors", count=len(self.monitors))
         self.stop()
         # Reinitialize monitors with new configuration
-        logger.debug("Reinitializing monitors with new configuration")
+        self.logger.debug("Reinitializing monitors with new configuration")
         self.monitors = self._initialize_monitors()
-        logger.info("MonitorManager reload completed")
+        self.logger.info("MonitorManager reload completed")
 
     def stop(self):
-        logger.info("Stopping all monitors in MonitorManager")
+        self.logger.info("Stopping all monitors in MonitorManager")
         for monitor_key, monitor in self.monitors.items():
-            logger.debug(f"Stopping monitor: {monitor_key}")
+            self.logger.debug("Stopping monitor", key=monitor_key)
             monitor.stop()
         for monitor in self.monitors.values():
             monitor.join()
         self.monitors.clear()
 
-        logger.info("All monitors stopped")
+        self.logger.info("All monitors stopped")
 
     def stop_manager(self):
-        logger.info("Stopping MonitorManager")
+        self.logger.info("Stopping MonitorManager")
         self.stop_flag.set()
         self.thread.join()
-        logger.info("MonitorManager stopped")
+        self.logger.info("MonitorManager stopped")

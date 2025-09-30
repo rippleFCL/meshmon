@@ -1,19 +1,18 @@
+import os
+import shutil
 from dataclasses import dataclass
 from enum import Enum
-import os
 from pathlib import Path
 from typing import Annotated
 
-from meshmon.version import SEMVER
-
-from .pulsewave.crypto import KeyMapping, Signer, Verifier
 import yaml
 from pydantic import BaseModel, StringConstraints
-from .git import Repo
-import shutil
-import logging
+from structlog.stdlib import get_logger
 
-logger = logging.getLogger("meshmon.config")
+from meshmon.version import SEMVER
+
+from .git import Repo
+from .pulsewave.crypto import KeyMapping, Signer, Verifier
 
 
 class ConfigTypes(Enum):
@@ -86,6 +85,7 @@ class NetworkConfigLoader:
         """
         self.config_dir = Path(config_dir)
         self.file_name = file_name
+        self.logger = get_logger()
         self.node_cfg = self._load_node_config()
         self.networks: dict[str, NetworkConfig] = self._load_all_network_configs()
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
@@ -97,11 +97,11 @@ class NetworkConfigLoader:
         Returns a dict mapping network_name to NodeCfgNetwork.
         """
         nodeconf_path = self.config_dir / self.file_name
-        logger.debug(f"Loading node config from: {nodeconf_path}")
+        self.logger.debug("Loading node config", path=nodeconf_path)
         with open(nodeconf_path, "r") as f:  # TODO: handle file not found
             data = yaml.safe_load(f)
         node_cfg = NodeCfg.model_validate(data)
-        logger.debug(f"Loaded config for {len(node_cfg.networks)} networks")
+        self.logger.debug("Loaded config", network_count=len(node_cfg.networks))
 
         for network in node_cfg.networks:
             network_dir = self.config_dir / "networks" / network.directory
@@ -109,9 +109,11 @@ class NetworkConfigLoader:
                 try:
                     repo = Repo(network.git_repo, str(network_dir))
                     repo.clone_or_update()
-                except Exception as e:
+                except Exception as exc:
                     # If pull fails, reclone
-                    logger.debug(f"Git pull failed for {network.directory}, error: {e}")
+                    self.logger.warning(
+                        "Git pull failed for", exc=exc, network=network.directory
+                    )
                     shutil.rmtree(network_dir)
             else:
                 # For local configs, ensure the directory exists
@@ -133,7 +135,7 @@ class NetworkConfigLoader:
         """
         Load a single network's config and keys.
         """
-        logger.debug(f"Loading network config for: {net_cfg.directory}")
+        self.logger.debug("Loading network config", path=net_cfg.directory)
         # Load the root network config
         net_config_path = (
             self.config_dir / "networks" / net_cfg.directory / "config.yml"
@@ -146,12 +148,14 @@ class NetworkConfigLoader:
         if root.node_version:
             for version in root.node_version:
                 if not SEMVER.match(version):
-                    logger.warning(
+                    self.logger.warning(
                         f"Node version constraint '{version}' for network '{net_cfg.directory}' is not compatible with current node version '{SEMVER}'"
                     )
                     return None
 
-        logger.debug(f"Network {net_cfg.directory} has {len(root.node_config)} nodes")
+        self.logger.debug(
+            f"Network {net_cfg.directory} has {len(root.node_config)} nodes"
+        )
 
         # Load key mapping for this network
         global_pubkey_dir = str(self.config_dir / ".public_keys" / net_cfg.directory)
@@ -170,11 +174,13 @@ class NetworkConfigLoader:
         for vid in verifier_ids:
             try:
                 verifiers[vid] = Verifier.by_id(vid, pubkey_dir)
-            except Exception as e:
-                logger.warning(f"Failed to load verifier {vid}: {e}")
+            except Exception as exc:
+                self.logger.warning("Failed to load verifier", exc=exc, vid=vid)
         key_mapping = KeyMapping(signer=signer, verifiers=verifiers)
-        logger.debug(
-            f"Loaded {len(verifiers)} verifiers for network {net_cfg.directory}"
+        self.logger.debug(
+            "Loaded verifiers for network",
+            network=net_cfg.directory,
+            count=len(verifiers),
         )
 
         return NetworkConfig(
@@ -247,26 +253,33 @@ class NetworkConfigLoader:
                         needs_update = repo.needs_update()
 
                         if needs_update:
-                            logger.info(f"Network {network.directory} has updates")
+                            self.logger.info(
+                                "Network has updates", network=network.directory
+                            )
                             has_changes = True
                         else:
-                            logger.debug(f"Network {network.directory} is up to date")
+                            self.logger.debug(
+                                "Network is up to date", network=network.directory
+                            )
 
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to check updates for network {network.directory}: {e}"
+                    except Exception as exc:
+                        self.logger.warning(
+                            "Failed to check updates for network",
+                            network=network.directory,
+                            exc=exc,
                         )
                         # If we can't check, assume no changes to avoid unnecessary reloads
                         continue
                 else:
-                    logger.debug(
-                        f"Network {network.directory} repo directory does not exist"
+                    self.logger.debug(
+                        "Network repo directory does not exist",
+                        network=network.directory,
                     )
             elif self.get_latest_mtime(network_path) > self.latest_mtime:
-                logger.info("Configuration files have been modified, reloading")
+                self.logger.info("Configuration files have been modified, reloading")
                 has_changes = True
         if self.get_netconf_mtime() > self.nodecfg_latest_mtime:
-            logger.info("Node configuration file has been modified, reloading")
+            self.logger.info("Node configuration file has been modified, reloading")
             has_changes = True
         return has_changes
 

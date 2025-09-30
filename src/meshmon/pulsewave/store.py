@@ -1,17 +1,19 @@
-import logging
+from typing import Iterator, Literal, overload
+
+import structlog
+from pydantic import BaseModel
+
+from .crypto import KeyMapping
 from .data import (
-    StoreData,
     DateEvalType,
-    StoreContextData,
     SignedBlockData,
+    StoreContextData,
+    StoreData,
     StoreNodeData,
 )
-from typing import Iterator, overload, Literal
-from .crypto import KeyMapping
-from pydantic import BaseModel
-from .views import StoreCtxView, MutableStoreCtxView
+from .views import MutableStoreCtxView, StoreCtxView
 
-logger = logging.getLogger("meshmon.distrostore")
+logger = structlog.stdlib.get_logger().bind(module="pulsewave.store")
 
 
 class SharedStore:
@@ -122,6 +124,3 @@ class SharedStore:
     @property
     def nodes(self) -> list[str]:
         return list(self.key_mapping.verifiers.keys())
-
-
-6

@@ -1,16 +1,15 @@
 import threading
 import time
 
+from structlog.stdlib import get_logger
+
+from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
+from .monitor import MonitorManager
+from .pulsewave.distrostore import PingData, StoreManager
+from .update import UpdateManager
 from .webhooks import AnalysedNodeStatus
 
-from .update import UpdateManager
-from server import PingData
-from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
-from .pulsewave.distrostore import StoreManager
-from .monitor import MonitorManager
-import logging
-
-logger = logging.getLogger("meshmon.conman")
+logger = get_logger()
 
 
 class ConfigManager:
@@ -58,5 +57,5 @@ class ConfigManager:
 
                     self.monitor_manager.reload()
                     self.update_manager.reload()
-            except Exception as e:
-                logger.error(f"Error in config watcher: {e}")
+            except Exception as exc:
+                logger.error("Error in config watcher", exc=exc)

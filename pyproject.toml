@@ -11,6 +11,7 @@ dependencies = [
     "fastapi (>=0.116.1,<0.117.0)",
     "semver (>=3.0.4,<4.0.0)",
     "dumb-init (>=1.2.5.post1,<2.0.0)",
+    "structlog (>=25.4.0,<26.0.0)",
 ]
 
 [tool.poetry]
@@ -28,3 +29,6 @@ build-backend = "poetry.core.masonry.api"
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+
+[tool.isort]
+profile = "black"

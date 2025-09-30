@@ -1,12 +1,14 @@
-from enum import Enum
-from pydantic import BaseModel
-import datetime
 import base64
-import logging
-from .crypto import Signer, KeyMapping, Verifier
+import datetime
 import json
+from enum import Enum
 
-logger = logging.getLogger("meshmon.distrostore")
+from pydantic import BaseModel
+from structlog.stdlib import get_logger
+
+from .crypto import KeyMapping, Signer, Verifier
+
+logger = get_logger()
 
 
 class DateEvalType(Enum):
@@ -197,8 +199,8 @@ class StoreClockPulse(BaseModel):
 
 
 class StoreConsistencyData(BaseModel):
-    clock_table: StoreContextData[StoreClockTableEntry]
-    clock_pulse: SignedBlockData[StoreClockPulse] | None = None
+    clock_table: StoreContextData
+    clock_pulse: SignedBlockData | None = None
     leader_table: StoreContextData
 
     @classmethod

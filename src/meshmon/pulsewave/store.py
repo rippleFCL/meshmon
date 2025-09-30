@@ -124,6 +124,3 @@ class SharedStore:
     @property
     def nodes(self) -> list[str]:
         return list(self.key_mapping.verifiers.keys())
-
-
-6

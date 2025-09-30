@@ -1,4 +1,3 @@
-from calendar import c
 import datetime
 import json
 import time
@@ -329,7 +328,11 @@ class HTTPMonitor(MonitorProto):
             analysis_ctx.set(monitor_id, AnalysedMonitorStatus(status=status))
 
     def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
-        self.logger.debug("Error count increased", count=self.error_count, monitor=self.monitor_info.name)
+        self.logger.debug(
+            "Error count increased",
+            count=self.error_count,
+            monitor=self.monitor_info.name,
+        )
         current_node = ctx.get(self.monitor_info.name)
         if self.error_count >= self.monitor_info.retry:
             if current_node:

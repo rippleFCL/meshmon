@@ -20,6 +20,9 @@ from meshmon.config import (
 )
 from meshmon.conman import ConfigManager
 from meshmon.monitor import MonitorManager
+from meshmon.pulsewave.data import (
+    DateEvalType,
+)
 from meshmon.pulsewave.distrostore import (
     NodeDataRetention,
     NodeInfo,
@@ -27,17 +30,13 @@ from meshmon.pulsewave.distrostore import (
     PingData,
     StoreManager,
 )
-from meshmon.pulsewave.store import SharedStore
+from meshmon.pulsewave.store import (
+    SharedStore,
+    StoreData,
+)
 from meshmon.update import UpdateManager
 from meshmon.version import VERSION
 from meshmon.webhooks import AnalysedNodeStatus, WebhookHandler
-
-from .meshmon.pulsewave.data import (
-    DateEvalType,
-)
-from .meshmon.pulsewave.store import (
-    StoreData,
-)
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()

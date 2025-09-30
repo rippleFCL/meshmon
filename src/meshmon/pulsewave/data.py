@@ -199,8 +199,8 @@ class StoreClockPulse(BaseModel):
 
 
 class StoreConsistencyData(BaseModel):
-    clock_table: StoreContextData[StoreClockTableEntry]
-    clock_pulse: SignedBlockData[StoreClockPulse] | None = None
+    clock_table: StoreContextData
+    clock_pulse: SignedBlockData | None = None
     leader_table: StoreContextData
 
     @classmethod

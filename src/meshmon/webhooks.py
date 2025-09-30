@@ -37,11 +37,11 @@ class WebhookHandler:
         self.store_manager = store_manager
         self.update_manager = update_manager
         self.config = config
+        self.logger = get_logger()
         self.flag = threading.Event()
         self.thread = threading.Thread(target=self.webhook_thread, daemon=True)
         self.thread.start()
         self.session = requests.Session()
-        self.logger = get_logger()
 
     def _cluster_agrees(self, network_id: str) -> bool:
         store = self.store_manager.stores[network_id]

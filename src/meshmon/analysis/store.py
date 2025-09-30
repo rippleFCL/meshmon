@@ -1,7 +1,7 @@
 import datetime
 from pydantic import BaseModel
 from enum import Enum
-from meshmon.distrostore import (
+from meshmon.pulsewave.distrostore import (
     SharedStore,
     StoreManager,
     PingData,

@@ -1,5 +1,5 @@
 from .config import NetworkConfigLoader, NetworkNodeInfo
-from .distrostore import StoreManager
+from .pulsewave.distrostore import StoreManager
 from threading import Event, Thread
 import logging
 import json

@@ -4,7 +4,7 @@ from enum import Enum
 
 from meshmon.config import NetworkConfigLoader
 from .store import NodePingStatus, get_network_data, NetworkData, NodeStatus
-from meshmon.distrostore import StoreManager
+from meshmon.pulsewave.distrostore import StoreManager
 import logging
 
 logger = logging.getLogger("meshmon.analysis")
@@ -121,8 +121,6 @@ def get_monitor_statuses(network_data: NetworkData) -> dict[str, NodePingStatus]
     node_status = get_node_statuses(network_data)
     monitor_statuses: dict[str, NodePingStatus] = {}
     for node_id, node_data in network_data.nodes.items():
-        if node_status.get(node_id, NodeStatus.OFFLINE) == NodeStatus.OFFLINE:
-            continue
         for ping_node_id, ping in node_data.monitor_data.items():
             if monitor_statuses.get(ping_node_id) == NodePingStatus.ONLINE:
                 continue
@@ -131,6 +129,21 @@ def get_monitor_statuses(network_data: NetworkData) -> dict[str, NodePingStatus]
                 and ping.status == NodePingStatus.UNKNOWN
             ):
                 continue
+            last_ping = ping.date
+            time_since_last_ping = (
+                datetime.datetime.now(datetime.timezone.utc) - last_ping
+            ).total_seconds()
+            max_ping_interval = ping.ping_rate * (ping.max_retries + 2)
+            # logger.debug(
+            #     f"Node {node_id} last ping to {ping_node_id} was {time_since_last_ping} seconds ago. Max allowed: {max_ping_interval} seconds."
+            # )
+            if node_status.get(node_id) == NodePingStatus.OFFLINE:
+                monitor_statuses[ping_node_id] = NodePingStatus.OFFLINE
+                continue
+            if time_since_last_ping > max_ping_interval:
+                monitor_statuses[ping_node_id] = NodePingStatus.OFFLINE
+                continue
+            # account for timeout
             monitor_statuses[ping_node_id] = ping.status
     return monitor_statuses
 

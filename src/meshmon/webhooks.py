@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from meshmon.update import UpdateManager
 from .analysis.store import NodeStatus
 from .monitor import AnalysedNodeStatus
-from .distrostore import StoreManager
+from .pulsewave.distrostore import StoreManager
 from .config import NetworkConfigLoader
 import threading
 import logging

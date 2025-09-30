@@ -1,46 +1,17 @@
-import base64
-import json
-from typing import Callable, Iterator, Literal, overload
-from pydantic import BaseModel
-
-
-from .config import NetworkConfig, NetworkConfigLoader
-from .crypto import Signer, KeyMapping, Verifier
-import datetime
 from enum import Enum
+from pydantic import BaseModel
+import datetime
+import base64
 import logging
-
+from .crypto import Signer, KeyMapping, Verifier
+import json
 
 logger = logging.getLogger("meshmon.distrostore")
-
-
-class NodeStatus(Enum):
-    ONLINE = "online"
-    OFFLINE = "offline"
-    UNKNOWN = "unknown"
 
 
 class DateEvalType(Enum):
     OLDER = "OLDER"
     NEWER = "NEWER"
-
-
-class PingData(BaseModel):
-    status: NodeStatus
-    req_time_rtt: float
-    date: datetime.datetime
-    current_retry: int
-    max_retrys: int
-    ping_rate: int
-
-
-class NodeInfo(BaseModel):
-    status: NodeStatus
-    version: str
-
-
-class NodeDataRetention(BaseModel):
-    date: datetime.datetime
 
 
 class SignedBlockSignature(BaseModel):
@@ -214,9 +185,36 @@ class StoreContextData(BaseModel):
         return updated
 
 
+class StoreClockTableEntry(BaseModel):
+    last_pulse: datetime.datetime
+    pulse_interval: float
+    last_updated: datetime.datetime
+
+
+class StoreClockPulse(BaseModel):
+    date: datetime.datetime
+    pulse_id: str
+
+
+class StoreConsistencyData(BaseModel):
+    clock_table: StoreContextData[StoreClockTableEntry]
+    clock_pulse: SignedBlockData[StoreClockPulse] | None = None
+    leader_table: StoreContextData
+
+    @classmethod
+    def new(cls, signer: Signer) -> "StoreConsistencyData":
+        clock_table = StoreContextData.new(signer, "clock_table")
+        leader_table = StoreContextData.new(signer, "leader_table")
+        return cls(
+            clock_table=clock_table,
+            leader_table=leader_table,
+        )
+
+
 class StoreNodeData(BaseModel):
     contexts: dict[str, StoreContextData] = {}
     values: dict[str, SignedBlockData] = {}
+    consistency: StoreConsistencyData
 
     def update(self, node_data: "StoreNodeData", verifier: Verifier):
         updated = False
@@ -258,6 +256,14 @@ class StoreNodeData(BaseModel):
                     updated = True
         return updated
 
+    @classmethod
+    def new(cls, signer: Signer) -> "StoreNodeData":
+        return cls(
+            contexts={},
+            values={},
+            consistency=StoreConsistencyData.new(signer),
+        )
+
 
 class StoreData(BaseModel):
     nodes: dict[str, StoreNodeData] = {}
@@ -271,233 +277,9 @@ class StoreData(BaseModel):
                 )
                 continue
             if node_id not in self.nodes:
-                new_node = StoreNodeData()
-                new_node.update(node_data, key_mapping.verifiers[node_id])
-                self.nodes[node_id] = new_node
+                self.nodes[node_id] = node_data.model_copy()
                 updated = True
             else:
                 current_node = self.nodes[node_id]
                 updated = current_node.update(node_data, key_mapping.verifiers[node_id])
         return updated
-
-
-class StoreCtxView[T: BaseModel]:
-    def __init__(
-        self,
-        store: StoreData,
-        node_id: str,
-        context_name: str,
-        model: type[T],
-        signer: Signer,
-    ):
-        self.store = store
-        self.node_id = node_id
-        self.context_name = context_name
-        self.model = model
-        self.signer = signer
-
-    def _get_ctx_data(self) -> StoreContextData:
-        return self.store.nodes[self.node_id].contexts[self.context_name]
-
-    def __iter__(self) -> Iterator[tuple[str, T]]:
-        ctx_data = self._get_ctx_data()
-        for value in ctx_data.data:
-            data = self.get(value)
-            if data is not None:
-                yield value, data
-
-    def __len__(self) -> int:
-        ctx_data = self._get_ctx_data()
-        return len(ctx_data.data)
-
-    def __contains__(self, key: str) -> bool:
-        ctx_data = self._get_ctx_data()
-        return key in ctx_data.data
-
-    def get(self, key: str) -> T | None:
-        ctx_data = self._get_ctx_data()
-        if key in ctx_data.data:
-            return self.model.model_validate(ctx_data.data[key].data)
-        return None
-
-    @property
-    def allowed_keys(self) -> list[str]:
-        ctx_data = self._get_ctx_data()
-        return ctx_data.allowed_keys.copy()
-
-    @allowed_keys.setter
-    def allowed_keys(self, keys: list[str]):
-        new_ctx = StoreContextData.new(self.signer, self.context_name, keys)
-        ctx_data = self._get_ctx_data()
-        ctx_data.update(new_ctx, self.signer.get_verifier(), self.context_name)
-
-
-class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
-    def __init__(
-        self,
-        store: StoreData,
-        node_id: str,
-        context_name: str,
-        model: type[T],
-        signer: Signer,
-    ):
-        super().__init__(store, node_id, context_name, model, signer)
-
-    def set(self, key: str, data: T, rep_type: DateEvalType = DateEvalType.NEWER):
-        ctx_data = self._get_ctx_data()
-        signed_data = SignedBlockData.new(
-            self.signer, data, block_id=key, rep_type=rep_type
-        )
-        if ctx_data.allowed_keys and key not in ctx_data.allowed_keys:
-            logger.warning(f"Key {key} not in allowed keys; skipping set operation.")
-            return
-        ctx_data.data[key] = signed_data
-
-
-class SharedStore:
-    def __init__(self, key_mapping: KeyMapping):
-        self.store: StoreData = StoreData()
-        self.key_mapping = key_mapping
-        self.load()
-        logger.debug("SharedStore initialized.")
-
-    def values(self, node_id: str | None = None) -> Iterator[str]:
-        node_data = self.store.nodes.get(node_id or self.key_mapping.signer.node_id)
-        if node_data:
-            for value_id in node_data.values:
-                yield value_id
-
-    def contexts(self, node_id: str | None = None) -> Iterator[str]:
-        node_data = self.store.nodes.get(node_id or self.key_mapping.signer.node_id)
-        if node_data:
-            for context_name in node_data.contexts:
-                yield context_name
-
-    def get_value[T: BaseModel](
-        self, value_id: str, model: type[T], node_id: str | None = None
-    ) -> T | None:
-        if node_data := self.store.nodes.get(
-            node_id or self.key_mapping.signer.node_id
-        ):
-            if value_data := node_data.values.get(value_id):
-                return model.model_validate(value_data.data)
-
-    def set_value(
-        self,
-        value_id: str,
-        data: BaseModel,
-        req_type: DateEvalType = DateEvalType.NEWER,
-    ):
-        node_data = self.store.nodes.setdefault(
-            self.key_mapping.signer.node_id, StoreNodeData()
-        )
-
-        signed_data = SignedBlockData.new(
-            self.key_mapping.signer, data, block_id=value_id, rep_type=req_type
-        )
-        node_data.values[value_id] = signed_data
-
-    @overload
-    def _get_ctx(
-        self, context_name: str, node_id: str, create_if_missing: Literal[True]
-    ) -> StoreContextData: ...
-
-    @overload
-    def _get_ctx(
-        self, context_name: str, node_id: str, create_if_missing: Literal[False] = False
-    ) -> StoreContextData | None: ...
-
-    def _get_ctx(
-        self, context_name: str, node_id: str, create_if_missing: bool = False
-    ) -> StoreContextData | None:
-        node_data = self.store.nodes.get(node_id)
-        if node_data:
-            ctx_data = node_data.contexts.get(context_name)
-            if ctx_data or not create_if_missing:
-                return ctx_data
-        if create_if_missing:
-            node_data = self.store.nodes.setdefault(node_id, StoreNodeData())
-            ctx_data = StoreContextData.new(self.key_mapping.signer, context_name)
-            node_data.contexts[context_name] = ctx_data
-            return ctx_data
-        return None
-
-    @overload
-    def get_context[T: BaseModel](
-        self, context_name: str, model: type[T], node_id: str
-    ) -> StoreCtxView[T] | None: ...
-
-    @overload
-    def get_context[T: BaseModel](
-        self, context_name: str, model: type[T]
-    ) -> MutableStoreCtxView[T]: ...
-
-    def get_context[T: BaseModel](
-        self, context_name: str, model: type[T], node_id: str | None = None
-    ) -> StoreCtxView[T] | MutableStoreCtxView[T] | None:
-        if node_id is None:
-            node_id = self.key_mapping.signer.node_id
-            ctx_data = self._get_ctx(context_name, node_id, create_if_missing=True)
-            return MutableStoreCtxView(
-                self.store, node_id, context_name, model, self.key_mapping.signer
-            )
-        else:
-            ctx_data = self._get_ctx(context_name, node_id)
-            if ctx_data is None:
-                return None
-            return StoreCtxView(
-                self.store, node_id, context_name, model, self.key_mapping.signer
-            )
-
-    def update_from_dump(self, dump: dict):
-        store_update = StoreData.model_validate(dump)
-        self.store.update(store_update, self.key_mapping)
-
-    def dump(self):
-        return self.store.model_dump(mode="json")
-
-    def load(self):
-        for node_id in self.key_mapping.verifiers:
-            if node_id not in self.store.nodes:
-                self.store.nodes[node_id] = StoreNodeData()
-        self.store.nodes[self.key_mapping.signer.node_id] = StoreNodeData()
-
-    @property
-    def nodes(self) -> list[str]:
-        return list(self.key_mapping.verifiers.keys())
-
-
-class StoreManager:
-    def __init__(
-        self,
-        config: NetworkConfigLoader,
-        store_prefiller: Callable[[SharedStore, NetworkConfig], None],
-    ):
-        self.config = config
-        self.store_prefiller = store_prefiller
-        self.stores: dict[str, SharedStore] = {}
-        self.load_stores()
-
-    def load_stores(self):
-        for network in self.config.networks.values():
-            new_store = SharedStore(network.key_mapping)
-            if network.network_id in self.stores:
-                logger.info(
-                    f"Network ID {network.network_id} already exists; loading data from existing store."
-                )
-                new_store.update_from_dump(self.stores[network.network_id].dump())
-            else:
-                logger.info(f"Creating new store for network ID {network.network_id}.")
-                self.store_prefiller(new_store, network)
-            self.stores[network.network_id] = new_store
-            logger.debug(f"Loaded store for network ID {network.network_id}")
-        for network_id in list(self.stores.keys()):
-            if network_id not in self.config.networks:
-                logger.info(f"Removing store for obsolete network ID {network_id}.")
-                del self.stores[network_id]
-
-    def reload(self):
-        self.load_stores()
-
-    def get_store(self, network_id: str):
-        return self.stores[network_id]

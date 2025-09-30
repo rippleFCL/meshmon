@@ -6,7 +6,7 @@ from .webhooks import AnalysedNodeStatus
 from .update import UpdateManager
 from server import PingData
 from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
-from .distrostore import StoreManager
+from .pulsewave.distrostore import StoreManager
 from .monitor import MonitorManager
 import logging
 

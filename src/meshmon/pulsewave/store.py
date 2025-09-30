@@ -1,6 +1,6 @@
-import logging
 from typing import Iterator, Literal, overload
 
+import structlog
 from pydantic import BaseModel
 
 from .crypto import KeyMapping
@@ -13,7 +13,7 @@ from .data import (
 )
 from .views import MutableStoreCtxView, StoreCtxView
 
-logger = logging.getLogger("meshmon.distrostore")
+logger = structlog.stdlib.get_logger().bind(module="pulsewave.store")
 
 
 class SharedStore:

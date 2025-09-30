@@ -1,7 +1,6 @@
 import base64
 import datetime
 import json
-import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -42,6 +41,14 @@ from .meshmon.pulsewave.store import (
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+# Map textual levels to numeric for structlog filtering without importing logging
+_LEVELS = {
+    "CRITICAL": 50,
+    "ERROR": 40,
+    "WARNING": 30,
+    "INFO": 20,
+    "DEBUG": 10,
+}
 structlog.configure_once(
     processors=[
         structlog.contextvars.merge_contextvars,
@@ -52,9 +59,7 @@ structlog.configure_once(
         structlog.processors.JSONRenderer(sort_keys=True),
     ],
     logger_factory=structlog.PrintLoggerFactory(),
-    wrapper_class=structlog.make_filtering_bound_logger(
-        getattr(logging, log_level, logging.INFO)
-    ),
+    wrapper_class=structlog.make_filtering_bound_logger(_LEVELS.get(log_level, 20)),
     cache_logger_on_first_use=True,
 )
 logger = structlog.stdlib.get_logger()

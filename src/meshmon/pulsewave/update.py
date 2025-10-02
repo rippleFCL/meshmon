@@ -1,5 +1,4 @@
 import asyncio
-import json
 import time
 from asyncio import Task
 from threading import Thread
@@ -7,7 +6,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from meshmon.pulsewave.crypto import KeyMapping
 
-from .config import NodeConfig, PulseWaveConfig
+from .config import CurrentNode, NodeConfig, PulseWaveConfig
 from .data import StoreData
 
 if TYPE_CHECKING:
@@ -16,13 +15,17 @@ if TYPE_CHECKING:
 
 class UpdateCallback(Protocol):
     async def handle_update(
-        self, data: str, update_manager: "UpdateManager", node_cfg: NodeConfig
+        self,
+        data: str,
+        update_manager: "UpdateManager",
+        node_cfg: NodeConfig,
+        current_node: CurrentNode,
     ) -> bool: ...
 
 
 class UpdateHandler(Protocol):
     def handle_update(
-        self, store: StoreData, update_manager: "UpdateManager", node_cfg: NodeConfig
+        self, store: StoreData, update_manager: "UpdateManager", node_cfg: CurrentNode
     ) -> None: ...
 
 
@@ -30,8 +33,11 @@ class IncrementalUpdater:
     def __init__(self):
         self.end_data = StoreData()
 
-    def diff(self, other: StoreData) -> StoreData:
-        return self.end_data.diff(other)
+    def diff(self, other: StoreData, exclude_node_id: str) -> StoreData:
+        diff = self.end_data.diff(other)
+        if exclude_node_id in diff.nodes:
+            del diff.nodes[exclude_node_id]
+        return diff
 
     def update(self, other: StoreData, key_mapping: KeyMapping) -> bool:
         return self.end_data.update(other, key_mapping)
@@ -59,15 +65,20 @@ class UpdateManager:
         self.node_incremental_handlers: dict[str, IncrementalUpdater] = {
             node_id: IncrementalUpdater() for node_id in db_config.nodes.keys()
         }
-        self.loop = asyncio.new_event_loop()
-        self.thread = Thread(target=self.loop.run_forever, daemon=True)
-        self.thread.start()
+        self.loop = asyncio.get_event_loop()
+        if not self.loop.is_running():
+            asyncio.set_event_loop(self.loop)
+
+            self.thread = Thread(target=self.loop.run_forever, daemon=True)
+            self.thread.start()
         self._start_node_tasks()
 
     def _start_node_tasks(self):
         """Start a dedicated task for each node"""
         for node_cfg in self.db_config.nodes.values():
             node_id = node_cfg.node_id
+            if node_id == self.db_config.current_node.node_id:
+                continue
             self.node_update_events[node_id] = asyncio.Event()
             self.node_tasks[node_id] = self.loop.create_task(
                 self._node_update_loop(node_cfg)
@@ -85,25 +96,26 @@ class UpdateManager:
 
             # Clear the event
             update_event.clear()
-            self.handler.handle_update(self.store.store, self, node_cfg)
             # Apply rate limiting
             current_time = time.time()
 
             # Get fresh data and send update
-            data = increment_handler.diff(self.store.store).model_dump(mode="json")
-            try:
-                update_success = await self.callback.handle_update(
-                    json.dumps(data), self, node_cfg
-                )
-                if update_success:
-                    increment_handler.update(
-                        StoreData.model_validate(data), self.db_config.key_mapping
+            data = increment_handler.diff(self.store.store, node_id)
+            if data.nodes:
+                try:
+                    update_success = await self.callback.handle_update(
+                        data.model_dump_json(),
+                        self,
+                        node_cfg,
+                        self.db_config.current_node,
                     )
-                else:
-                    increment_handler.clear()
-            except Exception as e:
-                # Log error but continue with other nodes
-                print(f"Error updating node {node_cfg.node_id}: {e}")
+                    if update_success:
+                        increment_handler.update(data, self.db_config.key_mapping)
+                    else:
+                        increment_handler.clear()
+                except Exception as e:
+                    # Log error but continue with other nodes
+                    print(f"Error updating node {node_cfg.node_id}: {e}")
 
             time_since_last = current_time - last_update_time
             last_update_time = time.time()
@@ -121,22 +133,25 @@ class UpdateManager:
 
         # Call update callback on all nodes
         for node_cfg in self.db_config.nodes.values():
-            self.handler.handle_update(self.store.store, self, node_cfg)
+            if node_cfg.node_id == self.db_config.current_node.node_id:
+                continue
             increment_handler = self.node_incremental_handlers[node_cfg.node_id]
-            data = increment_handler.diff(self.store.store).model_dump_json()
-            try:
-                updates_succeeded = await self.callback.handle_update(
-                    data, self, node_cfg
-                )
-                if updates_succeeded:
-                    increment_handler.update(
-                        StoreData.model_validate(data), self.db_config.key_mapping
+            data = increment_handler.diff(self.store.store, node_cfg.node_id)
+            if data.nodes:
+                try:
+                    updates_succeeded = await self.callback.handle_update(
+                        data.model_dump_json(),
+                        self,
+                        node_cfg,
+                        self.db_config.current_node,
                     )
-                else:
-                    increment_handler.clear()
-            except Exception as e:
-                # Log error but continue with other nodes
-                print(f"Error updating node {node_cfg.node_id}: {e}")
+                    if updates_succeeded:
+                        increment_handler.update(data, self.db_config.key_mapping)
+                    else:
+                        increment_handler.clear()
+                except Exception as e:
+                    # Log error but continue with other nodes
+                    print(f"Error updating node {node_cfg.node_id}: {e}")
 
     async def handle_data_update(self):
         """Triggers a rate-limited update and returns instantly. Sets flags for all nodes."""
@@ -149,13 +164,15 @@ class UpdateManager:
 
     def update(self, data: StoreData):
         """Triggers a rate-limited update and returns instantly. Sets flags for all nodes."""
-        diff = self.store.store.diff(data)
+        if not data.nodes:
+            return
         instant_update = False
-        for node_id, node_diff in diff.nodes.items():
+        for node_id, node_diff in data.nodes.items():
             if node_diff.consistency is None:
                 continue
             instant_update = True
         self.store.store.update(data, self.db_config.key_mapping)
+        self.handler.handle_update(self.store.store, self, self.db_config.current_node)
         if instant_update:
             asyncio.run_coroutine_threadsafe(
                 self.handle_instant_data_update(), self.loop
@@ -168,3 +185,46 @@ class UpdateManager:
         for task in self.node_tasks.values():
             if not task.done():
                 task.cancel()
+
+    def update_from_dump(self, data: str):
+        if not data:
+            return True
+        store_update = StoreData.model_validate_json(data)
+        try:
+            self.update(store_update)
+            return True
+        except Exception as exc:
+            print(f"Failed to update store from dump: {exc}")
+            return False
+
+    async def dump_message(self, node_id: str) -> str:
+        """Get the current store dump for a specific node"""
+        node_data = await self.get_diff(node_id)
+        if node_data is None:
+            return ""
+        return node_data.model_dump_json()
+
+    async def get_diff(self, node_id: str) -> StoreData | None:
+        """Get the current diff for a specific node"""
+        increment_handler = self.node_incremental_handlers.get(node_id)
+        if increment_handler:
+            diff = increment_handler.diff(self.store.store, node_id)
+            if diff.nodes:
+                return diff
+            return None
+        return StoreData()
+
+    async def apply_diff(self, node_id: str, diff: str):
+        """Apply a diff for a specific node"""
+        if not diff:
+            return
+        store_data = StoreData.model_validate_json(diff)
+        increment_handler = self.node_incremental_handlers.get(node_id)
+        if increment_handler:
+            increment_handler.update(store_data, self.db_config.key_mapping)
+
+    async def clear_diff(self, node_id: str):
+        """Clear the current diff for a specific node"""
+        increment_handler = self.node_incremental_handlers.get(node_id)
+        if increment_handler:
+            increment_handler.clear()

@@ -23,10 +23,12 @@ class SharedStore:
         self.store: StoreData = StoreData()
         self.config = config
         self.key_mapping = config.key_mapping
-        self.update_handler = UpdateManager(
+        self.update_manager = UpdateManager(
             update_callback, ConsistencyHandler(), config, self
         )
-        self.consistency_controler = ConsistencyControler(self.update_handler, config)
+        self.consistency_controler = ConsistencyControler(
+            self.store, self.update_manager, config
+        )
         self.load()
         logger.debug("SharedStore initialized.")
 
@@ -116,7 +118,7 @@ class SharedStore:
                 context_name,
                 model,
                 self.key_mapping.signer,
-                self.update_handler,
+                self.update_manager,
             )
         else:
             ctx_data = self._get_ctx(context_name, node_id)
@@ -125,10 +127,6 @@ class SharedStore:
             return StoreCtxView(
                 self.store, node_id, context_name, model, self.key_mapping.signer
             )
-
-    def update_from_dump(self, dump: dict):
-        store_update = StoreData.model_validate(dump)
-        return self.store.update(store_update, self.key_mapping)
 
     def dump(self):
         return self.store.model_dump(mode="json")
@@ -141,4 +139,4 @@ class SharedStore:
         return list(self.key_mapping.verifiers.keys())
 
     def stop(self):
-        self.update_handler.cleanup()
+        self.update_manager.cleanup()

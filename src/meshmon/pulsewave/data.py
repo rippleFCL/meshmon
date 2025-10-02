@@ -32,7 +32,11 @@ class SignedBlockData(BaseModel):
 
     @classmethod
     def new(
-        cls, signer: Signer, data: BaseModel, block_id: str, rep_type: DateEvalType
+        cls,
+        signer: Signer,
+        data: BaseModel,
+        block_id: str,
+        rep_type: DateEvalType = DateEvalType.NEWER,
     ) -> "SignedBlockData":
         model_data = data.model_dump(mode="json")
         date = datetime.datetime.now(datetime.timezone.utc)
@@ -65,12 +69,6 @@ class SignedBlockData(BaseModel):
             verifier.verify(data_sig_str.encode(), base64.b64decode(self.signature))
             and self.block_id == block_id
         )
-        if verified:
-            logger.debug(f"Signature verified for sig_id {verifier.node_id}")
-        else:
-            logger.warning(
-                f"Signature verification failed for sig_id {verifier.node_id}"
-            )
         return verified
 
 
@@ -116,12 +114,6 @@ class StoreContextData(BaseModel):
             verifier.verify(sig_str, base64.b64decode(self.sig))
             and self.context_name == context_name
         )
-        if verified:
-            logger.debug(f"Context signature verified for context {self.context_name}")
-        else:
-            logger.warning(
-                f"Context signature verification failed for context {self.context_name}"
-            )
         return verified
 
     def update(
@@ -133,12 +125,12 @@ class StoreContextData(BaseModel):
                 f"Context name mismatch: {self.context_name} vs {context_data.context_name}"
             )
             return False
-        if not context_data.verify(verifier, context_name):
-            logger.warning(
-                f"New context data signature verification failed for context {self.context_name}"
-            )
-            return False
         if context_data.date > self.date:
+            if not context_data.verify(verifier, context_name):
+                logger.warning(
+                    f"New context data signature verification failed for context {self.context_name}. skipping update."
+                )
+                return False
             old_allowed_keys = self.allowed_keys
             self.date = context_data.date
             self.sig = context_data.sig
@@ -186,7 +178,7 @@ class StoreContextData(BaseModel):
                     updated = True
         return updated
 
-    def diff(self, other: "StoreContextData") -> "StoreContextData":
+    def diff(self, other: "StoreContextData") -> "StoreContextData | None":
         if self.context_name != other.context_name:
             raise ValueError("Context names do not match for diff")
         if self.date >= other.date:
@@ -213,10 +205,17 @@ class StoreContextData(BaseModel):
             elif key not in self.data and key in other.data:
                 diff_data.data[key] = other.data[key]
             else:
-                if self.data[key].date >= other.data[key].date:
+                if self.data[key].date > other.data[key].date:
                     diff_data.data[key] = self.data[key]
-                else:
+                elif other.data[key].date > self.data[key].date:
                     diff_data.data[key] = other.data[key]
+        if (
+            not diff_data.data
+            and diff_data.date == self.date
+            and diff_data.sig == self.sig
+            and diff_data.allowed_keys == self.allowed_keys
+        ):
+            return None
         return diff_data
 
 
@@ -228,7 +227,6 @@ class StoreClockTableEntry(BaseModel):
 
 class StoreClockPulse(BaseModel):
     date: datetime.datetime
-    pulse_id: str
 
 
 class StoreConsistencyData(BaseModel):
@@ -246,10 +244,6 @@ class StoreConsistencyData(BaseModel):
         )
 
     def update(self, consistency_data: "StoreConsistencyData", verifier: Verifier):
-        if consistency_data.verify(verifier) is False:
-            logger.warning("Consistency data verification failed; skipping update.")
-            return False
-
         updated = False
         updated = (
             self.clock_table.update(
@@ -282,23 +276,31 @@ class StoreConsistencyData(BaseModel):
                     updated = True
         return updated
 
-    def diff(self, other: "StoreConsistencyData | None") -> "StoreConsistencyData":
+    def diff(
+        self, other: "StoreConsistencyData | None"
+    ) -> "StoreConsistencyData | None":
         if other is None:
             return self.model_copy()
+        clock_table_diff = self.clock_table.diff(other.clock_table)
+        leader_table_diff = self.leader_table.diff(other.leader_table)
         diff_data = StoreConsistencyData(
-            clock_table=self.clock_table.diff(other.clock_table),
-            leader_table=self.leader_table.diff(other.leader_table),
+            clock_table=clock_table_diff or self.clock_table,
+            leader_table=leader_table_diff or self.leader_table,
             clock_pulse=self.clock_pulse,
         )
         if self.clock_pulse and other.clock_pulse:
-            if self.clock_pulse.date >= other.clock_pulse.date:
-                diff_data.clock_pulse = self.clock_pulse
-            else:
+            if self.clock_pulse.date < other.clock_pulse.date:
                 diff_data.clock_pulse = other.clock_pulse
         elif self.clock_pulse and not other.clock_pulse:
             diff_data.clock_pulse = self.clock_pulse
         elif not self.clock_pulse and other.clock_pulse:
             diff_data.clock_pulse = other.clock_pulse
+        if (
+            diff_data.clock_table is self.clock_table
+            and diff_data.leader_table is self.leader_table
+            and diff_data.clock_pulse is self.clock_pulse
+        ):
+            return None
         return diff_data
 
     def verify(self, verifier: Verifier) -> bool:
@@ -375,11 +377,11 @@ class StoreNodeData(BaseModel):
             values={},
         )
 
-    def diff(self, other: "StoreNodeData") -> "StoreNodeData":
+    def diff(self, other: "StoreNodeData") -> "StoreNodeData | None":
         diff_data = StoreNodeData(
             contexts={},
             values={},
-            consistency=self.consistency,
+            consistency=None,
         )
         combined_contexts = set(self.contexts.keys()).union(set(other.contexts.keys()))
         for context_name in combined_contexts:
@@ -388,9 +390,10 @@ class StoreNodeData(BaseModel):
             elif context_name not in self.contexts and context_name in other.contexts:
                 diff_data.contexts[context_name] = other.contexts[context_name]
             else:
-                diff_data.contexts[context_name] = self.contexts[context_name].diff(
+                if diff := self.contexts[context_name].diff(
                     other.contexts[context_name]
-                )
+                ):
+                    diff_data.contexts[context_name] = diff
         combined_values = set(self.values.keys()).union(set(other.values.keys()))
         for key in combined_values:
             if key in self.values and key not in other.values:
@@ -398,9 +401,9 @@ class StoreNodeData(BaseModel):
             elif key not in self.values and key in other.values:
                 diff_data.values[key] = other.values[key]
             else:
-                if self.values[key].date >= other.values[key].date:
+                if self.values[key].date > other.values[key].date:
                     diff_data.values[key] = self.values[key]
-                else:
+                elif other.values[key].date > self.values[key].date:
                     diff_data.values[key] = other.values[key]
         if self.consistency and other.consistency:
             diff_data.consistency = self.consistency.diff(other.consistency)
@@ -408,7 +411,24 @@ class StoreNodeData(BaseModel):
             diff_data.consistency = self.consistency
         elif not self.consistency and other.consistency:
             diff_data.consistency = other.consistency
+
+        if (
+            not diff_data.contexts
+            and not diff_data.values
+            and diff_data.consistency is None
+        ):
+            return None
         return diff_data
+
+    def verify(self, verifier: Verifier) -> bool:
+        verified = True
+        for context_name, context_data in self.contexts.items():
+            verified = context_data.verify(verifier, context_name) and verified
+        for key, value in self.values.items():
+            verified = value.verify(verifier, key) and verified
+        if self.consistency:
+            verified = self.consistency.verify(verifier) and verified
+        return verified
 
 
 class StoreData(BaseModel):
@@ -423,7 +443,14 @@ class StoreData(BaseModel):
                 )
                 continue
             if node_id not in self.nodes:
-                self.nodes[node_id] = node_data.model_copy()
+                if node_data.verify(key_mapping.verifiers[node_id]):
+                    logger.debug(f"Adding new node data for node ID {node_id}")
+                    self.nodes[node_id] = node_data.model_copy()
+                else:
+                    logger.warning(
+                        f"Node data verification failed for new node ID {node_id}; skipping update."
+                    )
+                    continue
                 updated = True
             else:
                 current_node = self.nodes[node_id]
@@ -439,7 +466,7 @@ class StoreData(BaseModel):
             elif node_id not in self.nodes and node_id in other.nodes:
                 diff_data.nodes[node_id] = other.nodes[node_id]
             else:
-                diff_data.nodes[node_id] = self.nodes[node_id].diff(
-                    other.nodes[node_id]
-                )
+                if diff := self.nodes[node_id].diff(other.nodes[node_id]):
+                    diff_data.nodes[node_id] = diff
+
         return diff_data

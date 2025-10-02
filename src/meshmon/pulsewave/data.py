@@ -186,6 +186,39 @@ class StoreContextData(BaseModel):
                     updated = True
         return updated
 
+    def diff(self, other: "StoreContextData") -> "StoreContextData":
+        if self.context_name != other.context_name:
+            raise ValueError("Context names do not match for diff")
+        if self.date >= other.date:
+            diff_data = StoreContextData(
+                data={},
+                date=self.date,
+                context_name=self.context_name,
+                sig=self.sig,
+                allowed_keys=self.allowed_keys,
+            )
+        else:
+            diff_data = StoreContextData(
+                data={},
+                date=other.date,
+                context_name=other.context_name,
+                sig=other.sig,
+                allowed_keys=other.allowed_keys,
+            )
+
+        combined_keys = set(self.data.keys()).union(set(other.data.keys()))
+        for key in combined_keys:
+            if key in self.data and key not in other.data:
+                diff_data.data[key] = self.data[key]
+            elif key not in self.data and key in other.data:
+                diff_data.data[key] = other.data[key]
+            else:
+                if self.data[key].date >= other.data[key].date:
+                    diff_data.data[key] = self.data[key]
+                else:
+                    diff_data.data[key] = other.data[key]
+        return diff_data
+
 
 class StoreClockTableEntry(BaseModel):
     last_pulse: datetime.datetime
@@ -212,11 +245,78 @@ class StoreConsistencyData(BaseModel):
             leader_table=leader_table,
         )
 
+    def update(self, consistency_data: "StoreConsistencyData", verifier: Verifier):
+        if consistency_data.verify(verifier) is False:
+            logger.warning("Consistency data verification failed; skipping update.")
+            return False
+
+        updated = False
+        updated = (
+            self.clock_table.update(
+                consistency_data.clock_table, verifier, "clock_table"
+            )
+            or updated
+        )
+        updated = (
+            self.leader_table.update(
+                consistency_data.leader_table, verifier, "leader_table"
+            )
+            or updated
+        )
+        if consistency_data.clock_pulse:
+            if (
+                self.clock_pulse is None
+                or (
+                    self.clock_pulse.replacement_type == DateEvalType.NEWER
+                    and consistency_data.clock_pulse.date > self.clock_pulse.date
+                )
+                or (
+                    self.clock_pulse.replacement_type == DateEvalType.OLDER
+                    and consistency_data.clock_pulse.date < self.clock_pulse.date
+                )
+            ):
+                if consistency_data.clock_pulse.verify(
+                    verifier, consistency_data.clock_pulse.block_id
+                ):
+                    self.clock_pulse = consistency_data.clock_pulse
+                    updated = True
+        return updated
+
+    def diff(self, other: "StoreConsistencyData | None") -> "StoreConsistencyData":
+        if other is None:
+            return self.model_copy()
+        diff_data = StoreConsistencyData(
+            clock_table=self.clock_table.diff(other.clock_table),
+            leader_table=self.leader_table.diff(other.leader_table),
+            clock_pulse=self.clock_pulse,
+        )
+        if self.clock_pulse and other.clock_pulse:
+            if self.clock_pulse.date >= other.clock_pulse.date:
+                diff_data.clock_pulse = self.clock_pulse
+            else:
+                diff_data.clock_pulse = other.clock_pulse
+        elif self.clock_pulse and not other.clock_pulse:
+            diff_data.clock_pulse = self.clock_pulse
+        elif not self.clock_pulse and other.clock_pulse:
+            diff_data.clock_pulse = other.clock_pulse
+        return diff_data
+
+    def verify(self, verifier: Verifier) -> bool:
+        verified = True
+        verified = self.clock_table.verify(verifier, "clock_table") and verified
+        verified = self.leader_table.verify(verifier, "leader_table") and verified
+        if self.clock_pulse:
+            verified = (
+                self.clock_pulse.verify(verifier, self.clock_pulse.block_id)
+                and verified
+            )
+        return verified
+
 
 class StoreNodeData(BaseModel):
     contexts: dict[str, StoreContextData] = {}
     values: dict[str, SignedBlockData] = {}
-    consistency: StoreConsistencyData
+    consistency: StoreConsistencyData | None = None
 
     def update(self, node_data: "StoreNodeData", verifier: Verifier):
         updated = False
@@ -256,15 +356,59 @@ class StoreNodeData(BaseModel):
                 if value.verify(verifier, key):
                     self.values[key] = value
                     updated = True
+
+        if node_data.consistency:
+            if self.consistency is None:
+                if node_data.consistency.verify(verifier):
+                    self.consistency = node_data.consistency
+                    updated = True
+            else:
+                updated = (
+                    self.consistency.update(node_data.consistency, verifier) or updated
+                )
         return updated
 
     @classmethod
-    def new(cls, signer: Signer) -> "StoreNodeData":
+    def new(cls) -> "StoreNodeData":
         return cls(
             contexts={},
             values={},
-            consistency=StoreConsistencyData.new(signer),
         )
+
+    def diff(self, other: "StoreNodeData") -> "StoreNodeData":
+        diff_data = StoreNodeData(
+            contexts={},
+            values={},
+            consistency=self.consistency,
+        )
+        combined_contexts = set(self.contexts.keys()).union(set(other.contexts.keys()))
+        for context_name in combined_contexts:
+            if context_name in self.contexts and context_name not in other.contexts:
+                diff_data.contexts[context_name] = self.contexts[context_name]
+            elif context_name not in self.contexts and context_name in other.contexts:
+                diff_data.contexts[context_name] = other.contexts[context_name]
+            else:
+                diff_data.contexts[context_name] = self.contexts[context_name].diff(
+                    other.contexts[context_name]
+                )
+        combined_values = set(self.values.keys()).union(set(other.values.keys()))
+        for key in combined_values:
+            if key in self.values and key not in other.values:
+                diff_data.values[key] = self.values[key]
+            elif key not in self.values and key in other.values:
+                diff_data.values[key] = other.values[key]
+            else:
+                if self.values[key].date >= other.values[key].date:
+                    diff_data.values[key] = self.values[key]
+                else:
+                    diff_data.values[key] = other.values[key]
+        if self.consistency and other.consistency:
+            diff_data.consistency = self.consistency.diff(other.consistency)
+        elif self.consistency and not other.consistency:
+            diff_data.consistency = self.consistency
+        elif not self.consistency and other.consistency:
+            diff_data.consistency = other.consistency
+        return diff_data
 
 
 class StoreData(BaseModel):
@@ -285,3 +429,17 @@ class StoreData(BaseModel):
                 current_node = self.nodes[node_id]
                 updated = current_node.update(node_data, key_mapping.verifiers[node_id])
         return updated
+
+    def diff(self, other: "StoreData") -> "StoreData":
+        diff_data = StoreData(nodes={})
+        combined_nodes = set(self.nodes.keys()).union(set(other.nodes.keys()))
+        for node_id in combined_nodes:
+            if node_id in self.nodes and node_id not in other.nodes:
+                diff_data.nodes[node_id] = self.nodes[node_id]
+            elif node_id not in self.nodes and node_id in other.nodes:
+                diff_data.nodes[node_id] = other.nodes[node_id]
+            else:
+                diff_data.nodes[node_id] = self.nodes[node_id].diff(
+                    other.nodes[node_id]
+                )
+        return diff_data

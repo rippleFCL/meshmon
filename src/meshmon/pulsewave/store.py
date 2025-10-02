@@ -3,7 +3,7 @@ from typing import Iterator, Literal, overload
 import structlog
 from pydantic import BaseModel
 
-from .crypto import KeyMapping
+from .config import PulseWaveConfig
 from .data import (
     DateEvalType,
     SignedBlockData,
@@ -11,15 +11,22 @@ from .data import (
     StoreData,
     StoreNodeData,
 )
+from .manager import ConsistencyControler, ConsistencyHandler
+from .update import UpdateCallback, UpdateManager
 from .views import MutableStoreCtxView, StoreCtxView
 
 logger = structlog.stdlib.get_logger().bind(module="pulsewave.store")
 
 
 class SharedStore:
-    def __init__(self, key_mapping: KeyMapping):
+    def __init__(self, config: PulseWaveConfig, update_callback: UpdateCallback):
         self.store: StoreData = StoreData()
-        self.key_mapping = key_mapping
+        self.config = config
+        self.key_mapping = config.key_mapping
+        self.update_handler = UpdateManager(
+            update_callback, ConsistencyHandler(), config, self
+        )
+        self.consistency_controler = ConsistencyControler(self.update_handler, config)
         self.load()
         logger.debug("SharedStore initialized.")
 
@@ -50,12 +57,17 @@ class SharedStore:
         data: BaseModel,
         req_type: DateEvalType = DateEvalType.NEWER,
     ):
-        node_data = self.store.nodes[self.key_mapping.signer.node_id]
-
         signed_data = SignedBlockData.new(
             self.key_mapping.signer, data, block_id=value_id, rep_type=req_type
         )
-        node_data.values[value_id] = signed_data
+        update_store = StoreData(
+            nodes={
+                self.key_mapping.signer.node_id: StoreNodeData(
+                    values={value_id: signed_data},
+                )
+            }
+        )
+        self.store.update(update_store, self.key_mapping)
 
     @overload
     def _get_ctx(
@@ -99,7 +111,12 @@ class SharedStore:
             node_id = self.key_mapping.signer.node_id
             ctx_data = self._get_ctx(context_name, node_id, create_if_missing=True)
             return MutableStoreCtxView(
-                self.store, node_id, context_name, model, self.key_mapping.signer
+                self.store,
+                node_id,
+                context_name,
+                model,
+                self.key_mapping.signer,
+                self.update_handler,
             )
         else:
             ctx_data = self._get_ctx(context_name, node_id)
@@ -117,10 +134,11 @@ class SharedStore:
         return self.store.model_dump(mode="json")
 
     def load(self):
-        self.store.nodes[self.key_mapping.signer.node_id] = StoreNodeData.new(
-            self.key_mapping.signer
-        )
+        self.store.nodes[self.key_mapping.signer.node_id] = StoreNodeData.new()
 
     @property
     def nodes(self) -> list[str]:
         return list(self.key_mapping.verifiers.keys())
+
+    def stop(self):
+        self.update_handler.cleanup()

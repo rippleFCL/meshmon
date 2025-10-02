@@ -3,8 +3,16 @@ from typing import Iterator
 
 from pydantic import BaseModel
 
+from meshmon.pulsewave.update import UpdateManager
+
 from .crypto import Signer
-from .data import DateEvalType, SignedBlockData, StoreContextData, StoreData
+from .data import (
+    DateEvalType,
+    SignedBlockData,
+    StoreContextData,
+    StoreData,
+    StoreNodeData,
+)
 
 logger = getLogger("meshmon.distrostore")
 
@@ -48,17 +56,6 @@ class StoreCtxView[T: BaseModel]:
             return self.model.model_validate(ctx_data.data[key].data)
         return None
 
-    @property
-    def allowed_keys(self) -> list[str]:
-        ctx_data = self._get_ctx_data()
-        return ctx_data.allowed_keys.copy()
-
-    @allowed_keys.setter
-    def allowed_keys(self, keys: list[str]):
-        new_ctx = StoreContextData.new(self.signer, self.context_name, keys)
-        ctx_data = self._get_ctx_data()
-        ctx_data.update(new_ctx, self.signer.get_verifier(), self.context_name)
-
 
 class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
     def __init__(
@@ -68,7 +65,9 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
         context_name: str,
         model: type[T],
         signer: Signer,
+        update_handler: UpdateManager,
     ):
+        self.update_handler = update_handler
         super().__init__(store, node_id, context_name, model, signer)
 
     def set(self, key: str, data: T, rep_type: DateEvalType = DateEvalType.NEWER):
@@ -79,4 +78,32 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
         if ctx_data.allowed_keys and key not in ctx_data.allowed_keys:
             logger.warning(f"Key {key} not in allowed keys; skipping set operation.")
             return
-        ctx_data.data[key] = signed_data
+        update_store = StoreData(
+            nodes={
+                self.node_id: StoreNodeData(
+                    contexts={
+                        self.context_name: StoreContextData(
+                            data={key: signed_data},
+                            date=ctx_data.date,
+                            context_name=self.context_name,
+                            sig=ctx_data.sig,
+                            allowed_keys=ctx_data.allowed_keys,
+                        )
+                    }
+                )
+            }
+        )
+        self.update_handler.update(update_store)
+
+    @property
+    def allowed_keys(self) -> list[str]:
+        ctx_data = self._get_ctx_data()
+        return ctx_data.allowed_keys.copy()
+
+    @allowed_keys.setter
+    def allowed_keys(self, keys: list[str]):
+        new_ctx = StoreContextData.new(self.signer, self.context_name, keys)
+        update_store = StoreData(
+            nodes={self.node_id: StoreNodeData(contexts={self.context_name: new_ctx})}
+        )
+        self.update_handler.update(update_store)

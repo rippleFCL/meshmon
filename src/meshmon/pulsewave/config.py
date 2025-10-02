@@ -1,20 +1,39 @@
-from pydantic import BaseModel
+from dataclasses import dataclass
 
-from .crypto import Signer, Verifier
+from .crypto import KeyMapping, Signer, Verifier
 
 
-class NodeConfig(BaseModel):
+@dataclass
+class NodeConfig:
     node_id: str
     uri: str
     verifier: Verifier
 
 
-class CurrentNode(BaseModel):
+@dataclass
+class CurrentNode:
     node_id: str
     signer: Signer
     verifier: Verifier
 
 
-class PulseWaveConfig(BaseModel):
+@dataclass
+class PulseWaveConfig:
     current_node: CurrentNode
     nodes: dict[str, NodeConfig]
+    update_rate_limit: int
+    clock_pulse_interval: int
+
+    def get_verifier(self, node_id: str) -> Verifier | None:
+        node_cfg = self.nodes.get(node_id)
+        if node_cfg:
+            return node_cfg.verifier
+        if node_id == self.current_node.node_id:
+            return self.current_node.verifier
+        return None
+
+    @property
+    def key_mapping(self) -> KeyMapping:
+        verifiers = {cfg.node_id: cfg.verifier for cfg in self.nodes.values()}
+        verifiers[self.current_node.node_id] = self.current_node.verifier
+        return KeyMapping(self.current_node.signer, verifiers)

@@ -8,6 +8,4 @@ jobs:
   lint:
     uses: ./.github/workflows/lint.yml
   run-tests:
-    needs:
-      - lint
     uses: ./.github/workflows/run-tests.yml

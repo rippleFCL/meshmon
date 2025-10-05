@@ -27,7 +27,7 @@ jobs:
         run: poetry install
 
       - name: Run tests with pytest
-        run: poetry run pytest tests/ -v --tb=short
+        run: poetry run python -m pytest tests/ -v --tb=short
 
       - name: Run linting with ruff
         run: poetry run ruff check src/

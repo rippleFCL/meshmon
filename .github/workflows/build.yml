@@ -17,20 +17,15 @@ env:
   IMAGE_NAME: meshmon
 
 jobs:
-  lint:
-    uses: ./.github/workflows/lint.yml
+  quality-check:
+    uses: ./.github/workflows/quality-check.yml
+    secrets: inherit
   check-version:
     uses: ./.github/workflows/check-version.yml
-  test:
-    needs:
-      - lint
-      - check-version
-    uses: ./.github/workflows/test.yml
   build:
     needs:
-      - lint
       - check-version
-      - test
+      - quality-check
     runs-on: ubuntu-latest
     permissions:
       packages: write

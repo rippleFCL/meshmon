@@ -1,8 +1,6 @@
 name: Tests
 
 on:
-  push:
-  pull_request:
   workflow_call:
 
 jobs:
@@ -10,6 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - run: pipx install poetry
 
       - name: Set up Python
         uses: actions/setup-python@v4

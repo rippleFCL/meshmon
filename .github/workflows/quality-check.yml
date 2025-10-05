@@ -1,0 +1,11 @@
+name: Tests
+
+on:
+  push:
+  workflow_call:
+
+jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+  test:
+    uses: ./.github/workflows/run-tests.yml

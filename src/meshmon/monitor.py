@@ -12,7 +12,7 @@ from .analysis.analysis import analyze_monitor_status, analyze_node_status
 from .analysis.store import NodePingStatus
 from .analysis.store import NodeStatus as AnalysisNodeStatus
 from .config import MonitorTypes, NetworkConfigLoader, NetworkMonitor, NetworkNodeInfo
-from .pulsewave.distrostore import (
+from .distrostore import (
     NodeInfo,
     NodeStatus,
     PingData,

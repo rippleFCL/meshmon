@@ -4,8 +4,8 @@ import time
 from structlog.stdlib import get_logger
 
 from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
+from .distrostore import PingData, StoreManager
 from .monitor import MonitorManager
-from .pulsewave.distrostore import PingData, StoreManager
 from .update import UpdateManager
 from .webhooks import AnalysedNodeStatus
 

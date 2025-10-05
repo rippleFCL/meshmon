@@ -117,20 +117,24 @@ class StoreContextData(BaseModel):
         return verified
 
     def update(
-        self, context_data: "StoreContextData", verifier: Verifier, context_name: str
-    ):
-        updated = False
+        self,
+        path: str,
+        context_data: "StoreContextData",
+        verifier: Verifier,
+        context_name: str,
+    ) -> list[str]:
         if not (context_data.context_name == self.context_name == context_name):
             logger.warning(
                 f"Context name mismatch: {self.context_name} vs {context_data.context_name}"
             )
-            return False
+            return []
+        updated_paths: list[str] = []
         if context_data.date > self.date:
             if not context_data.verify(verifier, context_name):
                 logger.warning(
                     f"New context data signature verification failed for context {self.context_name}. skipping update."
                 )
-                return False
+                return []
             old_allowed_keys = self.allowed_keys
             self.date = context_data.date
             self.sig = context_data.sig
@@ -146,7 +150,7 @@ class StoreContextData(BaseModel):
                             f"Removing disallowed key {key} from context {self.context_name}"
                         )
                         del self.data[key]
-            updated = True
+            updated_paths.append(path)
 
         for key, value in context_data.data.items():
             if self.allowed_keys and key not in self.allowed_keys:
@@ -156,27 +160,26 @@ class StoreContextData(BaseModel):
                         f"Removing disallowed key {key} from context {self.context_name}"
                     )
                     del self.data[key]
-                    updated = True
                 continue
             if key not in self.data:
                 if value.verify(verifier, key):
                     self.data[key] = value
-                    updated = True
+                    updated_paths.append(f"{path}.{key}")
             elif (
                 value.replacement_type == DateEvalType.NEWER
                 and value.date > self.data[key].date
             ):
                 if value.verify(verifier, key):
                     self.data[key] = value
-                    updated = True
+                    updated_paths.append(f"{path}.{key}")
             elif (
                 value.replacement_type == DateEvalType.OLDER
                 and value.date < self.data[key].date
             ):
                 if value.verify(verifier, key):
                     self.data[key] = value
-                    updated = True
-        return updated
+                    updated_paths.append(f"{path}.{key}")
+        return updated_paths
 
     def diff(self, other: "StoreContextData") -> "StoreContextData | None":
         if self.context_name != other.context_name:
@@ -218,44 +221,80 @@ class StoreContextData(BaseModel):
             return None
         return diff_data
 
+    def all_paths(self, path: str) -> list[str]:
+        return [f"{path}.{key}" for key in self.data.keys()]
+
 
 class StoreClockTableEntry(BaseModel):
     last_pulse: datetime.datetime
     pulse_interval: float
-    last_updated: datetime.datetime
+    delta: datetime.timedelta
+    rtt: datetime.timedelta
+    remote_time: datetime.datetime
+
+
+class StorePulseTableEntry(BaseModel):
+    current_pulse: datetime.datetime
+    current_time: datetime.datetime
 
 
 class StoreClockPulse(BaseModel):
     date: datetime.datetime
 
 
+class StoreNodeStatus(Enum):
+    ONLINE = "ONLINE"
+    OFFLINE = "OFFLINE"
+
+
+class StoreNodeStatusEntry(BaseModel):
+    status: StoreNodeStatus
+
+
 class StoreConsistencyData(BaseModel):
     clock_table: StoreContextData
+    pulse_table: StoreContextData
     clock_pulse: SignedBlockData | None = None
-    leader_table: StoreContextData
+    node_status_table: StoreContextData
 
     @classmethod
     def new(cls, signer: Signer) -> "StoreConsistencyData":
         clock_table = StoreContextData.new(signer, "clock_table")
-        leader_table = StoreContextData.new(signer, "leader_table")
+        node_status_table = StoreContextData.new(signer, "node_status_table")
+        pulse_table = StoreContextData.new(signer, "pulse_table")
         return cls(
             clock_table=clock_table,
-            leader_table=leader_table,
+            node_status_table=node_status_table,
+            pulse_table=pulse_table,
         )
 
-    def update(self, consistency_data: "StoreConsistencyData", verifier: Verifier):
-        updated = False
-        updated = (
+    def update(
+        self, path: str, consistency_data: "StoreConsistencyData", verifier: Verifier
+    ):
+        updated_paths: list[str] = []
+        updated_paths.extend(
             self.clock_table.update(
-                consistency_data.clock_table, verifier, "clock_table"
+                f"{path}.clock_table",
+                consistency_data.clock_table,
+                verifier,
+                "clock_table",
             )
-            or updated
         )
-        updated = (
-            self.leader_table.update(
-                consistency_data.leader_table, verifier, "leader_table"
+        updated_paths.extend(
+            self.node_status_table.update(
+                f"{path}.node_status_table",
+                consistency_data.node_status_table,
+                verifier,
+                "node_status_table",
             )
-            or updated
+        )
+        updated_paths.extend(
+            self.pulse_table.update(
+                f"{path}.pulse_table",
+                consistency_data.pulse_table,
+                verifier,
+                "pulse_table",
+            )
         )
         if consistency_data.clock_pulse:
             if (
@@ -273,8 +312,8 @@ class StoreConsistencyData(BaseModel):
                     verifier, consistency_data.clock_pulse.block_id
                 ):
                     self.clock_pulse = consistency_data.clock_pulse
-                    updated = True
-        return updated
+                    updated_paths.append(f"{path}.clock_pulse")
+        return updated_paths
 
     def diff(
         self, other: "StoreConsistencyData | None"
@@ -282,10 +321,12 @@ class StoreConsistencyData(BaseModel):
         if other is None:
             return self.model_copy()
         clock_table_diff = self.clock_table.diff(other.clock_table)
-        leader_table_diff = self.leader_table.diff(other.leader_table)
+        node_status_table_diff = self.node_status_table.diff(other.node_status_table)
+        pulse_table_diff = self.pulse_table.diff(other.pulse_table)
         diff_data = StoreConsistencyData(
+            pulse_table=pulse_table_diff or self.pulse_table,
             clock_table=clock_table_diff or self.clock_table,
-            leader_table=leader_table_diff or self.leader_table,
+            node_status_table=node_status_table_diff or self.node_status_table,
             clock_pulse=self.clock_pulse,
         )
         if self.clock_pulse and other.clock_pulse:
@@ -297,7 +338,7 @@ class StoreConsistencyData(BaseModel):
             diff_data.clock_pulse = other.clock_pulse
         if (
             diff_data.clock_table is self.clock_table
-            and diff_data.leader_table is self.leader_table
+            and diff_data.node_status_table is self.node_status_table
             and diff_data.clock_pulse is self.clock_pulse
         ):
             return None
@@ -306,7 +347,10 @@ class StoreConsistencyData(BaseModel):
     def verify(self, verifier: Verifier) -> bool:
         verified = True
         verified = self.clock_table.verify(verifier, "clock_table") and verified
-        verified = self.leader_table.verify(verifier, "leader_table") and verified
+        verified = (
+            self.node_status_table.verify(verifier, "node_status_table") and verified
+        )
+        verified = self.pulse_table.verify(verifier, "pulse_table") and verified
         if self.clock_pulse:
             verified = (
                 self.clock_pulse.verify(verifier, self.clock_pulse.block_id)
@@ -314,41 +358,59 @@ class StoreConsistencyData(BaseModel):
             )
         return verified
 
+    def all_paths(self, path: str) -> list[str]:
+        paths = []
+        paths.extend(self.clock_table.all_paths(f"{path}.clock_table"))
+        paths.extend(self.node_status_table.all_paths(f"{path}.node_status_table"))
+        paths.extend(self.pulse_table.all_paths(f"{path}.pulse_table"))
+        if self.clock_pulse:
+            paths.append(f"{path}.clock_pulse")
+        return paths
+
+
+class StoreClusterData(BaseModel):
+    data: StoreContextData
+    is_leader: SignedBlockData
+    nodes: SignedBlockData
+
 
 class StoreNodeData(BaseModel):
     contexts: dict[str, StoreContextData] = {}
     values: dict[str, SignedBlockData] = {}
     consistency: StoreConsistencyData | None = None
 
-    def update(self, node_data: "StoreNodeData", verifier: Verifier):
-        updated = False
+    def update(
+        self, path: str, node_data: "StoreNodeData", verifier: Verifier
+    ) -> list[str]:
+        updated_paths: list[str] = []
         for context_name, context_data in node_data.contexts.items():
             if context_name not in self.contexts:
                 if context_data.verify(verifier, context_name):
-                    new_ctx = StoreContextData(
-                        date=context_data.date,
-                        context_name=context_name,
-                        sig=context_data.sig,
-                        allowed_keys=context_data.allowed_keys,
+                    self.contexts[context_name] = context_data
+                    updated_paths.append(f"{path}.contexts.{context_name}")
+                    updated_paths.extend(
+                        context_data.all_paths(f"{path}.contexts.{context_name}")
                     )
-                    new_ctx.update(context_data, verifier, context_name)
-                    self.contexts[context_name] = new_ctx
-                    updated = True
             else:
-                updated = self.contexts[context_name].update(
-                    context_data, verifier, context_name
+                updated_paths.extend(
+                    self.contexts[context_name].update(
+                        f"{path}.contexts.{context_name}",
+                        context_data,
+                        verifier,
+                        context_name,
+                    )
                 )
         for key, value in node_data.values.items():
             if key not in self.values:
                 if value.verify(verifier, key):
                     self.values[key] = value
-                    updated = True
+                    updated_paths.append(f"{path}.values.{key}")
             elif (
                 self.values[key].replacement_type == DateEvalType.NEWER
                 and value.date > self.values[key].date
             ):
                 if value.verify(verifier, key):
-                    updated = True
+                    updated_paths.append(f"{path}.values.{key}")
                     self.values[key] = value
 
             elif (
@@ -357,18 +419,24 @@ class StoreNodeData(BaseModel):
             ):
                 if value.verify(verifier, key):
                     self.values[key] = value
-                    updated = True
+                    updated_paths.append(f"{path}.values.{key}")
 
         if node_data.consistency:
             if self.consistency is None:
                 if node_data.consistency.verify(verifier):
                     self.consistency = node_data.consistency
-                    updated = True
+                    updated_paths.append(f"{path}.consistency")
+                    updated_paths.extend(
+                        node_data.consistency.all_paths(f"{path}.consistency")
+                    )
             else:
-                updated = (
-                    self.consistency.update(node_data.consistency, verifier) or updated
+                updated_paths.extend(
+                    self.consistency.update(
+                        f"{path}.consistency", node_data.consistency, verifier
+                    )
+                    or updated_paths
                 )
-        return updated
+        return updated_paths
 
     @classmethod
     def new(cls) -> "StoreNodeData":
@@ -430,12 +498,22 @@ class StoreNodeData(BaseModel):
             verified = self.consistency.verify(verifier) and verified
         return verified
 
+    def all_paths(self, path: str) -> list[str]:
+        paths = []
+        for context_name, context_data in self.contexts.items():
+            paths.extend(context_data.all_paths(f"{path}.contexts.{context_name}"))
+        for key in self.values.keys():
+            paths.append(f"{path}.values.{key}")
+        if self.consistency:
+            paths.extend(self.consistency.all_paths(f"{path}.consistency"))
+        return paths
+
 
 class StoreData(BaseModel):
     nodes: dict[str, StoreNodeData] = {}
 
-    def update(self, store_data: "StoreData", key_mapping: KeyMapping):
-        updated = False
+    def update(self, store_data: "StoreData", key_mapping: KeyMapping) -> list[str]:
+        updated_paths: list[str] = []
         for node_id, node_data in store_data.nodes.items():
             if node_id not in key_mapping.verifiers:
                 logger.warning(
@@ -446,16 +524,21 @@ class StoreData(BaseModel):
                 if node_data.verify(key_mapping.verifiers[node_id]):
                     logger.debug(f"Adding new node data for node ID {node_id}")
                     self.nodes[node_id] = node_data.model_copy()
+                    updated_paths.extend(node_data.all_paths(f"nodes.{node_id}"))
                 else:
                     logger.warning(
                         f"Node data verification failed for new node ID {node_id}; skipping update."
                     )
                     continue
-                updated = True
+                updated_paths.append(f"nodes.{node_id}")
             else:
                 current_node = self.nodes[node_id]
-                updated = current_node.update(node_data, key_mapping.verifiers[node_id])
-        return updated
+                updated_paths.extend(
+                    current_node.update(
+                        f"nodes.{node_id}", node_data, key_mapping.verifiers[node_id]
+                    )
+                )
+        return updated_paths
 
     def diff(self, other: "StoreData") -> "StoreData":
         diff_data = StoreData(nodes={})

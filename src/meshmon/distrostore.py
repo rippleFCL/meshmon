@@ -5,8 +5,9 @@ from typing import Callable
 import structlog
 from pydantic import BaseModel
 
-from ..config import NetworkConfig, NetworkConfigLoader
-from .store import SharedStore
+from .config import NetworkConfig, NetworkConfigLoader
+from .pulsewave.config import PulseWaveConfig
+from .pulsewave.store import SharedStore
 
 logger = structlog.stdlib.get_logger().bind(module="pulsewave.distrostore")
 
@@ -45,6 +46,9 @@ class StoreManager:
         self.store_prefiller = store_prefiller
         self.stores: dict[str, SharedStore] = {}
         self.load_stores()
+
+    def _pulse_wave_config(self, network: NetworkConfig):
+
 
     def load_stores(self):
         for network in self.config.networks.values():

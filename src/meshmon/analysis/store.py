@@ -4,11 +4,11 @@ from enum import Enum
 from pydantic import BaseModel
 
 from meshmon.config import NetworkConfigLoader
-from meshmon.pulsewave.distrostore import (
+from meshmon.distrostore import (
     NodeDataRetention,
 )
-from meshmon.pulsewave.distrostore import NodeInfo as StoreNodeInfo
-from meshmon.pulsewave.distrostore import (
+from meshmon.distrostore import NodeInfo as StoreNodeInfo
+from meshmon.distrostore import (
     PingData,
     SharedStore,
     StoreManager,

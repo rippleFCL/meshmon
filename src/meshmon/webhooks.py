@@ -10,8 +10,8 @@ from meshmon.update import UpdateManager
 
 from .analysis.store import NodeStatus
 from .config import NetworkConfigLoader
+from .distrostore import StoreManager
 from .monitor import AnalysedNodeStatus
-from .pulsewave.distrostore import StoreManager
 
 
 class HashedWebhook(BaseModel):

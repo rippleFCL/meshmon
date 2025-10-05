@@ -6,7 +6,7 @@ from requests import RequestException, Session
 from structlog.stdlib import get_logger
 
 from .config import NetworkConfigLoader, NetworkNodeInfo
-from .pulsewave.distrostore import StoreManager
+from .distrostore import StoreManager
 
 
 class UpdateManager:

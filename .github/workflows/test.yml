@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+    push:
+        branches: [main, develop]
+    pull_request:
+        branches: [main, develop]
+    workflow_call:
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                python-version: ["3.13"]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Python ${{ matrix.python-version }}
+              uses: actions/setup-python@v4
+              with:
+                  python-version: ${{ matrix.python-version }}
+
+            - name: Install Poetry
+              uses: snok/install-poetry@v1
+              with:
+                  version: latest
+                  virtualenvs-create: true
+                  virtualenvs-in-project: true
+
+            - name: Cache Poetry dependencies
+              uses: actions/cache@v3
+              with:
+                  path: .venv
+                  key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+                  restore-keys: |
+                      venv-${{ runner.os }}-${{ matrix.python-version }}-
+
+            - name: Install dependencies
+              run: poetry install
+
+            - name: Run tests with pytest
+              run: poetry run pytest tests/ -v --tb=short
+
+            - name: Run linting with ruff
+              run: poetry run ruff check src/

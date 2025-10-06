@@ -12,6 +12,9 @@ dependencies = [
     "semver (>=3.0.4,<4.0.0)",
     "dumb-init (>=1.2.5.post1,<2.0.0)",
     "structlog (>=25.4.0,<26.0.0)",
+    "grpcio (>=1.68.0,<2.0.0)",
+    "grpcio-tools (>=1.68.0,<2.0.0)",
+    "mypy-protobuf (>=3.6.0,<4.0.0)",
 ]
 
 [tool.poetry]
@@ -31,6 +34,14 @@ build-backend = "poetry.core.masonry.api"
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    ".venv",
+    "build",
+    "dist",
+    "**/proto"
+]
 
 [tool.isort]
 profile = "black"

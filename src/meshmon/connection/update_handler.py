@@ -48,5 +48,5 @@ class GrpcUpdateHandler(UpdateHandler):
         if not hasattr(self, "store"):
             self.logger.info("Store not bound, cannot handle incoming update")
             return
-        self.logger.debug("Handling incoming update", src_id=update.node_id)
+        self.logger.info("Handling incoming update", src_id=update.node_id)
         self.store.update_from_dump(update.data)

@@ -6,8 +6,6 @@ import requests
 from pydantic import BaseModel
 from structlog.stdlib import get_logger
 
-from meshmon.update import UpdateManager
-
 from .analysis.store import NodeStatus
 from .config import NetworkConfigLoader
 from .distrostore import StoreManager
@@ -32,10 +30,8 @@ class WebhookHandler:
         self,
         store_manager: StoreManager,
         config: NetworkConfigLoader,
-        update_manager: UpdateManager,
     ):
         self.store_manager = store_manager
-        self.update_manager = update_manager
         self.config = config
         self.logger = get_logger()
         self.flag = threading.Event()
@@ -63,11 +59,6 @@ class WebhookHandler:
                     return False
             online_nodes += 1
         if online_nodes == 1:
-            self.logger.warning(
-                "Only one online node in network, cluster agreement not possible",
-                node_id=store.key_mapping.signer.node_id,
-                net_id=network_id,
-            )
             return False
 
         return True
@@ -97,7 +88,6 @@ class WebhookHandler:
             current_hash = current_store.get_value("webhook_hash", HashedWebhook)
             if current_hash is None:
                 return None
-            self.update_manager.update(network_id)
 
         current_node = current_store.key_mapping.signer.node_id
         current_priority = self._get_priority(current_node, network_id)
@@ -210,7 +200,6 @@ class WebhookHandler:
                         timestamp=datetime.datetime.now(tz=datetime.timezone.utc)
                     ),
                 )
-                self.update_manager.update(network_id)
 
             else:
                 self.logger.debug(
@@ -238,18 +227,13 @@ class WebhookHandler:
                     net_id=network_id,
                 )
                 return
-            updated = False
             for node_id, status in leader_status:
                 current_notified_status = node_status.get(node_id)
                 if current_notified_status is not None:
                     if current_notified_status.status != status.status:
                         node_status.set(node_id, status)
-                        updated = True
                 else:
                     node_status.set(node_id, status)
-                    updated = True
-            if updated:
-                self.update_manager.update(network_id)
 
     def webhook_thread(self):
         while True:

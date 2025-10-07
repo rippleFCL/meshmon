@@ -19,7 +19,6 @@ from .distrostore import (
     StoreManager,
 )
 from .pulsewave.views import MutableStoreCtxView
-from .update import UpdateManager
 from .version import VERSION
 
 
@@ -407,9 +406,8 @@ class HTTPMonitor(MonitorProto):
 
 
 class Monitor:
-    def __init__(self, monitor: MonitorProto, update_manager: UpdateManager):
+    def __init__(self, monitor: MonitorProto):
         self.monitor = monitor
-        self.update_manager = update_manager
         self.thread = Thread(target=self.monitor_thread, daemon=True)
         self.stop_flag = Event()
         self.logger = get_logger().bind(name=self.monitor.name)
@@ -420,7 +418,6 @@ class Monitor:
         while True:
             try:
                 self.monitor.run()
-                self.update_manager.update(self.monitor.net_id)
             except Exception as exc:
                 self.logger.error("Error in monitor loop", exc=exc)
             val = self.stop_flag.wait(self.monitor.poll_rate)
@@ -448,10 +445,8 @@ class MonitorManager:
         self,
         store_manager: StoreManager,
         config: NetworkConfigLoader,
-        update_manager: UpdateManager,
     ):
         self.store_manager = store_manager
-        self.update_manager = update_manager
         self.config = config
         self.logger = get_logger()
         self.monitors: dict[str, Monitor] = self._initialize_monitors()
@@ -510,7 +505,7 @@ class MonitorManager:
                         self.config,
                         local_node,
                     )
-                    monitor_wrapper = Monitor(monitor, self.update_manager)
+                    monitor_wrapper = Monitor(monitor)
                     monitors[monitor_key] = monitor_wrapper
                     monitor_wrapper.start()
 
@@ -528,7 +523,7 @@ class MonitorManager:
                         monitor_info,
                         self.config,
                     )
-                    monitor_wrapper = Monitor(monitor, self.update_manager)
+                    monitor_wrapper = Monitor(monitor)
                     monitors[monitor_key] = monitor_wrapper
                     monitor_wrapper.start()
                 else:

@@ -20,7 +20,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\rmeshmon.proto\x12\x07meshmon"\xa1\x01\n\x0cProtocolData\x12,\n\x0cstore_update\x18\x01 \x01(\x0b\x32\x14.meshmon.StoreUpdateH\x00\x12\x32\n\x0f\x63onnection_init\x18\x03 \x01(\x0b\x32\x17.meshmon.ConnectionInitH\x00\x12\x1f\n\x05\x65rror\x18\x05 \x01(\x0b\x32\x0e.meshmon.ErrorH\x00\x42\x0e\n\x0cmessage_type"S\n\x0bStoreUpdate\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\x12\n\nnetwork_id\x18\x02 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\t\x12\x11\n\ttimestamp\x18\x04 \x01(\x03"F\n\x0e\x43onnectionInit\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\x12\n\nnetwork_id\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t"7\n\x05\x45rror\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x0f\n\x07\x64\x65tails\x18\x03 \x01(\t2S\n\x0eMeshMonService\x12\x41\n\rStreamUpdates\x12\x15.meshmon.ProtocolData\x1a\x15.meshmon.ProtocolData(\x01\x30\x01\x62\x06proto3'
+    b'\n\rmeshmon.proto\x12\x07meshmon"\xd3\x01\n\x0cProtocolData\x12,\n\x0cstore_update\x18\x01 \x01(\x0b\x32\x14.meshmon.StoreUpdateH\x00\x12\x32\n\x0f\x63onnection_init\x18\x03 \x01(\x0b\x32\x17.meshmon.ConnectionInitH\x00\x12\x1f\n\x05\x65rror\x18\x05 \x01(\x0b\x32\x0e.meshmon.ErrorH\x00\x12\x30\n\x0e\x63onnection_ack\x18\x06 \x01(\x0b\x32\x16.meshmon.ConnectionAckH\x00\x42\x0e\n\x0cmessage_type"@\n\x0bStoreUpdate\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\x12\n\nnetwork_id\x18\x02 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\t"F\n\x0e\x43onnectionInit\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\x12\n\nnetwork_id\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t" \n\rConnectionAck\x12\x0f\n\x07message\x18\x01 \x01(\t"7\n\x05\x45rror\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x0f\n\x07\x64\x65tails\x18\x03 \x01(\t2S\n\x0eMeshMonService\x12\x41\n\rStreamUpdates\x12\x15.meshmon.ProtocolData\x1a\x15.meshmon.ProtocolData(\x01\x30\x01\x62\x06proto3'
 )
 
 _globals = globals()
@@ -29,13 +29,15 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "meshmon_pb2", _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
     _globals["_PROTOCOLDATA"]._serialized_start = 27
-    _globals["_PROTOCOLDATA"]._serialized_end = 188
-    _globals["_STOREUPDATE"]._serialized_start = 190
-    _globals["_STOREUPDATE"]._serialized_end = 273
-    _globals["_CONNECTIONINIT"]._serialized_start = 275
-    _globals["_CONNECTIONINIT"]._serialized_end = 345
-    _globals["_ERROR"]._serialized_start = 347
-    _globals["_ERROR"]._serialized_end = 402
-    _globals["_MESHMONSERVICE"]._serialized_start = 404
-    _globals["_MESHMONSERVICE"]._serialized_end = 487
+    _globals["_PROTOCOLDATA"]._serialized_end = 238
+    _globals["_STOREUPDATE"]._serialized_start = 240
+    _globals["_STOREUPDATE"]._serialized_end = 304
+    _globals["_CONNECTIONINIT"]._serialized_start = 306
+    _globals["_CONNECTIONINIT"]._serialized_end = 376
+    _globals["_CONNECTIONACK"]._serialized_start = 378
+    _globals["_CONNECTIONACK"]._serialized_end = 410
+    _globals["_ERROR"]._serialized_start = 412
+    _globals["_ERROR"]._serialized_end = 467
+    _globals["_MESHMONSERVICE"]._serialized_start = 469
+    _globals["_MESHMONSERVICE"]._serialized_end = 552
 # @@protoc_insertion_point(module_scope)

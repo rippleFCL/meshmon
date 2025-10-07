@@ -17,22 +17,28 @@ class ProtocolData(google.protobuf.message.Message):
     STORE_UPDATE_FIELD_NUMBER: builtins.int
     CONNECTION_INIT_FIELD_NUMBER: builtins.int
     ERROR_FIELD_NUMBER: builtins.int
+    CONNECTION_ACK_FIELD_NUMBER: builtins.int
     @property
     def store_update(self) -> global___StoreUpdate: ...
     @property
     def connection_init(self) -> global___ConnectionInit: ...
     @property
     def error(self) -> global___Error: ...
+    @property
+    def connection_ack(self) -> global___ConnectionAck: ...
     def __init__(
         self,
         *,
         store_update: global___StoreUpdate | None = ...,
         connection_init: global___ConnectionInit | None = ...,
         error: global___Error | None = ...,
+        connection_ack: global___ConnectionAck | None = ...,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing.Literal[
+            "connection_ack",
+            b"connection_ack",
             "connection_init",
             b"connection_init",
             "error",
@@ -46,6 +52,8 @@ class ProtocolData(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing.Literal[
+            "connection_ack",
+            b"connection_ack",
             "connection_init",
             b"connection_init",
             "error",
@@ -58,7 +66,10 @@ class ProtocolData(google.protobuf.message.Message):
     ) -> None: ...
     def WhichOneof(
         self, oneof_group: typing.Literal["message_type", b"message_type"]
-    ) -> typing.Literal["store_update", "connection_init", "error"] | None: ...
+    ) -> (
+        typing.Literal["store_update", "connection_init", "error", "connection_ack"]
+        | None
+    ): ...
 
 global___ProtocolData = ProtocolData
 
@@ -69,32 +80,22 @@ class StoreUpdate(google.protobuf.message.Message):
     NODE_ID_FIELD_NUMBER: builtins.int
     NETWORK_ID_FIELD_NUMBER: builtins.int
     DATA_FIELD_NUMBER: builtins.int
-    TIMESTAMP_FIELD_NUMBER: builtins.int
     node_id: builtins.str
     network_id: builtins.str
     """Network/store identifier"""
     data: builtins.str
     """JSON serialized StoreData"""
-    timestamp: builtins.int
     def __init__(
         self,
         *,
         node_id: builtins.str = ...,
         network_id: builtins.str = ...,
         data: builtins.str = ...,
-        timestamp: builtins.int = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "data",
-            b"data",
-            "network_id",
-            b"network_id",
-            "node_id",
-            b"node_id",
-            "timestamp",
-            b"timestamp",
+            "data", b"data", "network_id", b"network_id", "node_id", b"node_id"
         ],
     ) -> None: ...
 
@@ -126,6 +127,21 @@ class ConnectionInit(google.protobuf.message.Message):
     ) -> None: ...
 
 global___ConnectionInit = ConnectionInit
+
+@typing.final
+class ConnectionAck(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    MESSAGE_FIELD_NUMBER: builtins.int
+    message: builtins.str
+    def __init__(
+        self,
+        *,
+        message: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["message", b"message"]) -> None: ...
+
+global___ConnectionAck = ConnectionAck
 
 @typing.final
 class Error(google.protobuf.message.Message):

@@ -13,6 +13,7 @@ message ProtocolData {
         StoreUpdate store_update = 1;
         ConnectionInit connection_init = 3;
         Error error = 5;
+        ConnectionAck connection_ack = 6;
     }
 }
 
@@ -27,6 +28,10 @@ message ConnectionInit {
     string node_id = 1;
     string network_id = 2;  // Network this connection is for
     string version = 3;
+}
+
+message ConnectionAck {
+    string message = 1;
 }
 
 message Error {

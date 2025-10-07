@@ -60,6 +60,7 @@ class Connection:
         for conn in self.connections:
             if not conn.is_closed:
                 conn.send_response(response)
+                return
 
     def add_raw_connection(self, raw_conn: RawConnection) -> None:
         raw_conn.set_handler(self.connection_handler)

@@ -4,12 +4,7 @@ Generated protobuf code for MeshMon gRPC transport.
 This module contains the generated protobuf classes and gRPC stubs.
 """
 
-from .meshmon_pb2 import (
-    ConnectionInit,
-    Error,
-    ProtocolData,
-    StoreUpdate,
-)
+from .meshmon_pb2 import ConnectionAck, ConnectionInit, Error, ProtocolData, StoreUpdate
 from .meshmon_pb2_grpc import (
     MeshMonServiceServicer,
     MeshMonServiceStub,
@@ -22,6 +17,7 @@ __all__ = [
     "Error",
     "StoreUpdate",
     "ProtocolData",
+    "ConnectionAck",
     # gRPC types
     "MeshMonServiceServicer",
     "MeshMonServiceStub",

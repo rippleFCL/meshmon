@@ -27,7 +27,8 @@
                 "8000"
             ],
             "env": {
-                "LOG_LEVEL": "DEBUG",
+                "LOG_LEVEL": "INFO",
+                "ENV": "dev"
             },
             "jinja": true,
             "justMyCode": false

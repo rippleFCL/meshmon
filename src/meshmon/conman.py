@@ -6,7 +6,6 @@ from structlog.stdlib import get_logger
 from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
 from .distrostore import PingData, StoreManager
 from .monitor import MonitorManager
-from .update import UpdateManager
 from .webhooks import AnalysedNodeStatus
 
 logger = get_logger()
@@ -18,9 +17,7 @@ class ConfigManager:
         config: NetworkConfigLoader,
         stores: StoreManager,
         monitors: MonitorManager,
-        update_manager: UpdateManager,
     ):
-        self.update_manager = update_manager
         self.config = config
         self.store_manager = stores
         self.monitor_manager = monitors
@@ -32,7 +29,6 @@ class ConfigManager:
             time.sleep(10)
             try:
                 if self.config.needs_reload():
-                    self.update_manager.stop()
                     self.monitor_manager.stop()
                     self.config.reload()
                     self.store_manager.reload()
@@ -56,6 +52,5 @@ class ConfigManager:
                         )
 
                     self.monitor_manager.reload()
-                    self.update_manager.reload()
             except Exception as exc:
                 logger.error("Error in config watcher", exc=exc)

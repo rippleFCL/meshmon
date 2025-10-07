@@ -5,13 +5,14 @@ from typing import TYPE_CHECKING, Iterator
 import grpc
 import structlog
 
-from meshmon.config import NetworkConfig
+from meshmon.config import NetworkConfigLoader
 from meshmon.connection.protocol_handler import PulseWaveProtocol
 from meshmon.connection.update_handler import GrpcUpdateHandler
 
 from .connection import ConnectionManager, RawConnection
 from .grpc_client import GrpcClient
 from .proto import (
+    ConnectionAck,
     Error,
     MeshMonServiceServicer,
     ProtocolData,
@@ -93,7 +94,9 @@ class MeshMonServicer(MeshMonServiceServicer):
                 )
             )
             return
-
+        yield ProtocolData(
+            connection_ack=ConnectionAck(message="Connection established")
+        )
         connection_init = initial_packet.connection_init
         response_queue: "queue.Queue[ProtocolData]" = queue.Queue()
         raw_conn = RawConnection(response_queue)
@@ -176,9 +179,8 @@ class MeshMonServicer(MeshMonServiceServicer):
 class GrpcServer:
     """gRPC server for handling mesh connections."""
 
-    def __init__(self, netconfig: dict[str, NetworkConfig], node_id: str):
+    def __init__(self, netconfig: NetworkConfigLoader):
         self.config = netconfig
-        self.node_id = node_id
         self.logger = structlog.stdlib.get_logger().bind(
             module="connection.grpc_server", component="server"
         )
@@ -200,7 +202,7 @@ class GrpcServer:
                     ("grpc.keepalive_time_ms", 10000),
                     ("grpc.keepalive_timeout_ms", 5000),
                     ("grpc.keepalive_permit_without_calls", True),
-                    ("grpc.http2.max_pings_without_data", 0),
+                    ("grpc.http2.max_pings_without_data", 10),
                     ("grpc.http2.min_time_between_pings_ms", 10000),
                     ("grpc.http2.min_ping_interval_without_data_ms", 300000),
                 ],
@@ -230,7 +232,6 @@ class GrpcServer:
                     self.connection_manager,
                     self.update_handlers,
                     self.config,
-                    self.node_id,
                 )
             except Exception as e:
                 self.logger.error("Failed to start embedded gRPC client", error=str(e))

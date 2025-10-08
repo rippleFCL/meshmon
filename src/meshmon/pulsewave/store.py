@@ -12,15 +12,19 @@ from .data import (
     StoreData,
     StoreNodeData,
 )
+from .secrets import SecretContainer
 from .update.events import RateLimitedHandler
 from .update.handlers import (
     get_clock_table_handler,
-    get_data_event_handler,
+    get_data_update_handler,
+    get_leader_election_handler,
+    get_node_status_handler,
     get_pulse_table_handler,
 )
 from .update.manager import ClockPulseGenerator
 from .update.update import ExactPathMatcher, UpdateHandler, UpdateManager
 from .views import (
+    ConsistencyContextView,
     MutableStoreConsistencyView,
     MutableStoreCtxView,
     StoreConsistencyView,
@@ -35,14 +39,18 @@ class SharedStore:
         self.store: StoreData = StoreData()
         self.config = config
         self.key_mapping = config.key_mapping
-
+        self.secret_store = SecretContainer()
         self.update_manager = UpdateManager(config, self)
         matcher, handler = get_clock_table_handler(config)
         self.update_manager.add_handler(matcher, handler)
         matcher, handler = get_pulse_table_handler()
         self.update_manager.add_handler(matcher, handler)
-        matcher, handler = get_data_event_handler()
-        self.update_manager.add_event_handler(matcher, handler)
+        matcher, handler = get_node_status_handler()
+        self.update_manager.add_handler(matcher, handler)
+        matcher, handler = get_data_update_handler()
+        self.update_manager.add_handler(matcher, handler)
+        matcher, handler = get_leader_election_handler(self.secret_store)
+        self.update_manager.add_handler(matcher, handler)
 
         self.update_manager.add_event_handler(
             ExactPathMatcher("instant_update"), update_handler
@@ -166,6 +174,31 @@ class SharedStore:
             self.update_manager.trigger_update([f"nodes.{node_id}.consistency"])
             return consistency_data
         return None
+
+    def get_consistency_context[T: BaseModel](
+        self, context_name: str, model: type[T], secret: str | None = None
+    ) -> ConsistencyContextView[T]:
+        if secret is not None:
+            if context_name not in self.secret_store:
+                self.secret_store.add_secret(context_name, secret)
+            elif not self.secret_store.validate_secret(context_name, secret):
+                raise ValueError("Invalid secret for context")
+
+        return ConsistencyContextView(
+            self.store,
+            context_name,
+            f"nodes.{self.key_mapping.signer.node_id}.consistency.consistent_contexts.{context_name}",
+            model,
+            self.key_mapping,
+            self.update_manager,
+            secret,
+        )
+
+    def all_consistency_contexts(self) -> Iterator[str]:
+        node_data = self._get_node()
+        if node_data and node_data.consistency:
+            for context_name in node_data.consistency.consistent_contexts:
+                yield context_name
 
     @overload
     def get_context[T: BaseModel](

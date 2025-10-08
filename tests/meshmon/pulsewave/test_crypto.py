@@ -517,3 +517,47 @@ class TestCryptoIntegration:
             encoded = signer.encode_message(original)
             decoded = verifier.decode_message(encoded)
             assert decoded == original, f"Failed for message: {original[:50]}..."
+
+    def test_verifier_by_id_invalid_key_type_in_file(self, tmp_path):
+        """Test Verifier.by_id when file contains non-Ed25519 key."""
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # Create the test_peer.pub file with RSA key in tmp_path root
+        key_path = tmp_path / "test_peer.pub"
+
+        # Create an RSA key (invalid type)
+        rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        rsa_public = rsa_key.public_key()
+
+        # Save as PEM
+        pem = rsa_public.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        key_path.write_bytes(pem)
+
+        # Should raise ValueError for invalid key type
+        with pytest.raises(ValueError, match="not an Ed25519 public key"):
+            Verifier.by_id("test_peer", str(tmp_path))
+
+    def test_signer_by_id_invalid_key_type_in_file(self, tmp_path):
+        """Test Signer.by_id when file contains non-Ed25519 key."""
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # Create the test_peer.key file with RSA key in tmp_path root
+        key_path = tmp_path / "test_peer.key"
+
+        # Create an RSA key (invalid type)
+        rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+        # Save as PEM
+        pem = rsa_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        key_path.write_bytes(pem)
+
+        # Should raise ValueError for invalid key type
+        with pytest.raises(ValueError, match="not an Ed25519 private key"):
+            Signer.by_id("test_peer", str(tmp_path))

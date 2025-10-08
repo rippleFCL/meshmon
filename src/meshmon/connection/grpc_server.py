@@ -16,6 +16,7 @@ from .proto import (
     Error,
     MeshMonServiceServicer,
     ProtocolData,
+    StoreHeartbeatAck,
     add_MeshMonServiceServicer_to_server,
 )
 
@@ -45,9 +46,11 @@ class MeshMonServicer(MeshMonServiceServicer):
         self,
         connection_manager: ConnectionManager,
         update_handlers: GrpcUpdateHandlerContainer,
+        config: NetworkConfigLoader,
     ):
+        self.config = config
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_server", component="servicer"
+            module="connection.grpc_server", component="MeshMonServicer"
         )
         self.connection_manager = connection_manager
         self.conn_lock = threading.Lock()
@@ -57,7 +60,8 @@ class MeshMonServicer(MeshMonServiceServicer):
         self,
         request_iterator: Iterator[ProtocolData],
         raw_conn: RawConnection,
-        node_id: str,
+        src_node_id: str,
+        network_id: str,
     ):
         """Handle incoming requests in a separate thread."""
         try:
@@ -66,11 +70,28 @@ class MeshMonServicer(MeshMonServiceServicer):
                     break
                 if raw_conn.is_closed:
                     break
-                raw_conn.handle_request(request)
+                if request.HasField("heartbeat"):
+                    self.logger.debug(
+                        "Received heartbeat",
+                        from_node=request.heartbeat.node_id,
+                        network_id=request.heartbeat.network_id,
+                    )
+                    raw_conn.send_response(
+                        ProtocolData(
+                            heartbeat_ack=StoreHeartbeatAck(
+                                node_id=src_node_id,
+                                network_id=network_id,
+                                timestamp=request.heartbeat.timestamp,
+                                success=True,
+                            )
+                        )
+                    )
+                else:
+                    raw_conn.handle_request(request)
 
         except Exception as e:
             self.logger.error(
-                "Request handler error for", node_id=node_id, error=str(e)
+                "Request handler error for", node_id=src_node_id, error=str(e)
             )
         finally:
             raw_conn.close()
@@ -98,6 +119,7 @@ class MeshMonServicer(MeshMonServiceServicer):
             connection_ack=ConnectionAck(message="Connection established")
         )
         connection_init = initial_packet.connection_init
+        current_node_id = self.config.networks[connection_init.network_id].node_id
         response_queue: "queue.Queue[ProtocolData]" = queue.Queue()
         raw_conn = RawConnection(response_queue)
         with self.conn_lock:
@@ -106,8 +128,9 @@ class MeshMonServicer(MeshMonServiceServicer):
             )
             if connection is None:
                 self.logger.info(
-                    "Creating new connection for incoming stream",
-                    node_id=connection_init.node_id,
+                    "Creating new connection for peer",
+                    server_node_id=current_node_id,
+                    client_node_id=connection_init.node_id,
                     network_id=connection_init.network_id,
                     peer=context.peer(),
                 )
@@ -115,6 +138,7 @@ class MeshMonServicer(MeshMonServiceServicer):
                 protocol_handler = PulseWaveProtocol(handler)
                 connection = self.connection_manager.add_connection(
                     connection_init.node_id,
+                    current_node_id,
                     connection_init.network_id,
                     protocol_handler,
                 )
@@ -122,15 +146,21 @@ class MeshMonServicer(MeshMonServiceServicer):
 
         request_thread = threading.Thread(
             target=self.request_handler,
-            args=(request_iterator, raw_conn, connection_init.node_id),
+            args=(
+                request_iterator,
+                raw_conn,
+                current_node_id,
+                connection_init.network_id,
+            ),
             daemon=True,
         )
         request_thread.start()
 
         self.logger.info(
-            "New bidirectional stream connection",
+            "gRPC Bidirectional stream connection from client established",
+            client_node_id=connection.dest_node_id,
             peer=context.peer(),
-            node_id=connection_init.node_id,
+            server_node_id=current_node_id,
             network_id=connection_init.network_id,
         )
 
@@ -169,8 +199,8 @@ class MeshMonServicer(MeshMonServiceServicer):
                 request_thread.join(timeout=2.0)
 
             self.logger.info(
-                "Bidirectional stream connection closed",
-                node_id=connection.node_id,
+                "gRPC Bidirectional stream connection closed",
+                node_id=connection.dest_node_id,
                 network_id=connection_init.network_id,
                 peer=context.peer(),
             )
@@ -202,14 +232,16 @@ class GrpcServer:
                     ("grpc.keepalive_time_ms", 10000),
                     ("grpc.keepalive_timeout_ms", 5000),
                     ("grpc.keepalive_permit_without_calls", True),
-                    ("grpc.http2.max_pings_without_data", 10),
+                    ("grpc.http2.max_pings_without_data", 0),
                     ("grpc.http2.min_time_between_pings_ms", 10000),
                     ("grpc.http2.min_ping_interval_without_data_ms", 300000),
                 ],
             )
 
             # Add the servicer
-            servicer = MeshMonServicer(self.connection_manager, self.update_handlers)
+            servicer = MeshMonServicer(
+                self.connection_manager, self.update_handlers, self.config
+            )
             add_MeshMonServiceServicer_to_server(servicer, self.server)
 
             # Add insecure port (TODO: add TLS support)

@@ -8,6 +8,8 @@ class NodeConfig:
     node_id: str
     uri: str
     verifier: Verifier
+    heartbeat_interval: float
+    heartbeat_retry: int
 
 
 @dataclass

@@ -16,7 +16,7 @@ from src.meshmon.pulsewave.update.events import (
 )
 from src.meshmon.pulsewave.update.handlers import (
     get_clock_table_handler,
-    get_data_event_handler,
+    get_data_update_handler,
     get_pulse_table_handler,
 )
 from src.meshmon.pulsewave.update.manager import ClockPulseGenerator
@@ -159,7 +159,7 @@ class TestUpdateSystemIntegration:
             manager = UpdateManager(pulse_config, store)
 
             # Create and add a data event handler - these are real handlers, not mocks
-            matcher, handler = get_data_event_handler()
+            matcher, handler = get_data_update_handler()
             manager.add_handler(matcher, handler)
 
             # Mock the handler's handle_update method to track calls
@@ -192,7 +192,7 @@ class TestUpdateSystemIntegration:
             # Add all the real handlers from factory functions
             clock_matcher, clock_handler = get_clock_table_handler(pulse_config)
             pulse_matcher, pulse_handler = get_pulse_table_handler()
-            data_matcher, data_handler = get_data_event_handler()
+            data_matcher, data_handler = get_data_update_handler()
 
             manager.add_handler(clock_matcher, clock_handler)
             manager.add_handler(pulse_matcher, pulse_handler)
@@ -330,7 +330,7 @@ class TestUpdateSystemIntegration:
             # Add multiple handlers
             clock_matcher, clock_handler = get_clock_table_handler(pulse_config)
             pulse_matcher, pulse_handler = get_pulse_table_handler()
-            data_matcher, data_handler = get_data_event_handler()
+            data_matcher, data_handler = get_data_update_handler()
 
             manager.add_handler(clock_matcher, clock_handler)
             manager.add_handler(pulse_matcher, pulse_handler)
@@ -471,7 +471,7 @@ class TestUpdateSystemIntegration:
             manager = UpdateManager(pulse_config, store1)
 
             # Add data event handler that will trigger updates
-            matcher, handler = get_data_event_handler()
+            matcher, handler = get_data_update_handler()
             manager.add_handler(matcher, handler)
 
             # Create rate-limited local synchronization

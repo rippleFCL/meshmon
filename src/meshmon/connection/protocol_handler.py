@@ -19,5 +19,17 @@ class PulseWaveProtocol(ProtocolHandler):
     def handle_packet(self, request: ProtocolData) -> None:
         if not self.connection:
             return
-        if request.store_update:
+        if request.HasField("store_update"):
             self.handler.handle_incoming_update(request.store_update)
+        elif request.HasField("heartbeat_ack"):
+            self.logger.debug(
+                "Received heartbeat ack",
+                from_node=request.heartbeat_ack.node_id,
+                network_id=request.heartbeat_ack.network_id,
+            )
+            self.handler.handle_heartbeat(request.heartbeat_ack)
+
+        else:
+            self.logger.warning(
+                "Unknown ProtocolData message received", request=request
+            )

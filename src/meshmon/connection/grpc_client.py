@@ -9,7 +9,13 @@ from meshmon.config import NetworkConfigLoader
 from meshmon.connection.protocol_handler import PulseWaveProtocol
 
 from .connection import ConnectionManager, RawConnection
-from .proto import ConnectionInit, Error, MeshMonServiceStub, ProtocolData
+from .proto import (
+    ConnectionInit,
+    Error,
+    MeshMonServiceStub,
+    ProtocolData,
+    StoreHeartbeatAck,
+)
 
 if TYPE_CHECKING:
     from .grpc_server import GrpcUpdateHandlerContainer
@@ -99,7 +105,7 @@ class GrpcClient:
                     ("grpc.keepalive_time_ms", 10000),
                     ("grpc.keepalive_timeout_ms", 5000),
                     ("grpc.keepalive_permit_without_calls", True),
-                    ("grpc.http2.max_pings_without_data", 10),
+                    ("grpc.http2.max_pings_without_data", 0),
                     ("grpc.http2.min_time_between_pings_ms", 10000),
                     ("grpc.http2.min_ping_interval_without_data_ms", 300000),
                 ],
@@ -113,10 +119,16 @@ class GrpcClient:
             # Register raw connection with manager's Connection
             connection = self.connection_manager.get_connection(node_id, network_id)
             if connection is None:
+                self.logger.info(
+                    "Creating new connection for peer",
+                    server_node_id=node_id,
+                    client_node_id=current_node_id,
+                    network_id=network_id,
+                )
                 handler = self.update_handlers.get_handler(network_id)
                 protocol_handler = PulseWaveProtocol(handler)
                 connection = self.connection_manager.add_connection(
-                    node_id, network_id, protocol_handler
+                    node_id, current_node_id, network_id, protocol_handler
                 )
             connection.add_raw_connection(raw_conn)
 
@@ -138,11 +150,7 @@ class GrpcClient:
                         pass
 
             def stream_worker():
-                print("wehha")
                 try:
-                    self.logger.info(
-                        "Starting gRPC stream", node_id=node_id, address=address
-                    )
                     response_iterator = stub.StreamUpdates(request_generator())
                     initial_packet = next(response_iterator, None)
                     if initial_packet is None or not initial_packet.HasField(
@@ -162,15 +170,38 @@ class GrpcClient:
                         )
                     else:
                         self.logger.info(
-                            "gRPC Bidirectional stream established",
-                            node_id=node_id,
+                            "gRPC Bidirectional stream to server established",
+                            dest_node_id=node_id,
+                            network_id=network_id,
                             address=address,
                         )
                         for resp in response_iterator:
                             if resp is None:
                                 break
                             # Forward responses into the RawConnection's response queue
-                            raw_conn.handle_request(resp)
+                            if resp.HasField("heartbeat"):
+                                self.logger.debug(
+                                    "Received heartbeat",
+                                    from_node=resp.heartbeat.node_id,
+                                    network_id=resp.heartbeat.network_id,
+                                )
+                                raw_conn.send_response(
+                                    ProtocolData(
+                                        heartbeat_ack=StoreHeartbeatAck(
+                                            node_id=current_node_id,
+                                            network_id=network_id,
+                                            timestamp=resp.heartbeat.timestamp,
+                                            success=True,
+                                        )
+                                    )
+                                )
+                            else:
+                                raw_conn.handle_request(resp)
+                        self.logger.info(
+                            "gRPC Bidirectional stream to server closed",
+                            dest_node_id=node_id,
+                        )
+
                 except grpc.RpcError as e:
                     # Connection errors are expected during startup/reconnect
                     if e.code() == grpc.StatusCode.UNAVAILABLE:  # type: ignore
@@ -189,7 +220,6 @@ class GrpcClient:
                         "Client stream error", node_id=node_id, error=str(e)
                     )
                 finally:
-                    self.logger.info("gRPC stream ending", node_id=node_id)
                     connection.remove_raw_connection(raw_conn)
 
             t = threading.Thread(target=stream_worker, daemon=True)

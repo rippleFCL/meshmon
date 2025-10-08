@@ -18,6 +18,8 @@ class ProtocolData(google.protobuf.message.Message):
     CONNECTION_INIT_FIELD_NUMBER: builtins.int
     ERROR_FIELD_NUMBER: builtins.int
     CONNECTION_ACK_FIELD_NUMBER: builtins.int
+    HEARTBEAT_FIELD_NUMBER: builtins.int
+    HEARTBEAT_ACK_FIELD_NUMBER: builtins.int
     @property
     def store_update(self) -> global___StoreUpdate: ...
     @property
@@ -26,6 +28,10 @@ class ProtocolData(google.protobuf.message.Message):
     def error(self) -> global___Error: ...
     @property
     def connection_ack(self) -> global___ConnectionAck: ...
+    @property
+    def heartbeat(self) -> global___StoreHeartbeat: ...
+    @property
+    def heartbeat_ack(self) -> global___StoreHeartbeatAck: ...
     def __init__(
         self,
         *,
@@ -33,6 +39,8 @@ class ProtocolData(google.protobuf.message.Message):
         connection_init: global___ConnectionInit | None = ...,
         error: global___Error | None = ...,
         connection_ack: global___ConnectionAck | None = ...,
+        heartbeat: global___StoreHeartbeat | None = ...,
+        heartbeat_ack: global___StoreHeartbeatAck | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -43,6 +51,10 @@ class ProtocolData(google.protobuf.message.Message):
             b"connection_init",
             "error",
             b"error",
+            "heartbeat",
+            b"heartbeat",
+            "heartbeat_ack",
+            b"heartbeat_ack",
             "message_type",
             b"message_type",
             "store_update",
@@ -58,6 +70,10 @@ class ProtocolData(google.protobuf.message.Message):
             b"connection_init",
             "error",
             b"error",
+            "heartbeat",
+            b"heartbeat",
+            "heartbeat_ack",
+            b"heartbeat_ack",
             "message_type",
             b"message_type",
             "store_update",
@@ -67,11 +83,89 @@ class ProtocolData(google.protobuf.message.Message):
     def WhichOneof(
         self, oneof_group: typing.Literal["message_type", b"message_type"]
     ) -> (
-        typing.Literal["store_update", "connection_init", "error", "connection_ack"]
+        typing.Literal[
+            "store_update",
+            "connection_init",
+            "error",
+            "connection_ack",
+            "heartbeat",
+            "heartbeat_ack",
+        ]
         | None
     ): ...
 
 global___ProtocolData = ProtocolData
+
+@typing.final
+class StoreHeartbeat(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NODE_ID_FIELD_NUMBER: builtins.int
+    NETWORK_ID_FIELD_NUMBER: builtins.int
+    TIMESTAMP_FIELD_NUMBER: builtins.int
+    node_id: builtins.str
+    network_id: builtins.str
+    """Network/store identifier"""
+    timestamp: builtins.int
+    """Unix timestamp in seconds"""
+    def __init__(
+        self,
+        *,
+        node_id: builtins.str = ...,
+        network_id: builtins.str = ...,
+        timestamp: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "network_id",
+            b"network_id",
+            "node_id",
+            b"node_id",
+            "timestamp",
+            b"timestamp",
+        ],
+    ) -> None: ...
+
+global___StoreHeartbeat = StoreHeartbeat
+
+@typing.final
+class StoreHeartbeatAck(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NODE_ID_FIELD_NUMBER: builtins.int
+    NETWORK_ID_FIELD_NUMBER: builtins.int
+    TIMESTAMP_FIELD_NUMBER: builtins.int
+    SUCCESS_FIELD_NUMBER: builtins.int
+    node_id: builtins.str
+    network_id: builtins.str
+    """Network/store identifier"""
+    timestamp: builtins.int
+    """Unix timestamp in seconds"""
+    success: builtins.bool
+    def __init__(
+        self,
+        *,
+        node_id: builtins.str = ...,
+        network_id: builtins.str = ...,
+        timestamp: builtins.int = ...,
+        success: builtins.bool = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "network_id",
+            b"network_id",
+            "node_id",
+            b"node_id",
+            "success",
+            b"success",
+            "timestamp",
+            b"timestamp",
+        ],
+    ) -> None: ...
+
+global___StoreHeartbeatAck = StoreHeartbeatAck
 
 @typing.final
 class StoreUpdate(google.protobuf.message.Message):

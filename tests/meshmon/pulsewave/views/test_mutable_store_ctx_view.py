@@ -8,7 +8,7 @@ from src.meshmon.pulsewave.data import DateEvalType
 from src.meshmon.pulsewave.views import MutableStoreCtxView
 
 
-class TestModel(BaseModel):
+class SampleModel(BaseModel):
     """Test model for view testing."""
 
     name: str
@@ -27,14 +27,14 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
 
         assert view.path == sample_test_path
         assert view.context_data == sample_context_data
-        assert view.model == TestModel
+        assert view.model == SampleModel
         assert view.signer == mock_signer
         assert view.update_handler == mock_update_manager
 
@@ -46,7 +46,7 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
@@ -75,12 +75,12 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
 
-        test_data = TestModel(name="test_item", value=42)
+        test_data = SampleModel(name="test_item", value=42)
 
         view.set("test_key", test_data)
 
@@ -114,12 +114,12 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
 
-        test_data = TestModel(name="test_item", value=42)
+        test_data = SampleModel(name="test_item", value=42)
 
         view.set("test_key", test_data, DateEvalType.OLDER)
 
@@ -145,12 +145,12 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
 
-        test_data = TestModel(name="test_item", value=42)
+        test_data = SampleModel(name="test_item", value=42)
 
         # Try to set a non-allowed key
         view.set("forbidden_key", test_data)
@@ -173,7 +173,7 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
@@ -192,7 +192,7 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
@@ -221,12 +221,12 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )
 
-        test_data = TestModel(name="test_item", value=42)
+        test_data = SampleModel(name="test_item", value=42)
 
         with patch(
             "src.meshmon.pulsewave.views.SignedBlockData"
@@ -248,7 +248,7 @@ class TestMutableStoreCtxView:
         view = MutableStoreCtxView(
             path=sample_test_path,
             context_data=populated_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
             update_handler=mock_update_manager,
         )

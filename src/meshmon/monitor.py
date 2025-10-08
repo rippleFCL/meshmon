@@ -8,10 +8,10 @@ import requests
 from pydantic import BaseModel
 from structlog.stdlib import get_logger
 
-from .analysis.analysis import analyze_monitor_status, analyze_node_status
+from .analysis.analysis import analyze_monitor_status
 from .analysis.store import NodePingStatus
 from .analysis.store import NodeStatus as AnalysisNodeStatus
-from .config import MonitorTypes, NetworkConfigLoader, NetworkMonitor, NetworkNodeInfo
+from .config import MonitorTypes, NetworkConfigLoader, NetworkMonitor
 from .distrostore import (
     NodeInfo,
     NodeStatus,
@@ -52,187 +52,6 @@ class MonitorProto(Protocol):
     def poll_rate(self) -> int: ...
 
 
-class MeshMonitor(MonitorProto):
-    def __init__(
-        self,
-        store_manager: StoreManager,
-        net_id: str,
-        remote_node: NetworkNodeInfo,
-        config_loader: NetworkConfigLoader,
-        local_node: NetworkNodeInfo,
-    ):
-        self.store = store_manager
-        self._net_id = net_id
-        self.config_loader = config_loader
-        self.remote_node = remote_node
-        self.local_node = local_node
-        self.error_count = 0
-        self.logger = get_logger().bind(name=self.name, net_id=net_id)
-        self.session = requests.Session()
-
-        self.logger.debug(
-            "Initialized monitor for network",
-            local=local_node.node_id,
-            remote=remote_node.node_id,
-        )
-        self.logger.debug(
-            f"Remote node URL: {remote_node.url}, poll rate: {remote_node.poll_rate}s, retry limit: {remote_node.retry}"
-        )
-
-    @property
-    def name(self) -> str:
-        return f"Monitor-{self._net_id}-{self.remote_node.node_id}"
-
-    @property
-    def poll_rate(self) -> int:
-        return self.remote_node.poll_rate
-
-    @property
-    def net_id(self) -> str:
-        return self._net_id
-
-    def setup(self):
-        store = self.store.get_store(self._net_id)
-        ctx = store.get_context("ping_data", PingData)
-        ctx.set(
-            self.remote_node.node_id,
-            PingData(
-                status=NodeStatus.UNKNOWN,
-                req_time_rtt=-1,
-                date=datetime.datetime.now(datetime.timezone.utc),
-                current_retry=0,
-                max_retrys=self.remote_node.retry,
-                ping_rate=self.remote_node.poll_rate,
-            ),
-        )
-
-    def _sent_ping(self):
-        store = self.store.get_store(self._net_id)
-        ctx = store.get_context("ping_data", PingData)
-        try:
-            st = time.time()
-            response = requests.get(f"{self.remote_node.url}/api/health", timeout=10)
-            rtt = (time.time() - st) * 1000
-        except requests.RequestException as exc:
-            self.logger.debug("Request timed out", exc=exc)
-            self._handle_error(ctx)
-            return
-        if rtt > 9500:
-            self.logger.warning("High RTT detected", rtt_ms=rtt)
-            self._handle_error(ctx)
-        elif response.status_code != 200:
-            self.logger.warning(
-                "Invalid response from remote",
-                status=response.status_code,
-                body=response.text,
-                remote=self.remote_node.node_id,
-            )
-            self._handle_error(ctx)
-        else:
-            self.logger.debug(
-                "Successful response from remote", remote=self.remote_node.node_id
-            )
-            self.error_count = 0
-            ctx.set(
-                self.remote_node.node_id,
-                PingData(
-                    status=NodeStatus.ONLINE,
-                    req_time_rtt=rtt,
-                    date=datetime.datetime.now(datetime.timezone.utc),
-                    current_retry=0,
-                    max_retrys=self.remote_node.retry,
-                    ping_rate=self.remote_node.poll_rate,
-                ),
-            )
-
-    def _analyse_node_status(self):
-        node_statuses = analyze_node_status(
-            self.store, self.config_loader, self._net_id
-        )
-        store = self.store.get_store(self._net_id)
-        analysis_ctx = store.get_context("network_analysis", AnalysedNodeStatus)
-        if node_statuses is None:
-            self.logger.warning("Failed to analyze node statuses for network")
-            return
-
-        for node_id, status in node_statuses.items():
-            analysis_ctx.set(node_id, AnalysedNodeStatus(status=status))
-
-    def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
-        self.logger.debug("Error count increased", count=self.error_count)
-        current_node = ctx.get(self.remote_node.node_id)
-        if self.error_count >= self.remote_node.retry:
-            if current_node:
-                if current_node.status != NodeStatus.OFFLINE:
-                    self.logger.info(
-                        "Max retries exceeded for remote, marking as OFFLINE",
-                        retry=self.remote_node.retry,
-                        remote=self.remote_node.node_id,
-                    )
-            else:
-                self.logger.info(
-                    "Max retries exceeded for remote, marking as OFFLINE",
-                    retry=self.remote_node.retry,
-                    remote=self.remote_node.node_id,
-                )
-
-            ctx.set(
-                self.remote_node.node_id,
-                PingData(
-                    status=NodeStatus.OFFLINE,
-                    req_time_rtt=-1,
-                    date=datetime.datetime.now(datetime.timezone.utc),
-                    current_retry=self.remote_node.retry,
-                    max_retrys=self.remote_node.retry,
-                    ping_rate=self.remote_node.poll_rate,
-                ),
-            )
-        else:
-            if current_node:
-                self.logger.debug(
-                    "Incrementing retry count for remote",
-                    remote=self.remote_node.node_id,
-                )
-                current_node.current_retry += 1
-                ctx.set(
-                    self.remote_node.node_id,
-                    PingData(
-                        status=current_node.status,
-                        req_time_rtt=current_node.req_time_rtt,
-                        date=datetime.datetime.now(datetime.timezone.utc),
-                        current_retry=current_node.current_retry,
-                        max_retrys=self.remote_node.retry,
-                        ping_rate=self.remote_node.poll_rate,
-                    ),
-                )
-            else:
-                self.logger.debug(
-                    "Setting initial UNKNOWN status for remote",
-                    remote=self.remote_node.node_id,
-                )
-                ctx.set(
-                    self.remote_node.node_id,
-                    PingData(
-                        status=NodeStatus.UNKNOWN,
-                        req_time_rtt=-1,
-                        date=datetime.datetime.now(datetime.timezone.utc),
-                        current_retry=0,
-                        max_retrys=self.remote_node.retry,
-                        ping_rate=self.remote_node.poll_rate,
-                    ),
-                )
-        self.error_count += 1
-
-    def run(self) -> None:
-        self.logger.debug(
-            "Sending ping to remote",
-            remote=self.remote_node.node_id,
-            url=self.remote_node.url,
-        )
-        self._sent_ping()
-        self._analyse_node_status()
-
-
 class HTTPMonitor(MonitorProto):
     def __init__(
         self,
@@ -270,9 +89,6 @@ class HTTPMonitor(MonitorProto):
                 status=NodeStatus.UNKNOWN,
                 req_time_rtt=-1,
                 date=datetime.datetime.now(datetime.timezone.utc),
-                current_retry=0,
-                max_retrys=self.monitor_info.retry,
-                ping_rate=self.monitor_info.interval,
             ),
         )
 
@@ -310,9 +126,6 @@ class HTTPMonitor(MonitorProto):
                     status=NodeStatus.ONLINE,
                     req_time_rtt=rtt,
                     date=datetime.datetime.now(datetime.timezone.utc),
-                    current_retry=0,
-                    max_retrys=self.monitor_info.retry,
-                    ping_rate=self.monitor_info.interval,
                 ),
             )
 
@@ -354,9 +167,6 @@ class HTTPMonitor(MonitorProto):
                     status=NodeStatus.OFFLINE,
                     req_time_rtt=-1,
                     date=datetime.datetime.now(datetime.timezone.utc),
-                    current_retry=self.monitor_info.retry,
-                    max_retrys=self.monitor_info.retry,
-                    ping_rate=self.monitor_info.interval,
                 ),
             )
         else:
@@ -365,16 +175,12 @@ class HTTPMonitor(MonitorProto):
                     "Incrementing retry count for remote",
                     monitor=self.monitor_info.name,
                 )
-                current_node.current_retry += 1
                 ctx.set(
                     self.monitor_info.name,
                     PingData(
                         status=current_node.status,
                         req_time_rtt=current_node.req_time_rtt,
                         date=datetime.datetime.now(datetime.timezone.utc),
-                        current_retry=current_node.current_retry,
-                        max_retrys=self.monitor_info.retry,
-                        ping_rate=self.monitor_info.interval,
                     ),
                 )
             else:
@@ -388,9 +194,6 @@ class HTTPMonitor(MonitorProto):
                         status=NodeStatus.UNKNOWN,
                         req_time_rtt=-1,
                         date=datetime.datetime.now(datetime.timezone.utc),
-                        current_retry=0,
-                        max_retrys=self.monitor_info.retry,
-                        ping_rate=self.monitor_info.interval,
                     ),
                 )
         self.error_count += 1
@@ -493,21 +296,6 @@ class MonitorManager:
                 net_id=net_id,
             )
             global_monitors = network.monitors
-            # Create monitors for all other nodes in the network
-            for node in network.node_config:
-                if node.node_id != local_node.node_id and node.url:
-                    monitor_key = f"{net_id}_{node.node_id}"
-                    self.logger.debug("Creating monitor", key=monitor_key)
-                    monitor = MeshMonitor(
-                        self.store_manager,
-                        net_id,
-                        node,
-                        self.config,
-                        local_node,
-                    )
-                    monitor_wrapper = Monitor(monitor)
-                    monitors[monitor_key] = monitor_wrapper
-                    monitor_wrapper.start()
 
             unique_monitors = {m.name: m for m in global_monitors}
             for monitor in local_node.local_monitors:

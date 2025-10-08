@@ -60,7 +60,7 @@ class RateLimitedHandler(UpdateHandler):
         while True:
             self.trigger.wait()
             self.trigger.clear()
-            self.handle_update()
+            self.handler.handle_update()
             time.sleep(self.min_interval)
 
     def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None:

@@ -21,21 +21,27 @@ class TestNodeConfig:
         verifier = Mock(spec=Verifier)
 
         node_config = NodeConfig(
-            node_id="test_node_1", uri="https://example.com/api", verifier=verifier
+            node_id="test_node_1",
+            uri="https://example.com/api",
+            verifier=verifier,
+            heartbeat_interval=5.0,
+            heartbeat_retry=3,
         )
 
         assert node_config.node_id == "test_node_1"
         assert node_config.uri == "https://example.com/api"
         assert node_config.verifier == verifier
+        assert node_config.heartbeat_interval == 5.0
+        assert node_config.heartbeat_retry == 3
 
     def test_node_config_equality(self):
         """Test NodeConfig equality comparison."""
         verifier1 = Mock(spec=Verifier)
         verifier2 = Mock(spec=Verifier)
 
-        node1 = NodeConfig("node1", "https://example.com", verifier1)
-        node2 = NodeConfig("node1", "https://example.com", verifier1)
-        node3 = NodeConfig("node1", "https://example.com", verifier2)
+        node1 = NodeConfig("node1", "https://example.com", verifier1, 5.0, 3)
+        node2 = NodeConfig("node1", "https://example.com", verifier1, 5.0, 3)
+        node3 = NodeConfig("node1", "https://example.com", verifier2, 5.0, 3)
 
         assert node1 == node2
         assert node1 != node3
@@ -43,7 +49,7 @@ class TestNodeConfig:
     def test_node_config_immutable(self):
         """Test that NodeConfig fields can be modified (dataclass is mutable by default)."""
         verifier = Mock(spec=Verifier)
-        node = NodeConfig("node1", "https://example.com", verifier)
+        node = NodeConfig("node1", "https://example.com", verifier, 5.0, 3)
 
         # Should be able to modify fields
         node.node_id = "new_id"
@@ -115,11 +121,15 @@ class TestPulseWaveConfig:
                 node_id="remote_node_1",
                 uri="https://node1.example.com/api",
                 verifier=mock_verifier2,
+                heartbeat_interval=5.0,
+                heartbeat_retry=3,
             ),
             "remote_node_2": NodeConfig(
                 node_id="remote_node_2",
                 uri="https://node2.example.com/api",
                 verifier=Mock(spec=Verifier),
+                heartbeat_interval=5.0,
+                heartbeat_retry=3,
             ),
         }
 
@@ -216,9 +226,11 @@ class TestPulseWaveConfig:
         # Create scenario where current node ID is also in nodes dict
         current_node = CurrentNode("shared_id", mock_signer, mock_verifier)
         nodes = {
-            "shared_id": NodeConfig("shared_id", "https://example.com", mock_verifier2),
+            "shared_id": NodeConfig(
+                "shared_id", "https://example.com", mock_verifier2, 5.0, 3
+            ),
             "other_node": NodeConfig(
-                "other_node", "https://other.com", Mock(spec=Verifier)
+                "other_node", "https://other.com", Mock(spec=Verifier), 5.0, 3
             ),
         }
 
@@ -263,7 +275,9 @@ class TestPulseWaveConfig:
         original_count = len(pulse_config.nodes)
 
         # Add a new node
-        new_node = NodeConfig("new_node", "https://new.example.com", mock_verifier)
+        new_node = NodeConfig(
+            "new_node", "https://new.example.com", mock_verifier, 5.0, 3
+        )
         pulse_config.nodes["new_node"] = new_node
 
         assert len(pulse_config.nodes) == original_count + 1
@@ -287,9 +301,11 @@ class TestPulseWaveConfig:
         )
         nodes = {
             "node@domain.com": NodeConfig(
-                "node@domain.com", "https://example.com", Mock(spec=Verifier)
+                "node@domain.com", "https://example.com", Mock(spec=Verifier), 5.0, 3
             ),
-            "node_123": NodeConfig("node_123", "https://test.com", Mock(spec=Verifier)),
+            "node_123": NodeConfig(
+                "node_123", "https://test.com", Mock(spec=Verifier), 5.0, 3
+            ),
         }
 
         config = PulseWaveConfig(
@@ -306,11 +322,13 @@ class TestPulseWaveConfig:
 
     def test_empty_uri_handling(self, mock_verifier):
         """Test NodeConfig with empty URI."""
-        node = NodeConfig("test_node", "", mock_verifier)
+        node = NodeConfig("test_node", "", mock_verifier, 5.0, 3)
 
         assert node.uri == ""
         assert node.node_id == "test_node"
         assert node.verifier == mock_verifier
+        assert node.heartbeat_interval == 5.0
+        assert node.heartbeat_retry == 3
 
     def test_config_immutability_of_nested_objects(self, pulse_config):
         """Test that modifying nested objects affects the config."""

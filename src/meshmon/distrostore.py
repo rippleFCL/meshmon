@@ -23,9 +23,6 @@ class PingData(BaseModel):
     status: NodeStatus
     req_time_rtt: float
     date: datetime.datetime
-    current_retry: int
-    max_retrys: int
-    ping_rate: int
 
 
 class NodeInfo(BaseModel):
@@ -72,13 +69,15 @@ class StoreManager:
                     node_id=node_info.node_id,
                     uri=node_info.url or "",
                     verifier=verifier,
+                    heartbeat_interval=node_info.poll_rate,
+                    heartbeat_retry=node_info.retry,
                 )
 
         return PulseWaveConfig(
             current_node=current_node,
             nodes=nodes,
             update_rate_limit=1,  # Default rate limit
-            clock_pulse_interval=5,  # Default clock pulse interval
+            clock_pulse_interval=1,  # Default clock pulse interval
         )
 
     def load_stores(self):

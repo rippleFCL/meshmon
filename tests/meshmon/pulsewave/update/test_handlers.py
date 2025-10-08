@@ -13,7 +13,7 @@ from src.meshmon.pulsewave.update.handlers import (
     DataUpdateHandler,
     PulseTableHandler,
     get_clock_table_handler,
-    get_data_event_handler,
+    get_data_update_handler,
     get_pulse_table_handler,
 )
 from src.meshmon.pulsewave.update.update import RegexPathMatcher
@@ -106,6 +106,33 @@ class TestClockTableHandler:
         handler.handle_update()
 
         # Should not update clock table when no pulse data
+        clock_table.set.assert_not_called()
+
+    def test_handle_update_no_node_pulse(self, pulse_config, mock_signer):
+        """Test handling update when node pulse entry doesn't exist."""
+        store = Mock()
+        consistency = Mock()
+        clock_table = Mock()
+
+        # Mock pulse table exists but no pulse entry for this node
+        node_consistency = Mock()
+        pulse_table = Mock()
+        pulse_table.get.return_value = None  # No pulse for this node
+        node_consistency.pulse_table = pulse_table
+
+        store.get_consistency.side_effect = (
+            lambda node=None: consistency if node is None else node_consistency
+        )
+        store.nodes = [mock_signer.node_id]
+        consistency.clock_table = clock_table
+
+        handler = ClockTableHandler(pulse_config)
+        update_manager = Mock()
+        handler.bind(store, update_manager)
+
+        handler.handle_update()
+
+        # Should not update clock table when no pulse entry
         clock_table.set.assert_not_called()
 
     def test_get_clock_table_handler(self, pulse_config):
@@ -268,7 +295,7 @@ class TestDataEventHandler:
 
     def test_get_data_event_handler(self):
         """Test factory function for data event handler."""
-        matcher, handler = get_data_event_handler()
+        matcher, handler = get_data_update_handler()
 
         assert isinstance(handler, DataUpdateHandler)
         assert isinstance(matcher, RegexPathMatcher)

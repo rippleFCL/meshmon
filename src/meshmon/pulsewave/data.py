@@ -20,6 +20,7 @@ class SignedBlockSignature(BaseModel):
     date: datetime.datetime
     data: dict
     block_id: str
+    secret: str | None = None
     replacement_type: DateEvalType
 
 
@@ -37,12 +38,17 @@ class SignedBlockData(BaseModel):
         data: BaseModel,
         block_id: str,
         rep_type: DateEvalType = DateEvalType.NEWER,
+        secret: str | None = None,
     ) -> "SignedBlockData":
         model_data = data.model_dump(mode="json")
         date = datetime.datetime.now(datetime.timezone.utc)
         data_sig_str = (
             SignedBlockSignature(
-                data=model_data, date=date, block_id=block_id, replacement_type=rep_type
+                data=model_data,
+                date=date,
+                block_id=block_id,
+                replacement_type=rep_type,
+                secret=secret,
             )
             .model_dump_json()
             .encode()
@@ -57,12 +63,15 @@ class SignedBlockData(BaseModel):
             replacement_type=rep_type,
         )
 
-    def verify(self, verifier: Verifier, block_id: str) -> bool:
+    def verify(
+        self, verifier: Verifier, block_id: str, secret: str | None = None
+    ) -> bool:
         logger.debug(f"Verifying signature for sig_id {verifier.node_id}")
         data_sig_str = SignedBlockSignature(
             data=self.data,
             date=self.date,
             block_id=self.block_id,
+            secret=secret,
             replacement_type=self.replacement_type,
         ).model_dump_json()
         verified = (
@@ -251,11 +260,239 @@ class StoreNodeStatusEntry(BaseModel):
     status: StoreNodeStatus
 
 
+class StoreLeaderStatus(Enum):
+    LEADER = "LEADER"
+    FOLLOWER = "FOLLOWER"
+    WAITING_FOR_CONSENSUS = "WAITING_FOR_CONSENSUS"
+    NOT_PARTICIPATING = "NOT_PARTICIPATING"
+
+
+class StoreLeaderEntry(BaseModel):
+    status: StoreLeaderStatus
+    node_id: str
+
+
+class StoreNodeList(BaseModel):
+    nodes: list[str]
+
+
+class StoreConsistentContextData(BaseModel):
+    context: StoreContextData | None = None
+    nodes: SignedBlockData | None = None
+    leader: SignedBlockData | None = None
+    ctx_name: str
+    sig: str
+    date: datetime.datetime
+
+    def verify(self, verifier: Verifier) -> bool:
+        verified = True
+        if self.context:
+            verified = self.context.verify(verifier, "context") and verified
+        if self.nodes:
+            verified = self.nodes.verify(verifier, "nodes") and verified
+        if self.leader:
+            verified = self.leader.verify(verifier, "leader") and verified
+        data = json.dumps(
+            {"ctx_name": self.ctx_name, "date": self.date.isoformat()}
+        ).encode()
+        verified = verifier.verify(data, base64.b64decode(self.sig)) and verified
+        return verified
+
+    @classmethod
+    def new(cls, signer: Signer, ctx_name: str, secret: str | None):
+        date = datetime.datetime.now(datetime.timezone.utc)
+        data = json.dumps({"ctx_name": ctx_name, "date": date.isoformat()}).encode()
+        sig = base64.b64encode(signer.sign(data)).decode()
+        return cls(
+            context=StoreContextData.new(signer, "context"),
+            nodes=SignedBlockData.new(
+                signer,
+                StoreNodeList(nodes=[]),
+                "nodes",
+                rep_type=DateEvalType.NEWER,
+            ),
+            leader=SignedBlockData.new(
+                signer,
+                SignedBlockData.new(
+                    signer,
+                    StoreLeaderEntry(
+                        status=StoreLeaderStatus.NOT_PARTICIPATING, node_id=""
+                    ),
+                    block_id="leader_status",
+                    secret=secret,
+                ),
+                "leader",
+                rep_type=DateEvalType.NEWER,
+            ),
+            ctx_name=ctx_name,
+            sig=sig,
+            date=date,
+        )
+
+    def update(
+        self,
+        path: str,
+        data: "StoreConsistentContextData",
+        verifier: Verifier,
+        ctx_name: str,
+    ) -> list[str]:
+        updated_paths: list[str] = []
+
+        if not (data.ctx_name == self.ctx_name == ctx_name):
+            logger.warning(
+                f"Consistent context name mismatch: {self.ctx_name} vs {data.ctx_name}"
+            )
+            return updated_paths
+        if data.date > self.date:
+            if not data.verify(verifier):
+                logger.warning(
+                    f"New consistent context data signature verification failed for context {self.ctx_name}. skipping update."
+                )
+                return updated_paths
+            self.date = data.date
+            self.sig = data.sig
+            self.ctx_name = data.ctx_name
+            self.context = data.context
+            self.nodes = data.nodes
+            self.leader = data.leader
+            updated_paths.append(f"{path}")
+            return updated_paths
+        if self.context is None and data.context is not None:
+            if data.context.verify(verifier, "context"):
+                self.context = data.context
+                all_paths = self.context.all_paths(f"{path}.context")
+                updated_paths.extend(all_paths)
+                updated_paths.append(f"{path}.context")
+        elif self.context is not None and data.context is not None:
+            updated_paths.extend(
+                self.context.update(
+                    f"{path}.context", data.context, verifier, "context"
+                )
+            )
+
+        if self.nodes is None and data.nodes is not None:
+            if data.nodes.verify(verifier, "nodes"):
+                self.nodes = data.nodes
+                updated_paths.append(f"{path}.nodes")
+        elif self.nodes is not None and data.nodes is not None:
+            if (
+                self.nodes.replacement_type == DateEvalType.NEWER
+                and data.nodes.date > self.nodes.date
+            ):
+                if data.nodes.verify(verifier, "nodes"):
+                    self.nodes = data.nodes
+                    updated_paths.append(f"{path}.nodes")
+            elif (
+                self.nodes.replacement_type == DateEvalType.OLDER
+                and data.nodes.date < self.nodes.date
+            ):
+                if data.nodes.verify(verifier, "nodes"):
+                    self.nodes = data.nodes
+                    updated_paths.append(f"{path}.nodes")
+
+        if self.leader is None and data.leader is not None:
+            if data.leader.verify(verifier, "leader"):
+                self.leader = data.leader
+                updated_paths.append(f"{path}.leader")
+        elif self.leader is not None and data.leader is not None:
+            if (
+                self.leader.replacement_type == DateEvalType.NEWER
+                and data.leader.date > self.leader.date
+            ):
+                if data.leader.verify(verifier, "leader"):
+                    self.leader = data.leader
+                    updated_paths.append(f"{path}.leader")
+            elif (
+                self.leader.replacement_type == DateEvalType.OLDER
+                and data.leader.date < self.leader.date
+            ):
+                if data.leader.verify(verifier, "leader"):
+                    self.leader = data.leader
+                    updated_paths.append(f"{path}.leader")
+
+        return updated_paths
+
+    def diff(
+        self, other: "StoreConsistentContextData"
+    ) -> "StoreConsistentContextData | None":
+        if self.ctx_name != other.ctx_name:
+            return None
+
+        if self.context and other.context:
+            ctx_diff = self.context.diff(other.context)
+        elif other.context is not None:
+            ctx_diff = other.context
+        else:
+            ctx_diff = self.context
+
+        if self.nodes and other.nodes:
+            if self.nodes.replacement_type == DateEvalType.NEWER:
+                nodes_diff = (
+                    self.nodes if self.nodes.date >= other.nodes.date else other.nodes
+                )
+            else:
+                nodes_diff = (
+                    self.nodes if self.nodes.date <= other.nodes.date else other.nodes
+                )
+        elif other.nodes is not None:
+            nodes_diff = other.nodes
+        else:
+            nodes_diff = self.nodes
+
+        if self.leader and other.leader:
+            if self.leader.replacement_type == DateEvalType.NEWER:
+                leader_diff = (
+                    self.leader
+                    if self.leader.date >= other.leader.date
+                    else other.leader
+                )
+            else:
+                leader_diff = (
+                    self.leader
+                    if self.leader.date <= other.leader.date
+                    else other.leader
+                )
+        elif other.leader is not None:
+            leader_diff = other.leader
+        else:
+            leader_diff = self.leader
+
+        if self.date >= other.date:
+            diff_data = StoreConsistentContextData(
+                context=ctx_diff,
+                nodes=nodes_diff,
+                leader=leader_diff,
+                ctx_name=self.ctx_name,
+                sig=self.sig,
+                date=self.date,
+            )
+        else:
+            diff_data = StoreConsistentContextData(
+                context=ctx_diff,
+                nodes=nodes_diff,
+                leader=leader_diff,
+                ctx_name=other.ctx_name,
+                sig=other.sig,
+                date=other.date,
+            )
+
+        return diff_data
+
+    def all_paths(self, path: str) -> list[str]:
+        paths = []
+        if self.context:
+            paths.extend(self.context.all_paths(f"{path}.context"))
+        paths.append(f"{path}.nodes")
+        paths.append(f"{path}.leader")
+        return paths
+
+
 class StoreConsistencyData(BaseModel):
     clock_table: StoreContextData
     pulse_table: StoreContextData
     clock_pulse: SignedBlockData | None = None
     node_status_table: StoreContextData
+    consistent_contexts: dict[str, StoreConsistentContextData] = {}
 
     @classmethod
     def new(cls, signer: Signer) -> "StoreConsistencyData":
@@ -313,6 +550,39 @@ class StoreConsistencyData(BaseModel):
                 ):
                     self.clock_pulse = consistency_data.clock_pulse
                     updated_paths.append(f"{path}.clock_pulse")
+
+        combined_keys = set(self.consistent_contexts.keys()).union(
+            set(consistency_data.consistent_contexts.keys())
+        )
+        for key in combined_keys:
+            if (
+                key in self.consistent_contexts
+                and key not in consistency_data.consistent_contexts
+            ):
+                continue
+            elif (
+                key not in self.consistent_contexts
+                and key in consistency_data.consistent_contexts
+            ):
+                if consistency_data.consistent_contexts[key].verify(verifier):
+                    self.consistent_contexts[key] = (
+                        consistency_data.consistent_contexts[key]
+                    )
+                    all_paths = self.consistent_contexts[key].all_paths(
+                        f"{path}.consistent_contexts.{key}"
+                    )
+                    updated_paths.extend(all_paths)
+                    updated_paths.append(f"{path}.consistent_contexts.{key}")
+            else:
+                updated_paths.extend(
+                    self.consistent_contexts[key].update(
+                        f"{path}.consistent_contexts.{key}",
+                        consistency_data.consistent_contexts[key],
+                        verifier,
+                        key,
+                    )
+                )
+
         return updated_paths
 
     def diff(
@@ -342,6 +612,23 @@ class StoreConsistencyData(BaseModel):
             and diff_data.clock_pulse is self.clock_pulse
         ):
             return None
+
+        combined_keys = set(self.consistent_contexts.keys()).union(
+            set(other.consistent_contexts.keys())
+        )
+        for key in combined_keys:
+            if key in self.consistent_contexts and key not in other.consistent_contexts:
+                diff_data.consistent_contexts[key] = self.consistent_contexts[key]
+            elif (
+                key not in self.consistent_contexts and key in other.consistent_contexts
+            ):
+                diff_data.consistent_contexts[key] = other.consistent_contexts[key]
+            else:
+                if diff := self.consistent_contexts[key].diff(
+                    other.consistent_contexts[key]
+                ):
+                    diff_data.consistent_contexts[key] = diff
+
         return diff_data
 
     def verify(self, verifier: Verifier) -> bool:
@@ -356,6 +643,10 @@ class StoreConsistencyData(BaseModel):
                 self.clock_pulse.verify(verifier, self.clock_pulse.block_id)
                 and verified
             )
+        verified = (
+            all(ctx.verify(verifier) for ctx in self.consistent_contexts.values())
+            and verified
+        )
         return verified
 
     def all_paths(self, path: str) -> list[str]:
@@ -365,6 +656,9 @@ class StoreConsistencyData(BaseModel):
         paths.extend(self.pulse_table.all_paths(f"{path}.pulse_table"))
         if self.clock_pulse:
             paths.append(f"{path}.clock_pulse")
+        for key, ctx in self.consistent_contexts.items():
+            paths.append(f"{path}.consistent_contexts.{key}")
+            paths.extend(ctx.all_paths(f"{path}.consistent_contexts.{key}"))
         return paths
 
 

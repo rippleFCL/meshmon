@@ -3,8 +3,8 @@ from unittest.mock import patch
 from pydantic import BaseModel
 
 
-class TestModel(BaseModel):
-    """Test model for store operations."""
+class SampleModel(BaseModel):
+    """Sample model for store operations testing."""
 
     name: str
     value: int
@@ -23,7 +23,7 @@ class TestSharedStoreLifecycle:
         """Test that the store can recover from basic errors."""
         # Test that after an error, the store is still functional
         try:
-            shared_store.get_value(TestModel, "nonexistent", "nonexistent_node")
+            shared_store.get_value(SampleModel, "nonexistent", "nonexistent_node")
         except Exception:
             pass  # Ignore any errors from this call
 

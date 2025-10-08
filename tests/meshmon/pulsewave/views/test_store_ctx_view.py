@@ -8,7 +8,7 @@ from src.meshmon.pulsewave.data import SignedBlockData
 from src.meshmon.pulsewave.views import StoreCtxView
 
 
-class TestModel(BaseModel):
+class SampleModel(BaseModel):
     """Test model for view testing."""
 
     name: str
@@ -25,13 +25,13 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
         assert view.path == sample_test_path
         assert view.context_data == sample_context_data
-        assert view.model == TestModel
+        assert view.model == SampleModel
         assert view.signer == mock_signer
 
     def test_len_empty_context(
@@ -42,7 +42,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -56,7 +56,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=populated_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -70,7 +70,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=populated_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -85,7 +85,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -99,13 +99,13 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=populated_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
         result = view.get("item1")
         assert result is not None
-        assert isinstance(result, TestModel)
+        assert isinstance(result, SampleModel)
         assert result.name == "test1"
         assert result.value == 10
 
@@ -117,7 +117,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=populated_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -132,7 +132,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=sample_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -147,7 +147,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=populated_context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -157,7 +157,7 @@ class TestStoreCtxView:
         # Check that we get key-value tuples
         for key, value in items:
             assert isinstance(key, str)
-            assert isinstance(value, TestModel)
+            assert isinstance(value, SampleModel)
             assert key in ["item1", "item2"]
 
     def test_iteration_with_invalid_data(self, mock_signer, sample_test_path):
@@ -182,7 +182,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 
@@ -207,7 +207,7 @@ class TestStoreCtxView:
         view = StoreCtxView(
             path=sample_test_path,
             context_data=context_data,
-            model=TestModel,
+            model=SampleModel,
             signer=mock_signer,
         )
 

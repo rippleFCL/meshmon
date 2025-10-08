@@ -14,7 +14,22 @@ message ProtocolData {
         ConnectionInit connection_init = 3;
         Error error = 5;
         ConnectionAck connection_ack = 6;
+        StoreHeartbeat heartbeat = 7;
+        StoreHeartbeatAck heartbeat_ack = 8;
     }
+}
+
+message StoreHeartbeat {
+    string node_id = 1;
+    string network_id = 2;  // Network/store identifier
+    int64 timestamp = 3;  // Unix timestamp in seconds
+}
+
+message StoreHeartbeatAck {
+    string node_id = 1;
+    string network_id = 2;  // Network/store identifier
+    int64 timestamp = 3;  // Unix timestamp in seconds
+    bool success = 4;
 }
 
 message StoreUpdate {

@@ -5,8 +5,8 @@ from pydantic import BaseModel
 from src.meshmon.pulsewave.data import DateEvalType, SignedBlockData
 
 
-class TestModel(BaseModel):
-    """Test model for store operations."""
+class SampleModel(BaseModel):
+    """Sample model for store operations testing."""
 
     name: str
     value: int
@@ -27,22 +27,22 @@ class TestSharedStoreValues:
 
     def test_get_value_nonexistent_node(self, shared_store):
         """Test getting value from non-existent node."""
-        result = shared_store.get_value(TestModel, "test", "nonexistent")
+        result = shared_store.get_value(SampleModel, "test", "nonexistent")
         assert result is None
 
     def test_get_value_nonexistent_value(self, shared_store):
         """Test getting non-existent value."""
-        result = shared_store.get_value(TestModel, "nonexistent", "test_node")
+        result = shared_store.get_value(SampleModel, "nonexistent", "test_node")
         assert result is None
 
     def test_get_value_current_node_default(self, shared_store):
         """Test getting value defaults to current node."""
-        result = shared_store.get_value(TestModel, "nonexistent")
+        result = shared_store.get_value(SampleModel, "nonexistent")
         assert result is None
 
     def test_set_value_calls_signed_block_data(self, filled_shared_store, mock_signer):
         """Test setting a value calls SignedBlockData.new correctly."""
-        test_data = TestModel(name="test_item", value=456)
+        test_data = SampleModel(name="test_item", value=456)
 
         with patch.object(SignedBlockData, "new") as mock_new:
             mock_signed_data = Mock()
@@ -57,7 +57,7 @@ class TestSharedStoreValues:
 
     def test_set_value_works_empty_store(self, shared_store, mock_signer):
         """Test setting a value calls SignedBlockData.new correctly."""
-        test_data = TestModel(name="test_item", value=456)
+        test_data = SampleModel(name="test_item", value=456)
 
         with patch.object(SignedBlockData, "new") as mock_new:
             mock_signed_data = Mock()
@@ -72,7 +72,7 @@ class TestSharedStoreValues:
 
     def test_set_value_with_custom_eval_type(self, shared_store, mock_signer):
         """Test setting value with custom evaluation type."""
-        test_data = TestModel(name="test", value=789)
+        test_data = SampleModel(name="test", value=789)
 
         with patch.object(SignedBlockData, "new") as mock_new:
             shared_store.set_value("test_key", test_data, DateEvalType.OLDER)
@@ -83,7 +83,7 @@ class TestSharedStoreValues:
 
     def test_set_value_with_default_eval_type(self, shared_store, mock_signer):
         """Test setting value uses NEWER as default evaluation type."""
-        test_data = TestModel(name="default", value=123)
+        test_data = SampleModel(name="default", value=123)
 
         with patch.object(SignedBlockData, "new") as mock_new:
             shared_store.set_value("default_key", test_data)

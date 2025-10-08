@@ -1,4 +1,3 @@
-import datetime
 import os
 from contextlib import asynccontextmanager
 
@@ -11,30 +10,23 @@ from starlette.responses import FileResponse
 
 from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 from meshmon.config import (
-    NetworkConfig,
     NetworkConfigLoader,
-    get_all_monitor_names,
-    get_pingable_nodes,
 )
 from meshmon.conman import ConfigManager
 from meshmon.connection.grpc_server import GrpcServer
+from meshmon.connection.heartbeat import HeartbeatController
 from meshmon.distrostore import (
-    NodeDataRetention,
     NodeInfo,
     NodeStatus,
     PingData,
     StoreManager,
 )
 from meshmon.monitor import MonitorManager
-from meshmon.pulsewave.data import (
-    DateEvalType,
-)
 from meshmon.pulsewave.store import (
-    SharedStore,
     StoreData,
 )
 from meshmon.version import VERSION
-from meshmon.webhooks import AnalysedNodeStatus, WebhookHandler
+from meshmon.webhooks import WebhookHandler
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -78,25 +70,6 @@ logger = structlog.stdlib.get_logger()
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
 
 
-def prefill_store(store: SharedStore, network: NetworkConfig):
-    node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
-    store.set_value("node_info", node_info)
-    data_retention = NodeDataRetention(
-        date=datetime.datetime.now(datetime.timezone.utc)
-    )
-    store.set_value("data_retention", data_retention, DateEvalType.OLDER)
-    ctx = store.get_context("ping_data", PingData)
-    ctx.allowed_keys = get_pingable_nodes(network)
-    ctx = store.get_context("last_notified_status", AnalysedNodeStatus)
-    ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
-    ctx = store.get_context("network_analysis", AnalysedNodeStatus)
-    ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
-    ctx = store.get_context("monitor_data", PingData)
-    ctx.allowed_keys = get_all_monitor_names(network, store.key_mapping.signer.node_id)
-    ctx = store.get_context("monitor_analysis", AnalysedNodeStatus)
-    ctx.allowed_keys = get_all_monitor_names(network, store.key_mapping.signer.node_id)
-
-
 logger.info("Starting server initialization with config file", config=CONFIG_FILE_NAME)
 
 
@@ -112,6 +85,11 @@ logger.info("Initializing store manager...")
 store_manager = StoreManager(config, grpc_server)
 logger.info("Initialized store manager with stores", count=len(store_manager.stores))
 
+logger.info("Initializing Heartbeat controller...")
+heartbeat_controller = HeartbeatController(
+    grpc_server.connection_manager, config, store_manager
+)
+logger.info("Heartbeat controller initialized")
 
 logger.info("Initializing monitor manager...")
 monitor_manager = MonitorManager(store_manager, config)
@@ -135,7 +113,9 @@ logger.info("Server initialization complete")
 async def lifespan(app: FastAPI):
     logger.info("Starting up the server...")
     grpc_server.start()
+    heartbeat_controller.start()
     yield
+    heartbeat_controller.stop()
     webhook_handler.stop()
     monitor_manager.stop_manager()
     for net_id, store in store_manager.stores.items():

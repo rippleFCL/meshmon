@@ -47,11 +47,15 @@ def pulse_config(current_node, mock_verifier):
                 node_id="test_node",
                 uri="https://test.example.com",
                 verifier=mock_verifier,
+                heartbeat_interval=5.0,
+                heartbeat_retry=3,
             ),
             "other_node": NodeConfig(
                 node_id="other_node",
                 uri="https://other.example.com",
                 verifier=Mock(spec=Verifier),
+                heartbeat_interval=5.0,
+                heartbeat_retry=3,
             ),
         },
         update_rate_limit=1,
@@ -83,7 +87,7 @@ def shared_store(pulse_config, mock_update_handler):
             return_value=(mock_matcher, mock_handler),
         ),
         patch(
-            "src.meshmon.pulsewave.store.get_data_event_handler",
+            "src.meshmon.pulsewave.store.get_data_update_handler",
             return_value=(mock_matcher, mock_handler),
         ),
     ):

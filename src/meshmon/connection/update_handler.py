@@ -1,9 +1,13 @@
+import datetime
+import time
+
 import structlog
 
+from ..distrostore import NodeStatus, PingData
 from ..pulsewave.store import SharedStore
 from ..pulsewave.update.update import UpdateHandler, UpdateManager
 from .connection import ConnectionManager
-from .proto import ProtocolData, StoreUpdate
+from .proto import ProtocolData, StoreHeartbeatAck, StoreUpdate
 
 
 class GrpcUpdateHandler(UpdateHandler):
@@ -40,6 +44,16 @@ class GrpcUpdateHandler(UpdateHandler):
                         )
                     )
                 )
+                ping_ctx = self.store.get_context("ping_data", PingData)
+                if ping_ctx.get(node) is None:
+                    ping_ctx.set(
+                        node,
+                        PingData(
+                            status=NodeStatus.UNKNOWN,
+                            req_time_rtt=-1,
+                            date=datetime.datetime.now(datetime.timezone.utc),
+                        ),
+                    )
 
     def handle_incoming_update(self, update: StoreUpdate) -> None:
         """Handle an incoming StoreUpdate message."""
@@ -48,5 +62,31 @@ class GrpcUpdateHandler(UpdateHandler):
         if not hasattr(self, "store"):
             self.logger.info("Store not bound, cannot handle incoming update")
             return
-        self.logger.info("Handling incoming update", src_id=update.node_id)
         self.store.update_from_dump(update.data)
+
+    def handle_heartbeat(self, heartbeat_ack: StoreHeartbeatAck) -> None:
+        node_ctx = self.store.get_context("ping_data", PingData)
+        if not heartbeat_ack.success:
+            self.logger.warning(
+                "Heartbeat ack indicates failure",
+                from_node=heartbeat_ack.node_id,
+                network_id=heartbeat_ack.network_id,
+            )
+            return
+
+        node_ctx.set(
+            heartbeat_ack.node_id,
+            PingData(
+                status=NodeStatus.ONLINE,
+                req_time_rtt=(time.time_ns() - (heartbeat_ack.timestamp))
+                / 1_000_000_000,  # Convert ns to s
+                date=datetime.datetime.now(tz=datetime.timezone.utc),
+            ),
+        )
+        self.logger.info(
+            "Received heartbeat ack",
+            from_node=heartbeat_ack.node_id,
+            network_id=heartbeat_ack.network_id,
+            ts=heartbeat_ack.timestamp,
+            success=heartbeat_ack.success,
+        )

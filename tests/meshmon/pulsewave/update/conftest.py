@@ -68,6 +68,8 @@ def node_config(another_verifier):
         node_id=another_verifier.node_id,
         uri="http://localhost:8080",
         verifier=another_verifier,
+        heartbeat_interval=5.0,
+        heartbeat_retry=3,
     )
 
 

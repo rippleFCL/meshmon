@@ -1,6 +1,8 @@
 import datetime
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from ..store import SharedStore
 
@@ -9,8 +11,13 @@ import structlog
 from ..config import PulseWaveConfig
 from ..data import (
     StoreClockTableEntry,
+    StoreLeaderEntry,
+    StoreLeaderStatus,
+    StoreNodeStatus,
+    StoreNodeStatusEntry,
     StorePulseTableEntry,
 )
+from ..secrets import SecretContainer
 from .update import RegexPathMatcher, UpdateHandler, UpdateManager
 
 
@@ -114,6 +121,205 @@ def get_pulse_table_handler() -> tuple[RegexPathMatcher, PulseTableHandler]:
     return update_matcher, pulse_table_handler
 
 
+class NodeStatusHandler(UpdateHandler):
+    def __init__(self):
+        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+
+    def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
+        self.store = store
+        self.update_manager = update_manager
+
+    def handle_update(self) -> None:
+        current_node_id = self.store.key_mapping.signer.node_id
+        consistency = self.store.get_consistency()
+        node_status_table = consistency.node_status_table
+        clock_table = consistency.clock_table
+        self.logger.debug("Computing node status table", node_id=current_node_id)
+        for current_node_id in self.store.nodes:
+            node_consistency_table = self.store.get_consistency(current_node_id)
+            if not node_consistency_table:
+                continue
+            pulse_table = node_consistency_table.pulse_table
+            if not pulse_table:
+                continue
+            pt_entry = pulse_table.get(self.store.key_mapping.signer.node_id)
+            if not pt_entry:
+                node_status_table.set(
+                    current_node_id,
+                    StoreNodeStatusEntry(status=StoreNodeStatus.OFFLINE),
+                )
+                continue
+            clock_entry = clock_table.get(current_node_id)
+            if not clock_entry:
+                continue
+
+            last_pulse_time = (
+                datetime.datetime.now(tz=datetime.timezone.utc) - pt_entry.current_pulse
+            )
+            max_lpt = (
+                self.store.config.clock_pulse_interval + clock_entry.rtt.total_seconds()
+            ) * 2
+            current_node_status = node_status_table.get(current_node_id)
+            if last_pulse_time.total_seconds() > max_lpt:
+                if (
+                    not current_node_status
+                    or current_node_status.status != StoreNodeStatus.OFFLINE
+                ):
+                    node_status_table.set(
+                        current_node_id,
+                        StoreNodeStatusEntry(status=StoreNodeStatus.OFFLINE),
+                    )
+                    self.logger.info(
+                        "Node marked offline in status table", node_id=current_node_id
+                    )
+            else:
+                if (
+                    not current_node_status
+                    or current_node_status.status != StoreNodeStatus.ONLINE
+                ):
+                    node_status_table.set(
+                        current_node_id,
+                        StoreNodeStatusEntry(status=StoreNodeStatus.ONLINE),
+                    )
+                    self.logger.info(
+                        "Node marked online in status table", node_id=current_node_id
+                    )
+
+            self.update_manager.trigger_event("instant_update")
+
+
+def get_node_status_handler() -> tuple[RegexPathMatcher, NodeStatusHandler]:
+    node_status_handler = NodeStatusHandler()
+    matchers = [
+        "^nodes\\.(\\w|-)+\\.consistency\\.clock_table\\.(\\w|-)+$",
+    ]
+    update_matcher = RegexPathMatcher(matchers)
+    return update_matcher, node_status_handler
+
+
+class LeaderElectionHandler(UpdateHandler):
+    def __init__(self, secret_container: SecretContainer):
+        self.secret_container = secret_container
+        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+
+    def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
+        self.store = store
+        self.update_manager = update_manager
+
+    def _get_online_nodes(self, nodes: list[str]) -> list[str]:
+        online_nodes = []
+        consistency = self.store.get_consistency()
+        node_status_table = consistency.node_status_table
+        for node_id in nodes:
+            status_entry = node_status_table.get(node_id)
+            if status_entry and status_entry.status == StoreNodeStatus.ONLINE:
+                online_nodes.append(node_id)
+        return online_nodes
+
+    def _is_consistent(self, nodes: list[str]) -> bool:
+        statuses = []
+        for node in nodes:
+            node_consistency = self.store.get_consistency(node)
+            if not node_consistency:
+                continue
+            node_status_table = node_consistency.node_status_table
+            if not node_status_table:
+                continue
+            node_statuses = []
+            for node in nodes:
+                node_status = node_status_table.get(
+                    self.store.key_mapping.signer.node_id
+                )
+                if not node_status or node_status.status != StoreNodeStatus.ONLINE:
+                    continue
+                node_statuses.append(node)
+            statuses.append(node_statuses)
+        if len(statuses) == 0:
+            return False
+        status = statuses[0]
+        for node_statuses in statuses[1:]:
+            if set(status) != set(node_statuses):
+                return False
+        return True
+
+    def all_leader_statuses(self, cluster: str) -> dict[str, StoreLeaderEntry]:
+        statuses: dict[str, StoreLeaderEntry] = {}
+        cluster_ctx = self.store.get_consistency_context(
+            cluster, BaseModel, secret=self.secret_container.get_secret(cluster)
+        )
+        online_nodes = self._get_online_nodes(cluster_ctx.nodes())
+        for node_id in online_nodes:
+            leader_status = cluster_ctx.get_leader_status(node_id)
+            if leader_status:
+                statuses[node_id] = leader_status
+        return statuses
+
+    def _process_cluster(self, cluster: str) -> None:
+        cluster_ctx = self.store.get_consistency_context(
+            cluster, BaseModel, secret=self.secret_container.get_secret(cluster)
+        )
+        current_node_id = self.store.key_mapping.signer.node_id
+        consistent = self._is_consistent(cluster_ctx.nodes())
+        online_nodes = self._get_online_nodes(cluster_ctx.nodes())
+        priority_list = sorted(cluster_ctx.nodes())
+        priority_list = [
+            node_id for node_id in priority_list if node_id in online_nodes
+        ]
+        if not consistent:
+            self.logger.info(
+                "Cluster not consistent, waiting for consensus", cluster=cluster
+            )
+            cluster_ctx.leader_status = StoreLeaderEntry(
+                status=StoreLeaderStatus.WAITING_FOR_CONSENSUS, node_id=current_node_id
+            )
+            self.update_manager.trigger_event("instant_update")
+
+            return
+        if len(online_nodes) < len(cluster_ctx.nodes()) // 2 + 1:
+            self.logger.info(
+                "Not enough online nodes for leader election", cluster=cluster
+            )
+            cluster_ctx.leader_status = StoreLeaderEntry(
+                status=StoreLeaderStatus.NOT_PARTICIPATING, node_id=current_node_id
+            )
+            self.update_manager.trigger_event("instant_update")
+            return
+        all_statuses = self.all_leader_statuses(cluster)
+        if not any(s.status == StoreLeaderStatus.LEADER for s in all_statuses.values()):
+            highest_priority_node = priority_list[0]
+            if highest_priority_node == current_node_id:
+                self.logger.info("Becoming leader for cluster", cluster=cluster)
+                cluster_ctx.leader_status = StoreLeaderEntry(
+                    status=StoreLeaderStatus.LEADER, node_id=current_node_id
+                )
+                self.update_manager.trigger_event("leader_elected")
+            else:
+                self.logger.info(
+                    "Not highest priority node, becoming follower", cluster=cluster
+                )
+                cluster_ctx.leader_status = StoreLeaderEntry(
+                    status=StoreLeaderStatus.FOLLOWER, node_id=highest_priority_node
+                )
+            self.update_manager.trigger_event("instant_update")
+
+    def handle_update(self) -> None:
+        self.logger.debug("Leader election event triggered")
+        for cluster in self.store.all_consistency_contexts():
+            self._process_cluster(cluster)
+
+
+def get_leader_election_handler(
+    secret_container: SecretContainer,
+) -> tuple[RegexPathMatcher, LeaderElectionHandler]:
+    leader_election_handler = LeaderElectionHandler(secret_container)
+    matchers = [
+        "^nodes\\.(\\w|-)+\\.consistency\\.node_status_table\\.(\\w|-)+$",
+        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.leader_status$",
+    ]
+    update_matcher = RegexPathMatcher(matchers)
+    return update_matcher, leader_election_handler
+
+
 class DataUpdateHandler(UpdateHandler):
     def __init__(self):
         self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
@@ -127,11 +333,12 @@ class DataUpdateHandler(UpdateHandler):
         self.update_manager.trigger_event("update")
 
 
-def get_data_event_handler() -> tuple[RegexPathMatcher, DataUpdateHandler]:
+def get_data_update_handler() -> tuple[RegexPathMatcher, DataUpdateHandler]:
     data_event_handler = DataUpdateHandler()
     matchers = [
         "^nodes\\.(\\w|-)+\\.values\\.(\\w|-)+$",
         "^nodes\\.(\\w|-)+\\.contexts\\.(\\w|-)+$",
+        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.context\\.(\\w|-)+$",
     ]
     update_matcher = RegexPathMatcher(matchers)
     return update_matcher, data_event_handler

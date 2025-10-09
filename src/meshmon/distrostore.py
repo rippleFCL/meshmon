@@ -1,37 +1,14 @@
-import datetime
-from enum import Enum
 from typing import TYPE_CHECKING
 
 import structlog
-from pydantic import BaseModel
 
 from .config import NetworkConfig, NetworkConfigLoader
 from .pulsewave.config import CurrentNode, NodeConfig, PulseWaveConfig
 from .pulsewave.store import SharedStore
+from .update_handlers import get_monitor_status_handler, get_node_status_handler
 
 if TYPE_CHECKING:
     from .connection.grpc_server import GrpcServer
-
-
-class NodeStatus(Enum):
-    ONLINE = "online"
-    OFFLINE = "offline"
-    UNKNOWN = "unknown"
-
-
-class PingData(BaseModel):
-    status: NodeStatus
-    req_time_rtt: float
-    date: datetime.datetime
-
-
-class NodeInfo(BaseModel):
-    status: NodeStatus
-    version: str
-
-
-class NodeDataRetention(BaseModel):
-    date: datetime.datetime
 
 
 class StoreManager:
@@ -91,9 +68,10 @@ class StoreManager:
 
             # Create the store with local handler
             new_store = SharedStore(db_config, grpc_handler)
-
-            # Bind the gRPC handler to the store
-            grpc_handler.bind(new_store, new_store.update_manager)
+            matcher, handler = get_node_status_handler()
+            new_store.add_handler(matcher, handler)
+            matcher, handler = get_monitor_status_handler(network)
+            new_store.add_handler(matcher, handler)
 
             if network.network_id in self.stores:
                 self.logger.info(

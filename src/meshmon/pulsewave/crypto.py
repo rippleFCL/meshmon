@@ -9,16 +9,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from structlog.stdlib import get_logger
 
-logger = get_logger()
-
 
 class Verifier:
     def __init__(self, peer_id: str, public_key: Ed25519PublicKey):
+        self.logger = get_logger().bind(
+            module="pulsewave.crypto", peer_id=peer_id, component="Verifier"
+        )
         self.node_id = peer_id
         self.public_key = public_key
 
     @classmethod
     def by_id(cls, peer_id: str, key_dir):
+        logger = get_logger().bind(
+            module="pulsewave.crypto", peer_id=peer_id, component="Verifier.by_id"
+        )
+
         logger.debug(f"Loading public key for peer: {peer_id}")
         os.makedirs(key_dir, exist_ok=True)
         key_path = os.path.join(key_dir, f"{peer_id}.pub")
@@ -39,27 +44,35 @@ class Verifier:
         b64_sig, b64_content = message.split(".")
         content = base64.b64decode(b64_content)
         sig = base64.b64decode(b64_sig)
-        if not self.verify(content, sig):
+        if not self.verify(content, sig, path="decode_message"):
             return None
         return content.decode("utf-8")
 
-    def verify(self, message: bytes, signature: bytes) -> bool:
+    def verify(self, message: bytes, signature: bytes, path: str) -> bool:
         """
         Verify the signature of the raw message using the public key.
         """
         try:
             self.public_key.verify(signature, message)
-            logger.debug(f"Signature verification successful for peer: {self.node_id}")
+            self.logger.debug(
+                "Signature verification successful for peer",
+                node_id=self.node_id,
+                path=path,
+            )
             return True
         except InvalidSignature:
-            logger.warning(f"Signature verification failed for peer: {self.node_id}")
+            self.logger.warning(
+                "Signature verification failed for peer",
+                node_id=self.node_id,
+                path=path,
+            )
             return False
 
     def save(self, peer_id: str, key_dir: str):
         os.makedirs(key_dir, exist_ok=True)
         key_path = os.path.join(key_dir, f"{peer_id}.pub")
         if os.path.exists(key_path):
-            logger.debug(f"Public key file already exists: {key_path}")
+            self.logger.debug(f"Public key file already exists: {key_path}")
             return
         with open(key_path, "wb") as f:
             f.write(
@@ -78,6 +91,9 @@ class Signer:
 
     @classmethod
     def by_id(cls, peer_id: str, key_dir: str = "config/.private_keys"):
+        logger = get_logger().bind(
+            module="pulsewave.crypto", peer_id=peer_id, component="Signer.by_id"
+        )
         logger.debug(f"Loading private key for peer: {peer_id}")
         os.makedirs(key_dir, exist_ok=True)
         key_path = os.path.join(key_dir, f"{peer_id}.key")

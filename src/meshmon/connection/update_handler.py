@@ -3,11 +3,30 @@ import time
 
 import structlog
 
-from ..distrostore import NodeStatus, PingData
+from ..dstypes import DSNodeStatus, DSPingData
+from ..pulsewave.crypto import KeyMapping
+from ..pulsewave.data import StoreData
 from ..pulsewave.store import SharedStore
 from ..pulsewave.update.update import UpdateHandler, UpdateManager
 from .connection import ConnectionManager
 from .proto import ProtocolData, StoreHeartbeatAck, StoreUpdate
+
+
+class IncrementalUpdater:
+    def __init__(self):
+        self.end_data = StoreData()
+
+    def diff(self, other: StoreData, exclude_node_id: str) -> StoreData:
+        diff = self.end_data.diff(other)
+        if exclude_node_id in diff.nodes:
+            del diff.nodes[exclude_node_id]
+        return diff
+
+    def update(self, other: StoreData, key_mapping: KeyMapping):
+        self.end_data.update(other, key_mapping)
+
+    def clear(self):
+        self.end_data = StoreData()
 
 
 class GrpcUpdateHandler(UpdateHandler):
@@ -30,6 +49,7 @@ class GrpcUpdateHandler(UpdateHandler):
     def handle_update(self) -> None:
         """Process an incoming update request."""
         msg = self.store.dump()
+        ping_ctx = self.store.get_context("ping_data", DSPingData)
         for node in self.store.nodes:
             if node == self.store.key_mapping.signer.node_id:
                 continue
@@ -44,12 +64,11 @@ class GrpcUpdateHandler(UpdateHandler):
                         )
                     )
                 )
-                ping_ctx = self.store.get_context("ping_data", PingData)
                 if ping_ctx.get(node) is None:
                     ping_ctx.set(
                         node,
-                        PingData(
-                            status=NodeStatus.UNKNOWN,
+                        DSPingData(
+                            status=DSNodeStatus.UNKNOWN,
                             req_time_rtt=-1,
                             date=datetime.datetime.now(datetime.timezone.utc),
                         ),
@@ -65,7 +84,7 @@ class GrpcUpdateHandler(UpdateHandler):
         self.store.update_from_dump(update.data)
 
     def handle_heartbeat(self, heartbeat_ack: StoreHeartbeatAck) -> None:
-        node_ctx = self.store.get_context("ping_data", PingData)
+        node_ctx = self.store.get_context("ping_data", DSPingData)
         if not heartbeat_ack.success:
             self.logger.warning(
                 "Heartbeat ack indicates failure",
@@ -73,20 +92,19 @@ class GrpcUpdateHandler(UpdateHandler):
                 network_id=heartbeat_ack.network_id,
             )
             return
-
+        current_status = node_ctx.get(heartbeat_ack.node_id)
+        if current_status and current_status.status == DSNodeStatus.OFFLINE:
+            self.logger.info(
+                "Node is now online",
+                node_id=heartbeat_ack.node_id,
+                network_id=heartbeat_ack.network_id,
+            )
         node_ctx.set(
             heartbeat_ack.node_id,
-            PingData(
-                status=NodeStatus.ONLINE,
+            DSPingData(
+                status=DSNodeStatus.ONLINE,
                 req_time_rtt=(time.time_ns() - (heartbeat_ack.timestamp))
                 / 1_000_000_000,  # Convert ns to s
                 date=datetime.datetime.now(tz=datetime.timezone.utc),
             ),
-        )
-        self.logger.info(
-            "Received heartbeat ack",
-            from_node=heartbeat_ack.node_id,
-            network_id=heartbeat_ack.network_id,
-            ts=heartbeat_ack.timestamp,
-            success=heartbeat_ack.success,
         )

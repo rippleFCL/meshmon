@@ -22,7 +22,7 @@ from .update.handlers import (
     get_pulse_table_handler,
 )
 from .update.manager import ClockPulseGenerator
-from .update.update import ExactPathMatcher, UpdateHandler, UpdateManager
+from .update.update import ExactPathMatcher, UpdateHandler, UpdateManager, UpdateMatcher
 from .views import (
     ConsistencyContextView,
     MutableStoreConsistencyView,
@@ -64,6 +64,9 @@ class SharedStore:
             self, self.update_manager, config
         )
         logger.debug("SharedStore initialized.")
+
+    def add_handler(self, matcher: UpdateMatcher, handler: UpdateHandler):
+        self.update_manager.add_handler(matcher, handler)
 
     @overload
     def _get_node(self) -> StoreNodeData: ...
@@ -110,7 +113,11 @@ class SharedStore:
         req_type: DateEvalType = DateEvalType.NEWER,
     ):
         signed_data = SignedBlockData.new(
-            self.key_mapping.signer, data, block_id=value_id, rep_type=req_type
+            self.key_mapping.signer,
+            data,
+            block_id=value_id,
+            path=f"nodes.{self.key_mapping.signer.node_id}.values.{value_id}",
+            rep_type=req_type,
         )
         self._get_node().values[value_id] = signed_data
         self.update_manager.trigger_update(

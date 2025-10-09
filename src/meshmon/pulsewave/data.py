@@ -37,6 +37,7 @@ class SignedBlockData(BaseModel):
         signer: Signer,
         data: BaseModel,
         block_id: str,
+        path: str,
         rep_type: DateEvalType = DateEvalType.NEWER,
         secret: str | None = None,
     ) -> "SignedBlockData":
@@ -54,7 +55,9 @@ class SignedBlockData(BaseModel):
             .encode()
         )
         encoded = base64.b64encode(signer.sign(data_sig_str)).decode()
-        logger.debug(f"Creating new SignedNodeData for signer {signer.node_id}")
+        logger.debug(
+            "Creating new SignedNodeData for signer", node_id=signer.node_id, path=path
+        )
         return cls(
             data=model_data,
             signature=encoded,
@@ -64,9 +67,8 @@ class SignedBlockData(BaseModel):
         )
 
     def verify(
-        self, verifier: Verifier, block_id: str, secret: str | None = None
+        self, verifier: Verifier, block_id: str, path: str, secret: str | None = None
     ) -> bool:
-        logger.debug(f"Verifying signature for sig_id {verifier.node_id}")
         data_sig_str = SignedBlockSignature(
             data=self.data,
             date=self.date,
@@ -75,7 +77,9 @@ class SignedBlockData(BaseModel):
             replacement_type=self.replacement_type,
         ).model_dump_json()
         verified = (
-            verifier.verify(data_sig_str.encode(), base64.b64decode(self.signature))
+            verifier.verify(
+                data_sig_str.encode(), base64.b64decode(self.signature), path=path
+            )
             and self.block_id == block_id
         )
         return verified
@@ -111,7 +115,7 @@ class StoreContextData(BaseModel):
             allowed_keys=allowed_keys,
         )
 
-    def verify(self, verifier: Verifier, context_name: str) -> bool:
+    def verify(self, verifier: Verifier, context_name: str, path: str) -> bool:
         sig_str = json.dumps(
             {
                 "context_name": self.context_name,
@@ -120,7 +124,7 @@ class StoreContextData(BaseModel):
             }
         ).encode()
         verified = (
-            verifier.verify(sig_str, base64.b64decode(self.sig))
+            verifier.verify(sig_str, base64.b64decode(self.sig), path=path)
             and self.context_name == context_name
         )
         return verified
@@ -139,7 +143,7 @@ class StoreContextData(BaseModel):
             return []
         updated_paths: list[str] = []
         if context_data.date > self.date:
-            if not context_data.verify(verifier, context_name):
+            if not context_data.verify(verifier, context_name, path):
                 logger.warning(
                     f"New context data signature verification failed for context {self.context_name}. skipping update."
                 )
@@ -171,21 +175,21 @@ class StoreContextData(BaseModel):
                     del self.data[key]
                 continue
             if key not in self.data:
-                if value.verify(verifier, key):
+                if value.verify(verifier, key, f"{path}.{key}"):
                     self.data[key] = value
                     updated_paths.append(f"{path}.{key}")
             elif (
                 value.replacement_type == DateEvalType.NEWER
                 and value.date > self.data[key].date
             ):
-                if value.verify(verifier, key):
+                if value.verify(verifier, key, f"{path}.{key}"):
                     self.data[key] = value
                     updated_paths.append(f"{path}.{key}")
             elif (
                 value.replacement_type == DateEvalType.OLDER
                 and value.date < self.data[key].date
             ):
-                if value.verify(verifier, key):
+                if value.verify(verifier, key, f"{path}.{key}"):
                     self.data[key] = value
                     updated_paths.append(f"{path}.{key}")
         return updated_paths
@@ -284,22 +288,30 @@ class StoreConsistentContextData(BaseModel):
     sig: str
     date: datetime.datetime
 
-    def verify(self, verifier: Verifier) -> bool:
+    def verify(self, verifier: Verifier, path: str) -> bool:
         verified = True
         if self.context:
-            verified = self.context.verify(verifier, "context") and verified
+            verified = (
+                self.context.verify(verifier, "context", f"{path}.context") and verified
+            )
         if self.nodes:
-            verified = self.nodes.verify(verifier, "nodes") and verified
+            verified = (
+                self.nodes.verify(verifier, "nodes", f"{path}.nodes") and verified
+            )
         if self.leader:
-            verified = self.leader.verify(verifier, "leader") and verified
+            verified = (
+                self.leader.verify(verifier, "leader", f"{path}.leader") and verified
+            )
         data = json.dumps(
             {"ctx_name": self.ctx_name, "date": self.date.isoformat()}
         ).encode()
-        verified = verifier.verify(data, base64.b64decode(self.sig)) and verified
+        verified = (
+            verifier.verify(data, base64.b64decode(self.sig), path=path) and verified
+        )
         return verified
 
     @classmethod
-    def new(cls, signer: Signer, ctx_name: str, secret: str | None):
+    def new(cls, signer: Signer, ctx_name: str, path: str, secret: str | None):
         date = datetime.datetime.now(datetime.timezone.utc)
         data = json.dumps({"ctx_name": ctx_name, "date": date.isoformat()}).encode()
         sig = base64.b64encode(signer.sign(data)).decode()
@@ -309,6 +321,7 @@ class StoreConsistentContextData(BaseModel):
                 signer,
                 StoreNodeList(nodes=[]),
                 "nodes",
+                f"{path}.nodes",
                 rep_type=DateEvalType.NEWER,
             ),
             leader=SignedBlockData.new(
@@ -319,9 +332,11 @@ class StoreConsistentContextData(BaseModel):
                         status=StoreLeaderStatus.NOT_PARTICIPATING, node_id=""
                     ),
                     block_id="leader_status",
+                    path=f"{path}.leader.leader_status",
                     secret=secret,
                 ),
                 "leader",
+                f"{path}.leader",
                 rep_type=DateEvalType.NEWER,
             ),
             ctx_name=ctx_name,
@@ -344,7 +359,7 @@ class StoreConsistentContextData(BaseModel):
             )
             return updated_paths
         if data.date > self.date:
-            if not data.verify(verifier):
+            if not data.verify(verifier, path):
                 logger.warning(
                     f"New consistent context data signature verification failed for context {self.ctx_name}. skipping update."
                 )
@@ -358,7 +373,7 @@ class StoreConsistentContextData(BaseModel):
             updated_paths.append(f"{path}")
             return updated_paths
         if self.context is None and data.context is not None:
-            if data.context.verify(verifier, "context"):
+            if data.context.verify(verifier, "context", f"{path}.context"):
                 self.context = data.context
                 all_paths = self.context.all_paths(f"{path}.context")
                 updated_paths.extend(all_paths)
@@ -371,7 +386,7 @@ class StoreConsistentContextData(BaseModel):
             )
 
         if self.nodes is None and data.nodes is not None:
-            if data.nodes.verify(verifier, "nodes"):
+            if data.nodes.verify(verifier, "nodes", f"{path}.nodes"):
                 self.nodes = data.nodes
                 updated_paths.append(f"{path}.nodes")
         elif self.nodes is not None and data.nodes is not None:
@@ -379,19 +394,19 @@ class StoreConsistentContextData(BaseModel):
                 self.nodes.replacement_type == DateEvalType.NEWER
                 and data.nodes.date > self.nodes.date
             ):
-                if data.nodes.verify(verifier, "nodes"):
+                if data.nodes.verify(verifier, "nodes", f"{path}.nodes"):
                     self.nodes = data.nodes
                     updated_paths.append(f"{path}.nodes")
             elif (
                 self.nodes.replacement_type == DateEvalType.OLDER
                 and data.nodes.date < self.nodes.date
             ):
-                if data.nodes.verify(verifier, "nodes"):
+                if data.nodes.verify(verifier, "nodes", f"{path}.nodes"):
                     self.nodes = data.nodes
                     updated_paths.append(f"{path}.nodes")
 
         if self.leader is None and data.leader is not None:
-            if data.leader.verify(verifier, "leader"):
+            if data.leader.verify(verifier, "leader", f"{path}.leader"):
                 self.leader = data.leader
                 updated_paths.append(f"{path}.leader")
         elif self.leader is not None and data.leader is not None:
@@ -399,14 +414,14 @@ class StoreConsistentContextData(BaseModel):
                 self.leader.replacement_type == DateEvalType.NEWER
                 and data.leader.date > self.leader.date
             ):
-                if data.leader.verify(verifier, "leader"):
+                if data.leader.verify(verifier, "leader", f"{path}.leader"):
                     self.leader = data.leader
                     updated_paths.append(f"{path}.leader")
             elif (
                 self.leader.replacement_type == DateEvalType.OLDER
                 and data.leader.date < self.leader.date
             ):
-                if data.leader.verify(verifier, "leader"):
+                if data.leader.verify(verifier, "leader", f"{path}.leader"):
                     self.leader = data.leader
                     updated_paths.append(f"{path}.leader")
 
@@ -546,7 +561,9 @@ class StoreConsistencyData(BaseModel):
                 )
             ):
                 if consistency_data.clock_pulse.verify(
-                    verifier, consistency_data.clock_pulse.block_id
+                    verifier,
+                    consistency_data.clock_pulse.block_id,
+                    f"{path}.clock_pulse",
                 ):
                     self.clock_pulse = consistency_data.clock_pulse
                     updated_paths.append(f"{path}.clock_pulse")
@@ -564,7 +581,9 @@ class StoreConsistencyData(BaseModel):
                 key not in self.consistent_contexts
                 and key in consistency_data.consistent_contexts
             ):
-                if consistency_data.consistent_contexts[key].verify(verifier):
+                if consistency_data.consistent_contexts[key].verify(
+                    verifier, f"{path}.consistent_contexts.{key}"
+                ):
                     self.consistent_contexts[key] = (
                         consistency_data.consistent_contexts[key]
                     )
@@ -631,20 +650,34 @@ class StoreConsistencyData(BaseModel):
 
         return diff_data
 
-    def verify(self, verifier: Verifier) -> bool:
+    def verify(self, verifier: Verifier, path: str) -> bool:
         verified = True
-        verified = self.clock_table.verify(verifier, "clock_table") and verified
         verified = (
-            self.node_status_table.verify(verifier, "node_status_table") and verified
+            self.clock_table.verify(verifier, "clock_table", f"{path}.clock_table")
+            and verified
         )
-        verified = self.pulse_table.verify(verifier, "pulse_table") and verified
+        verified = (
+            self.node_status_table.verify(
+                verifier, "node_status_table", f"{path}.node_status_table"
+            )
+            and verified
+        )
+        verified = (
+            self.pulse_table.verify(verifier, "pulse_table", f"{path}.pulse_table")
+            and verified
+        )
         if self.clock_pulse:
             verified = (
-                self.clock_pulse.verify(verifier, self.clock_pulse.block_id)
+                self.clock_pulse.verify(
+                    verifier, self.clock_pulse.block_id, f"{path}.clock_pulse"
+                )
                 and verified
             )
         verified = (
-            all(ctx.verify(verifier) for ctx in self.consistent_contexts.values())
+            all(
+                ctx.verify(verifier, f"{path}.consistent_contexts.{key}")
+                for key, ctx in self.consistent_contexts.items()
+            )
             and verified
         )
         return verified
@@ -679,7 +712,9 @@ class StoreNodeData(BaseModel):
         updated_paths: list[str] = []
         for context_name, context_data in node_data.contexts.items():
             if context_name not in self.contexts:
-                if context_data.verify(verifier, context_name):
+                if context_data.verify(
+                    verifier, context_name, f"{path}.contexts.{context_name}"
+                ):
                     self.contexts[context_name] = context_data
                     updated_paths.append(f"{path}.contexts.{context_name}")
                     updated_paths.extend(
@@ -696,14 +731,14 @@ class StoreNodeData(BaseModel):
                 )
         for key, value in node_data.values.items():
             if key not in self.values:
-                if value.verify(verifier, key):
+                if value.verify(verifier, key, f"{path}.values.{key}"):
                     self.values[key] = value
                     updated_paths.append(f"{path}.values.{key}")
             elif (
                 self.values[key].replacement_type == DateEvalType.NEWER
                 and value.date > self.values[key].date
             ):
-                if value.verify(verifier, key):
+                if value.verify(verifier, key, f"{path}.values.{key}"):
                     updated_paths.append(f"{path}.values.{key}")
                     self.values[key] = value
 
@@ -711,13 +746,13 @@ class StoreNodeData(BaseModel):
                 self.values[key].replacement_type == DateEvalType.OLDER
                 and value.date < self.values[key].date
             ):
-                if value.verify(verifier, key):
+                if value.verify(verifier, key, f"{path}.values.{key}"):
                     self.values[key] = value
                     updated_paths.append(f"{path}.values.{key}")
 
         if node_data.consistency:
             if self.consistency is None:
-                if node_data.consistency.verify(verifier):
+                if node_data.consistency.verify(verifier, f"{path}.consistency"):
                     self.consistency = node_data.consistency
                     updated_paths.append(f"{path}.consistency")
                     updated_paths.extend(
@@ -782,14 +817,21 @@ class StoreNodeData(BaseModel):
             return None
         return diff_data
 
-    def verify(self, verifier: Verifier) -> bool:
+    def verify(self, verifier: Verifier, path: str) -> bool:
         verified = True
         for context_name, context_data in self.contexts.items():
-            verified = context_data.verify(verifier, context_name) and verified
+            verified = (
+                context_data.verify(
+                    verifier, context_name, f"{path}.contexts.{context_name}"
+                )
+                and verified
+            )
         for key, value in self.values.items():
-            verified = value.verify(verifier, key) and verified
+            verified = value.verify(verifier, key, f"{path}.values.{key}") and verified
         if self.consistency:
-            verified = self.consistency.verify(verifier) and verified
+            verified = (
+                self.consistency.verify(verifier, f"{path}.consistency") and verified
+            )
         return verified
 
     def all_paths(self, path: str) -> list[str]:
@@ -815,7 +857,7 @@ class StoreData(BaseModel):
                 )
                 continue
             if node_id not in self.nodes:
-                if node_data.verify(key_mapping.verifiers[node_id]):
+                if node_data.verify(key_mapping.verifiers[node_id], f"nodes.{node_id}"):
                     logger.debug(f"Adding new node data for node ID {node_id}")
                     self.nodes[node_id] = node_data.model_copy()
                     updated_paths.extend(node_data.all_paths(f"nodes.{node_id}"))

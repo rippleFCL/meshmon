@@ -1,4 +1,5 @@
 import datetime
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -169,8 +170,9 @@ class NodeStatusHandler(UpdateHandler):
                         current_node_id,
                         StoreNodeStatusEntry(status=StoreNodeStatus.OFFLINE),
                     )
-                    self.logger.info(
-                        "Node marked offline in status table", node_id=current_node_id
+                    self.logger.debug(
+                        "Node marked offline in consistency status table",
+                        node_id=current_node_id,
                     )
             else:
                 if (
@@ -181,8 +183,9 @@ class NodeStatusHandler(UpdateHandler):
                         current_node_id,
                         StoreNodeStatusEntry(status=StoreNodeStatus.ONLINE),
                     )
-                    self.logger.info(
-                        "Node marked online in status table", node_id=current_node_id
+                    self.logger.debug(
+                        "Node marked online in consistency status table",
+                        node_id=current_node_id,
                     )
 
             self.update_manager.trigger_event("instant_update")
@@ -197,10 +200,19 @@ def get_node_status_handler() -> tuple[RegexPathMatcher, NodeStatusHandler]:
     return update_matcher, node_status_handler
 
 
+class ClusterState(Enum):
+    WAITING_FOR_CONSENSUS = "waiting_for_consensus"
+    LEADER = "leader"
+    FOLLOWER = "follower"
+    NOT_PARTICIPATING = "not_participating"
+    STARTING = "starting"
+
+
 class LeaderElectionHandler(UpdateHandler):
     def __init__(self, secret_container: SecretContainer):
         self.secret_container = secret_container
         self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.cluster_state = {}
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
         self.store = store
@@ -259,48 +271,80 @@ class LeaderElectionHandler(UpdateHandler):
             cluster, BaseModel, secret=self.secret_container.get_secret(cluster)
         )
         current_node_id = self.store.key_mapping.signer.node_id
-        consistent = self._is_consistent(cluster_ctx.nodes())
         online_nodes = self._get_online_nodes(cluster_ctx.nodes())
+        consistent = self._is_consistent(online_nodes)
+        all_online_nodes = self._get_online_nodes(self.store.nodes)
         priority_list = sorted(cluster_ctx.nodes())
         priority_list = [
             node_id for node_id in priority_list if node_id in online_nodes
         ]
+        all_nodes = cluster_ctx.nodes()
+        cluster_state = self.cluster_state.get(cluster, ClusterState.STARTING)
         if not consistent:
-            self.logger.info(
-                "Cluster not consistent, waiting for consensus", cluster=cluster
-            )
-            cluster_ctx.leader_status = StoreLeaderEntry(
-                status=StoreLeaderStatus.WAITING_FOR_CONSENSUS, node_id=current_node_id
-            )
-            self.update_manager.trigger_event("instant_update")
+            if cluster_state != ClusterState.WAITING_FOR_CONSENSUS:
+                self.logger.info(
+                    "Cluster not consistent, waiting for consensus", cluster=cluster
+                )
+                cluster_ctx.leader_status = StoreLeaderEntry(
+                    status=StoreLeaderStatus.WAITING_FOR_CONSENSUS,
+                    node_id=current_node_id,
+                )
+                self.update_manager.trigger_event("instant_update")
+                self.cluster_state[cluster] = ClusterState.WAITING_FOR_CONSENSUS
 
             return
-        if len(online_nodes) < len(cluster_ctx.nodes()) // 2 + 1:
-            self.logger.info(
-                "Not enough online nodes for leader election", cluster=cluster
-            )
-            cluster_ctx.leader_status = StoreLeaderEntry(
-                status=StoreLeaderStatus.NOT_PARTICIPATING, node_id=current_node_id
-            )
-            self.update_manager.trigger_event("instant_update")
+        if len(online_nodes) < len(all_nodes) // 2 + 1 or (
+            len(all_online_nodes) == 1 and len(self.store.nodes) > 1
+        ):
+            if cluster_state != ClusterState.NOT_PARTICIPATING:
+                self.logger.info(
+                    "Not enough online nodes for leader election",
+                    cluster=cluster,
+                    cluster_online_nodes=online_nodes,
+                    cluster_total_nodes=all_nodes,
+                )
+                cluster_ctx.leader_status = StoreLeaderEntry(
+                    status=StoreLeaderStatus.NOT_PARTICIPATING, node_id=current_node_id
+                )
+                self.update_manager.trigger_event("instant_update")
+                self.cluster_state[cluster] = ClusterState.NOT_PARTICIPATING
             return
         all_statuses = self.all_leader_statuses(cluster)
-        if not any(s.status == StoreLeaderStatus.LEADER for s in all_statuses.values()):
-            highest_priority_node = priority_list[0]
-            if highest_priority_node == current_node_id:
+        leaders = [s.status == StoreLeaderStatus.LEADER for s in all_statuses.values()]
+        highest_priority_node = priority_list[0]
+        if leaders.count(True) > 1:
+            if cluster_state != ClusterState.WAITING_FOR_CONSENSUS:
+                self.logger.warning(
+                    "Multiple leaders detected, waiting for consensus",
+                    cluster=cluster,
+                    leaders=all_statuses,
+                )
+                cluster_ctx.leader_status = StoreLeaderEntry(
+                    status=StoreLeaderStatus.WAITING_FOR_CONSENSUS,
+                    node_id=current_node_id,
+                )
+                self.update_manager.trigger_event("instant_update")
+                self.cluster_state[cluster] = ClusterState.WAITING_FOR_CONSENSUS
+        elif highest_priority_node == current_node_id:
+            if cluster_state != ClusterState.LEADER:
                 self.logger.info("Becoming leader for cluster", cluster=cluster)
                 cluster_ctx.leader_status = StoreLeaderEntry(
                     status=StoreLeaderStatus.LEADER, node_id=current_node_id
                 )
-                self.update_manager.trigger_event("leader_elected")
-            else:
+                self.cluster_state[cluster] = ClusterState.LEADER
+                self.update_manager.trigger_event("instant_update")
+        else:
+            if cluster_state != ClusterState.FOLLOWER:
                 self.logger.info(
-                    "Not highest priority node, becoming follower", cluster=cluster
+                    "Not highest priority node, becoming follower",
+                    cluster=cluster,
+                    following=highest_priority_node,
                 )
                 cluster_ctx.leader_status = StoreLeaderEntry(
                     status=StoreLeaderStatus.FOLLOWER, node_id=highest_priority_node
                 )
-            self.update_manager.trigger_event("instant_update")
+                self.cluster_state[cluster] = ClusterState.FOLLOWER
+                self.update_manager.trigger_event("instant_update")
 
     def handle_update(self) -> None:
         self.logger.debug("Leader election event triggered")
@@ -313,8 +357,9 @@ def get_leader_election_handler(
 ) -> tuple[RegexPathMatcher, LeaderElectionHandler]:
     leader_election_handler = LeaderElectionHandler(secret_container)
     matchers = [
-        "^nodes\\.(\\w|-)+\\.consistency\\.node_status_table\\.(\\w|-)+$",
-        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.leader_status$",
+        "^nodes\\.(\\w|-)+\\.consistency\\.node_status_table\\.(\\w|-)+$",  # node status change
+        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.leader$",  # leader status change
+        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+$",  # consistent contexts creation
     ]
     update_matcher = RegexPathMatcher(matchers)
     return update_matcher, leader_election_handler

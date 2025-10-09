@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import FileResponse
 
-from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
+# from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
 from meshmon.config import (
     NetworkConfigLoader,
 )
@@ -16,10 +16,12 @@ from meshmon.conman import ConfigManager
 from meshmon.connection.grpc_server import GrpcServer
 from meshmon.connection.heartbeat import HeartbeatController
 from meshmon.distrostore import (
-    NodeInfo,
-    NodeStatus,
-    PingData,
     StoreManager,
+)
+from meshmon.dstypes import (
+    DSNodeInfo,
+    DSNodeStatus,
+    DSPingData,
 )
 from meshmon.monitor import MonitorManager
 from meshmon.pulsewave.store import (
@@ -102,7 +104,7 @@ webhook_handler = WebhookHandler(store_manager, config)
 logger.info("Webhook handler initialized")
 
 logger.info("Initializing config manager...")
-config_manager = ConfigManager(config, store_manager, monitor_manager)
+config_manager = ConfigManager(config, store_manager)
 logger.info("Config manager initialized")
 
 # Get password from config and hash it
@@ -119,7 +121,7 @@ async def lifespan(app: FastAPI):
     webhook_handler.stop()
     monitor_manager.stop_manager()
     for net_id, store in store_manager.stores.items():
-        node_info = NodeInfo(status=NodeStatus.OFFLINE, version=VERSION)
+        node_info = DSNodeInfo(status=DSNodeStatus.OFFLINE, version=VERSION)
         store.set_value("node_info", node_info)
     grpc_server.stop()
     monitor_manager.stop()
@@ -144,11 +146,11 @@ class MonBody(BaseModel):
 
 
 class ViewPingData(BaseModel):
-    status: NodeStatus
+    status: DSNodeStatus
     response_time_rtt: float
 
     @classmethod
-    def from_ping_data(cls, data: PingData, node_id: str):
+    def from_ping_data(cls, data: DSPingData, node_id: str):
         return cls(
             status=data.status,
             response_time_rtt=data.req_time_rtt,
@@ -201,12 +203,12 @@ class ViewNetwork(BaseModel):
     networks: dict[str, StoreData] = {}
 
 
-@api.get("/api/view", response_model=MultiNetworkAnalysis)
-def view():
-    """Get network view data. Requires JWT authentication."""
-    logger.debug("View request for networks")
-    networks = analyze_all_networks(store_manager, config)
-    return networks
+# @api.get("/api/view", response_model=MultiNetworkAnalysis)
+# def view():
+#     """Get network view data. Requires JWT authentication."""
+#     logger.debug("View request for networks")
+#     networks = analyze_all_networks(store_manager, config)
+#     return networks
 
 
 @api.get("/api/health")

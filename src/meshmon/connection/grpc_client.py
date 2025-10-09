@@ -201,7 +201,6 @@ class GrpcClient:
                             "gRPC Bidirectional stream to server closed",
                             dest_node_id=node_id,
                         )
-
                 except grpc.RpcError as e:
                     # Connection errors are expected during startup/reconnect
                     if e.code() == grpc.StatusCode.UNAVAILABLE:  # type: ignore
@@ -215,10 +214,15 @@ class GrpcClient:
                             error=str(e),
                             code=e.code(),  # type: ignore
                         )
+                        self.logger.info(
+                            "gRPC Bidirectional stream to server closed",
+                            dest_node_id=node_id,
+                        )
                 except Exception as e:
                     self.logger.error(
                         "Client stream error", node_id=node_id, error=str(e)
                     )
+
                 finally:
                     connection.remove_raw_connection(raw_conn)
 

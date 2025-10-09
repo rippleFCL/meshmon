@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, Protocol
 import structlog
 
 from ..config import PulseWaveConfig
-from ..crypto import KeyMapping
-from ..data import StoreData
 
 if TYPE_CHECKING:
     from ..store import SharedStore
@@ -16,23 +14,6 @@ class UpdateHandler(Protocol):
     def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None: ...
 
     def handle_update(self) -> None: ...
-
-
-class IncrementalUpdater:
-    def __init__(self):
-        self.end_data = StoreData()
-
-    def diff(self, other: StoreData, exclude_node_id: str) -> StoreData:
-        diff = self.end_data.diff(other)
-        if exclude_node_id in diff.nodes:
-            del diff.nodes[exclude_node_id]
-        return diff
-
-    def update(self, other: StoreData, key_mapping: KeyMapping):
-        self.end_data.update(other, key_mapping)
-
-    def clear(self):
-        self.end_data = StoreData()
 
 
 class DedupeQueue:
@@ -88,18 +69,24 @@ class UpdateController:
         self.handler_cache: dict[str, list[UpdateHandler]] = {}
 
     def handle(
-        self, event: str, store: "SharedStore", update_manager: "UpdateManager"
+        self, events: list[str], store: "SharedStore", update_manager: "UpdateManager"
     ) -> None:
-        if event in self.handler_cache:
-            for handler in self.handler_cache[event]:
-                handler.handle_update()
+        execute_handlers = []
+        for event in events:
+            handlers = []
+            if event in self.handler_cache:
+                for handler in self.handler_cache[event]:
+                    handler.handle_update()
 
-        handlers = []
-        for matcher, handler in self.handlers:
-            if matcher.matches(event):
-                handlers.append(handler)
-                handler.handle_update()
-        self.handler_cache[event] = handlers
+            for matcher, handler in self.handlers:
+                if matcher.matches(event):
+                    handlers.append(handler)
+                    if handler not in execute_handlers:
+                        execute_handlers.append(handler)
+            self.handler_cache[event] = handlers
+
+        for handler in execute_handlers:
+            handler.handle_update()
 
     def add(self, matcher: UpdateMatcher, handler: UpdateHandler):
         self.handlers.append((matcher, handler))
@@ -140,12 +127,10 @@ class UpdateManager:
         self.event_controller.add(matcher, callback)
 
     def trigger_update(self, path: list[str]):
-        self.logger.debug("Triggering update", path=path)
         self.idle.clear()
         self.update_queue.add(path)
 
     def trigger_event(self, event: str):
-        self.logger.debug("Triggering event", event_id=event)
         self.event_queue.add([event])
 
     def event_loop(self):
@@ -153,17 +138,15 @@ class UpdateManager:
         events = self.event_queue.pop_all()
         if not self.idle.wait():
             return
-        for event in events:
-            self.logger.debug("Processing event", event_id=event)
-            self.event_controller.handle(event, self.store, self)
+        self.logger.debug("Processing events", event_ids=events)
+        self.event_controller.handle(events, self.store, self)
 
     def update_loop(self):
         self.update_queue.wait_for_items()
         while True:
             paths = self.update_queue.pop_all()
-            for path in paths:
-                self.logger.debug("Processing update", path_id=path)
-                self.update_controller.handle(path, self.store, self)
+            self.logger.debug("Processing updates", path_ids=paths)
+            self.update_controller.handle(paths, self.store, self)
             if self.update_queue.empty:
                 break
         self.idle.set()

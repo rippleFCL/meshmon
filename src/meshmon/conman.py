@@ -3,10 +3,10 @@ import time
 
 from structlog.stdlib import get_logger
 
-from .config import NetworkConfigLoader, get_all_monitor_names, get_pingable_nodes
-from .distrostore import PingData, StoreManager
-from .monitor import MonitorManager
-from .webhooks import AnalysedNodeStatus
+from .config import NetworkConfigLoader
+from .distrostore import StoreManager
+
+# from .monitor import MonitorManager
 
 logger = get_logger()
 
@@ -16,11 +16,10 @@ class ConfigManager:
         self,
         config: NetworkConfigLoader,
         stores: StoreManager,
-        monitors: MonitorManager,
     ):
         self.config = config
         self.store_manager = stores
-        self.monitor_manager = monitors
+        # self.monitor_manager = monitors
         self.thread = threading.Thread(target=self.watcher, daemon=True)
         self.thread.start()
 
@@ -29,28 +28,9 @@ class ConfigManager:
             time.sleep(10)
             try:
                 if self.config.needs_reload():
-                    self.monitor_manager.stop()
+                    # self.monitor_manager.stop()
                     self.config.reload()
                     self.store_manager.reload()
-                    for network_id, network in self.config.networks.items():
-                        store = self.store_manager.get_store(network_id)
-                        ctx = store.get_context("ping_data", PingData)
-                        ctx.allowed_keys = get_pingable_nodes(network)
-                        ctx = store.get_context(
-                            "last_notified_status", AnalysedNodeStatus
-                        )
-                        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
-                        ctx = store.get_context("network_analysis", AnalysedNodeStatus)
-                        ctx.allowed_keys = list(network.key_mapping.verifiers.keys())
-                        ctx = store.get_context("monitor_data", PingData)
-                        ctx.allowed_keys = get_all_monitor_names(
-                            network, store.key_mapping.signer.node_id
-                        )
-                        ctx = store.get_context("monitor_analysis", AnalysedNodeStatus)
-                        ctx.allowed_keys = get_all_monitor_names(
-                            network, store.key_mapping.signer.node_id
-                        )
-
-                    self.monitor_manager.reload()
+                    # self.monitor_manager.reload()
             except Exception as exc:
                 logger.error("Error in config watcher", exc=exc)

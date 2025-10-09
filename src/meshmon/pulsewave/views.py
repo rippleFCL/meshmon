@@ -74,7 +74,11 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
             logger.warning(f"Key {key} not in allowed keys; skipping set operation.")
             return
         signed_data = SignedBlockData.new(
-            self.signer, data, block_id=key, rep_type=rep_type
+            self.signer,
+            data,
+            block_id=key,
+            path=f"{self.path}.{key}",
+            rep_type=rep_type,
         )
         self.context_data.data[key] = signed_data
         self.update_handler.trigger_update([f"{self.path}.{key}"])
@@ -190,7 +194,9 @@ class MutableStoreConsistencyView(StoreConsistencyView):
     def clock_pulse(self, pulse: StoreClockPulse):
         if self.consistency_data is None:
             raise ValueError("Consistency data not found for the node.")
-        signed_data = SignedBlockData.new(self.signer, pulse, block_id="clock_pulse")
+        signed_data = SignedBlockData.new(
+            self.signer, pulse, path=f"{self.path}.clock_pulse", block_id="clock_pulse"
+        )
         self.consistency_data.clock_pulse = signed_data
         self.update_handler.trigger_update([f"{self.path}.clock_pulse"])
 
@@ -252,12 +258,14 @@ class ConsistencyContextView[T: BaseModel]:
         cons_ctx = node_data.consistency.consistent_contexts.get(self.ctx_name)
         if cons_ctx is None:
             cons_ctx = StoreConsistentContextData.new(
-                self.key_mapping.signer, self.ctx_name, self.secret
+                self.key_mapping.signer, self.ctx_name, f"{self.path}", self.secret
             )
             node_data.consistency.consistent_contexts[self.ctx_name] = cons_ctx
             updated_paths.append(
                 f"nodes.{current_node_id}.consistency.consistent_contexts.{self.ctx_name}"
             )
+        if updated_paths:
+            self.update_handler.trigger_update(updated_paths)
         return cons_ctx
 
     def _get_consistent_ctx_entry(
@@ -300,8 +308,10 @@ class ConsistencyContextView[T: BaseModel]:
                 self.key_mapping.signer,
                 status,
                 block_id="leader_status",
+                path=f"{self.path}.leader.leader_status",
                 secret=self.secret,
             ),
+            path=f"{self.path}.leader",
             block_id="leader",
         )
 
@@ -321,10 +331,12 @@ class ConsistencyContextView[T: BaseModel]:
             verifier = self.key_mapping.get_verifier(node_id)
             if not verifier:
                 continue
-            if not ctx.leader.verify(verifier, "leader"):
+            if not ctx.leader.verify(verifier, "leader", f"{self.path}.leader"):
                 continue
             leader_data = SignedBlockData.model_validate(ctx.leader.data)
-            if not leader_data.verify(verifier, "leader_status", self.secret):
+            if not leader_data.verify(
+                verifier, "leader_status", f"{self.path}.leader_status", self.secret
+            ):
                 continue
             leader_entry = StoreLeaderEntry.model_validate(leader_data.data)
             if leader_entry.status == StoreLeaderStatus.LEADER:
@@ -334,7 +346,7 @@ class ConsistencyContextView[T: BaseModel]:
         return leaders[0] == self.key_mapping.signer.node_id
 
     def get(self, key: str) -> T | None:
-        current_data: ConsistencyContextEntry | None = None
+        entries = []
         for node_id in self.store.nodes:
             entry = self._get_consistent_ctx_entry(node_id, key)
             if not entry:
@@ -349,21 +361,17 @@ class ConsistencyContextView[T: BaseModel]:
                 continue
 
             entry_date = entry.date + ct_entry.delta
-            if current_data is None:
-                current_data = ConsistencyContextEntry(
-                    signed_block=entry, date=entry_date
-                )
-            elif entry_date > current_data.date:
-                current_data = ConsistencyContextEntry(
-                    signed_block=entry, date=entry_date
-                )
-        if current_data is None:
+            entries.append(ConsistencyContextEntry(signed_block=entry, date=entry_date))
+        if not entries:
             return None
-        return self.model.model_validate(current_data.signed_block.data)
+        entries.sort(key=lambda x: x.date, reverse=True)
+        return self.model.model_validate(entries[0].signed_block.data)
 
     def set(self, key: str, data: T):
         updated_paths = []
-        signed_data = SignedBlockData.new(self.key_mapping.signer, data, block_id=key)
+        signed_data = SignedBlockData.new(
+            self.key_mapping.signer, data, path=f"{self.path}.{key}", block_id=key
+        )
         cons_ctx = self._get_consistency()
         if cons_ctx.context is None:
             cons_ctx.context = StoreContextData.new(
@@ -402,7 +410,9 @@ class ConsistencyContextView[T: BaseModel]:
             if not leader:
                 continue
             node_data = SignedBlockData.model_validate(leader.data)
-            if not node_data.verify(verifier, "leader_status", self.secret):
+            if not node_data.verify(
+                verifier, "leader_status", f"{self.path}.leader_status", self.secret
+            ):
                 continue
             nodes.append(node_id)
         return nodes

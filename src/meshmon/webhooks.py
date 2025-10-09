@@ -1,14 +1,24 @@
 import datetime
 import hashlib
 import threading
+from enum import Enum
 
 import requests
 from pydantic import BaseModel
 from structlog.stdlib import get_logger
 
-from .analysis.store import NodeStatus
+from meshmon.analysis.analysis import AnalysisNodeStatus
+from meshmon.pulsewave.data import StoreNodeStatus
+from meshmon.pulsewave.store import SharedStore
+
 from .config import NetworkConfigLoader
 from .distrostore import StoreManager
+from .update_handlers import NodeStatusEntry
+
+
+class WebhookType(Enum):
+    NODE = "node"
+    MONITOR = "monitor"
 
 
 class HashedWebhook(BaseModel):
@@ -18,10 +28,6 @@ class HashedWebhook(BaseModel):
     def from_webhook(cls, webhook: str) -> "HashedWebhook":
         hashed = hashlib.sha256(webhook.encode()).hexdigest()
         return cls(hashed_webhook=hashed)
-
-
-class LastNotification(BaseModel):
-    timestamp: datetime.datetime
 
 
 class WebhookHandler:
@@ -41,23 +47,105 @@ class WebhookHandler:
     def _get_webhook(self, network_id: str) -> str | None:
         return self.config.networks[network_id].node_cfg.discord_webhook
 
-    def _notify_for_network(self, network_id: str):
-        # webhook = self._get_webhook(network_id)
-        # if webhook is None:
-        #     return
-        # hashed_webhook = HashedWebhook.from_webhook(webhook)
-        # store = self.store_manager.get_store(network_id)
-        # analysis = store.get_consistency_context(
-        #     hashed_webhook.hashed_webhook, AnalysedNodeStatus, webhook
-        # )
-        ...
+    def node_status_consistent(self, store: SharedStore) -> bool:
+        node_status_ctx = store.get_context("node_status", NodeStatusEntry)
+        node_status_table = store.get_consistency().node_status_table
+        node_statuses = {}
+        for node_id, ping_data in node_status_ctx:
+            node_statuses[node_id] = ping_data.status
+        for node_id in store.nodes:
+            node_status = node_status_table.get(node_id)
+            if node_status is None or node_status.status != StoreNodeStatus.ONLINE:
+                continue
+            ctx = store.get_context("node_status", NodeStatusEntry, node_id)
+            if ctx is None:
+                return False
+            for other_node_id, other_status in ctx:
+                current_node_status = node_statuses.get(other_node_id)
+                if current_node_status is None:
+                    return False
+                if other_status.status != current_node_status:
+                    return False
+        return True
+
+    def monitor_status_consistent(self, store: SharedStore) -> bool:
+        monitor_status_ctx = store.get_context("monitor_status", NodeStatusEntry)
+        node_status_table = store.get_consistency().node_status_table
+        monitor_statuses = {}
+        for node_id, monitor_data in monitor_status_ctx:
+            monitor_statuses[node_id] = monitor_data.status
+        for node_id in store.nodes:
+            node_status = node_status_table.get(node_id)
+            if node_status is None or node_status.status != StoreNodeStatus.ONLINE:
+                continue
+            ctx = store.get_context("monitor_status", NodeStatusEntry, node_id)
+            if ctx is None:
+                return False
+            for other_monitor_id, other_status in ctx:
+                current_node_status = monitor_statuses.get(other_monitor_id)
+                if current_node_status is None:
+                    return False
+                if other_status.status != current_node_status:
+                    return False
+        return True
+
+    def _notify_for_network(self, network_id: str, webhook: str):
+        hashed_webhook = HashedWebhook.from_webhook(webhook)
+        store = self.store_manager.get_store(network_id)
+        notified_node_analysis = store.get_consistency_context(
+            hashed_webhook.hashed_webhook, NodeStatusEntry, webhook
+        )
+        if notified_node_analysis.is_leader():
+            if self.node_status_consistent(store):
+                node_status = store.get_context("node_status", NodeStatusEntry)
+                for node_id, status in node_status:
+                    current_notified_status = notified_node_analysis.get(
+                        f"node-{node_id}"
+                    )
+                    if status.status == AnalysisNodeStatus.UNKNOWN:
+                        continue
+                    if current_notified_status is None:
+                        notified_node_analysis.set(f"node-{node_id}", status)
+                    elif (
+                        current_notified_status is not None
+                        and current_notified_status.status != status.status
+                    ):
+                        notified_node_analysis.set(f"node-{node_id}", status)
+                        self.handle_webhook(
+                            network_id,
+                            node_id,
+                            status.status,
+                            WebhookType.NODE,
+                        )
+
+            if self.monitor_status_consistent(store):
+                monitor_status = store.get_context("monitor_status", NodeStatusEntry)
+                for monitor_id, status in monitor_status:
+                    current_notified_status: NodeStatusEntry | None = (
+                        notified_node_analysis.get(f"monitor-{monitor_id}")
+                    )
+                    if status.status == AnalysisNodeStatus.UNKNOWN:
+                        continue
+                    if current_notified_status is None:
+                        notified_node_analysis.set(f"monitor-{monitor_id}", status)
+                    elif (
+                        current_notified_status is not None
+                        and current_notified_status.status != status.status
+                    ):
+                        notified_node_analysis.set(f"monitor-{monitor_id}", status)
+                        self.handle_webhook(
+                            network_id,
+                            monitor_id,
+                            status.status,
+                            WebhookType.MONITOR,
+                        )
 
     def webhook_thread(self):
         while True:
             for network_id in self.store_manager.stores:
-                if self._get_webhook(network_id) is not None:
-                    self._notify_for_network(network_id)
-            val = self.flag.wait(1)
+                if webhook := self._get_webhook(network_id):
+                    self._notify_for_network(network_id, webhook)
+            val = self.flag.wait(5)
             if val:
                 break
 
@@ -65,21 +153,31 @@ class WebhookHandler:
         self.flag.set()
         self.thread.join()
 
-    def handle_webhook(self, network_id: str, node_id: str, status: NodeStatus):
+    def handle_webhook(
+        self,
+        network_id: str,
+        node_id: str,
+        status: AnalysisNodeStatus,
+        webhook_type: WebhookType,
+    ):
         webhook = self._get_webhook(network_id)
+        name = {
+            WebhookType.NODE: "Node",
+            WebhookType.MONITOR: "Monitor",
+        }.get(webhook_type, "Unknown")
         if webhook is not None:
             # Enhanced status mapping with better colors and emojis
             status_info = {
-                NodeStatus.ONLINE: {
+                AnalysisNodeStatus.ONLINE: {
                     "color": 0x00FF54,  # Brighter green
                     "emoji": "🟢",
-                    "description": "Node is now responding to pings",
+                    "description": f"{name} is now responding to pings",
                     "severity": "✅ Resolved",
                 },
-                NodeStatus.OFFLINE: {
+                AnalysisNodeStatus.OFFLINE: {
                     "color": 0xFF4757,  # Modern red
                     "emoji": "🔴",
-                    "description": "Node is not responding to pings",
+                    "description": f"{name} is not responding to pings",
                     "severity": "⚠️ Alert",
                 },
             }
@@ -89,13 +187,13 @@ class WebhookHandler:
                 {
                     "color": 0x747D8C,  # Gray for unknown
                     "emoji": "⚪",
-                    "description": "Node status is unknown",
+                    "description": f"{name} status is unknown",
                     "severity": "❓ Unknown",
                 },
             )
 
             # Create more informative title
-            title = f"{current_status['emoji']} Node Status Change - {current_status['severity']}"
+            title = f"{current_status['emoji']} {name} Status Change - {current_status['severity']}"
 
             # Enhanced description with more context
             embed = {
@@ -109,7 +207,7 @@ class WebhookHandler:
                         "inline": True,
                     },
                     {
-                        "name": "Node ID",
+                        "name": f"{name} ID",
                         "value": node_id,
                         "inline": True,
                     },

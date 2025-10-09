@@ -1,40 +1,18 @@
 import datetime
-import json
 import time
 from threading import Event, Thread
 from typing import Protocol
 
 import requests
-from pydantic import BaseModel
 from structlog.stdlib import get_logger
 
-from .analysis.analysis import analyze_monitor_status
-from .analysis.store import NodePingStatus
-from .analysis.store import NodeStatus as AnalysisNodeStatus
 from .config import MonitorTypes, NetworkConfigLoader, NetworkMonitor
 from .distrostore import (
-    NodeInfo,
-    NodeStatus,
-    PingData,
     StoreManager,
 )
+from .dstypes import DSNodeInfo, DSNodeStatus, DSPingData
 from .pulsewave.views import MutableStoreCtxView
 from .version import VERSION
-
-
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, datetime.datetime):
-            return o.isoformat()
-        return super().default(o)
-
-
-class AnalysedNodeStatus(BaseModel):
-    status: AnalysisNodeStatus
-
-
-class AnalysedMonitorStatus(BaseModel):
-    status: NodePingStatus
 
 
 class MonitorProto(Protocol):
@@ -82,11 +60,11 @@ class HTTPMonitor(MonitorProto):
 
     def setup(self):
         store = self.store.get_store(self._net_id)
-        ctx = store.get_context("monitor_data", PingData)
+        ctx = store.get_context("monitor_data", DSPingData)
         ctx.set(
             self.monitor_info.name,
-            PingData(
-                status=NodeStatus.UNKNOWN,
+            DSPingData(
+                status=DSNodeStatus.UNKNOWN,
                 req_time_rtt=-1,
                 date=datetime.datetime.now(datetime.timezone.utc),
             ),
@@ -94,7 +72,7 @@ class HTTPMonitor(MonitorProto):
 
     def _sent_ping(self):
         store = self.store.get_store(self._net_id)
-        ctx = store.get_context("monitor_data", PingData)
+        ctx = store.get_context("monitor_data", DSPingData)
         try:
             st = time.time()
             response = requests.get(f"{self.monitor_info.host}", timeout=10)
@@ -122,24 +100,14 @@ class HTTPMonitor(MonitorProto):
             self.error_count = 0
             ctx.set(
                 self.monitor_info.name,
-                PingData(
-                    status=NodeStatus.ONLINE,
+                DSPingData(
+                    status=DSNodeStatus.ONLINE,
                     req_time_rtt=rtt,
                     date=datetime.datetime.now(datetime.timezone.utc),
                 ),
             )
 
-    def _analyse_node_status(self):
-        monitor_analysis = analyze_monitor_status(self.store, self.config, self.net_id)
-        store = self.store.get_store(self.net_id)
-        analysis_ctx = store.get_context("monitor_analysis", AnalysedMonitorStatus)
-        if monitor_analysis is None:
-            self.logger.warning("Failed to analyze monitor statuses for network")
-            return
-        for monitor_id, status in monitor_analysis.items():
-            analysis_ctx.set(monitor_id, AnalysedMonitorStatus(status=status))
-
-    def _handle_error(self, ctx: MutableStoreCtxView[PingData]):
+    def _handle_error(self, ctx: MutableStoreCtxView[DSPingData]):
         self.logger.debug(
             "Error count increased",
             count=self.error_count,
@@ -148,7 +116,7 @@ class HTTPMonitor(MonitorProto):
         current_node = ctx.get(self.monitor_info.name)
         if self.error_count >= self.monitor_info.retry:
             if current_node:
-                if current_node.status != NodeStatus.OFFLINE:
+                if current_node.status != DSNodeStatus.OFFLINE:
                     self.logger.info(
                         "Max retries exceeded for monitor, marking as OFFLINE",
                         retry=self.monitor_info.retry,
@@ -163,8 +131,8 @@ class HTTPMonitor(MonitorProto):
 
             ctx.set(
                 self.monitor_info.name,
-                PingData(
-                    status=NodeStatus.OFFLINE,
+                DSPingData(
+                    status=DSNodeStatus.OFFLINE,
                     req_time_rtt=-1,
                     date=datetime.datetime.now(datetime.timezone.utc),
                 ),
@@ -177,7 +145,7 @@ class HTTPMonitor(MonitorProto):
                 )
                 ctx.set(
                     self.monitor_info.name,
-                    PingData(
+                    DSPingData(
                         status=current_node.status,
                         req_time_rtt=current_node.req_time_rtt,
                         date=datetime.datetime.now(datetime.timezone.utc),
@@ -190,8 +158,8 @@ class HTTPMonitor(MonitorProto):
                 )
                 ctx.set(
                     self.monitor_info.name,
-                    PingData(
-                        status=NodeStatus.UNKNOWN,
+                    DSPingData(
+                        status=DSNodeStatus.UNKNOWN,
                         req_time_rtt=-1,
                         date=datetime.datetime.now(datetime.timezone.utc),
                     ),
@@ -205,7 +173,6 @@ class HTTPMonitor(MonitorProto):
             url=self.monitor_info.host,
         )
         self._sent_ping()
-        self._analyse_node_status()
 
 
 class Monitor:
@@ -264,7 +231,7 @@ class MonitorManager:
         while True:
             try:
                 for store in self.store_manager.stores.values():
-                    node_info = NodeInfo(status=NodeStatus.ONLINE, version=VERSION)
+                    node_info = DSNodeInfo(status=DSNodeStatus.ONLINE, version=VERSION)
                     store.set_value("node_info", node_info)
             except Exception as exc:
                 self.logger.error("Error in MonitorManager heartbeat", exc=exc)

@@ -4,7 +4,8 @@ import time
 
 from meshmon.config import NetworkConfigLoader
 
-from ..distrostore import NodeStatus, PingData, StoreManager
+from ..distrostore import StoreManager
+from ..dstypes import DSNodeStatus, DSPingData
 from .connection import ConnectionManager
 from .proto import ProtocolData, StoreHeartbeat
 
@@ -41,18 +42,24 @@ class HeartbeatController:
 
     def set_ping_status(self):
         for network_id, store in self.store_manager.stores.items():
-            node_ctx = store.get_context("ping_data", PingData)
+            node_ctx = store.get_context("ping_data", DSPingData)
             for node_id, ping_data in node_ctx:
                 nodes_config = self.get_node_config(network_id, node_id)
                 if not nodes_config:
                     continue
                 now = datetime.datetime.now(tz=datetime.timezone.utc)
                 if (
-                    datetime.datetime.now(tz=datetime.timezone.utc) - ping_data.date
-                ).total_seconds() > nodes_config.poll_rate * nodes_config.retry:
+                    (
+                        datetime.datetime.now(tz=datetime.timezone.utc) - ping_data.date
+                    ).total_seconds()
+                    > nodes_config.poll_rate * nodes_config.retry
+                    and ping_data.status != DSNodeStatus.OFFLINE
+                ):
                     node_ctx.set(
                         node_id,
-                        PingData(status=NodeStatus.OFFLINE, req_time_rtt=-1, date=now),
+                        DSPingData(
+                            status=DSNodeStatus.OFFLINE, req_time_rtt=-1, date=now
+                        ),
                     )
 
     def heartbeat_loop(self) -> None:

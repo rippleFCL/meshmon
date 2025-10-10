@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { RefreshCw, Wifi, WifiOff, Sun, Moon, LayoutDashboard, GitBranch } from 'lucide-react'
+import { RefreshCw, Wifi, WifiOff, Sun, Moon, LayoutDashboard, GitBranch, Bell, Database } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
 
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Network Graph', href: '/graph', icon: GitBranch },
+    { name: 'Notification Clusters', href: '/notification-cluster', icon: Bell },
+    { name: 'Cluster', href: '/cluster', icon: Database },
 ]
 
 export default function Header() {

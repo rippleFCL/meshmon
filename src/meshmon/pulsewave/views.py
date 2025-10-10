@@ -416,3 +416,24 @@ class ConsistencyContextView[T: BaseModel]:
                 continue
             nodes.append(node_id)
         return nodes
+
+
+class NodeConsistencyContextView:
+    def __init__(
+        self,
+        node_id: str,
+        store: "StoreData",
+    ):
+        self.store = store
+        self.node_id = node_id
+
+    def node_statuses(self) -> Iterator[tuple[str, StoreLeaderEntry]]:
+        node_data = self.store.nodes.get(self.node_id)
+        if not node_data or not node_data.consistency:
+            return
+        consistency = node_data.consistency.consistent_contexts
+        for cluster_id, entry in consistency.items():
+            if not entry.leader:
+                continue
+            leader_data = SignedBlockData.model_validate(entry.leader.data)
+            yield cluster_id, StoreLeaderEntry.model_validate(leader_data.data)

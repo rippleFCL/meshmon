@@ -27,6 +27,7 @@ from .views import (
     ConsistencyContextView,
     MutableStoreConsistencyView,
     MutableStoreCtxView,
+    NodeConsistencyContextView,
     StoreConsistencyView,
     StoreCtxView,
 )
@@ -201,11 +202,18 @@ class SharedStore:
             secret,
         )
 
-    def all_consistency_contexts(self) -> Iterator[str]:
+    def local_consistency_contexts(self) -> Iterator[str]:
         node_data = self._get_node()
         if node_data and node_data.consistency:
             for context_name in node_data.consistency.consistent_contexts:
                 yield context_name
+
+    def all_consistency_contexts(self) -> Iterator[NodeConsistencyContextView]:
+        for node_id in self.nodes:
+            yield NodeConsistencyContextView(
+                node_id,
+                self.store,
+            )
 
     @overload
     def get_context[T: BaseModel](

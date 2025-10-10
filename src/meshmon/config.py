@@ -25,7 +25,7 @@ class NodeCfgNetwork(BaseModel):
     node_id: Annotated[str, StringConstraints(to_lower=True)]
     config_type: ConfigTypes = ConfigTypes.LOCAL
     git_repo: str | None = None
-    discord_webhook: str | None = None
+    discord_webhook: dict[str, str] | None = None
 
 
 class NodeCfg(BaseModel):

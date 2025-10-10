@@ -21,13 +21,15 @@ class WebhookType(Enum):
     MONITOR = "monitor"
 
 
-class HashedWebhook(BaseModel):
-    hashed_webhook: str
+class Webhook(BaseModel):
+    url: str
+    hashed: str
+    name: str
 
     @classmethod
-    def from_webhook(cls, webhook: str) -> "HashedWebhook":
-        hashed = hashlib.sha256(webhook.encode()).hexdigest()
-        return cls(hashed_webhook=hashed)
+    def from_webhook(cls, name: str, webhook: str):
+        hashed = hashlib.sha256(webhook.encode() + name.encode()).hexdigest()
+        return cls(url=webhook, hashed=hashed, name=name)
 
 
 class WebhookHandler:
@@ -44,8 +46,12 @@ class WebhookHandler:
         self.thread.start()
         self.session = requests.Session()
 
-    def _get_webhook(self, network_id: str) -> str | None:
-        return self.config.networks[network_id].node_cfg.discord_webhook
+    def _get_webhook(self, network_id: str) -> list[Webhook]:
+        webhook = self.config.networks[network_id].node_cfg.discord_webhook
+        webhooks = []
+        for name, url in (webhook or {}).items():
+            webhooks.append(Webhook.from_webhook(name, url))
+        return webhooks
 
     def node_status_consistent(self, store: SharedStore) -> bool:
         node_status_ctx = store.get_context("node_status", NodeStatusEntry)
@@ -89,11 +95,10 @@ class WebhookHandler:
                     return False
         return True
 
-    def _notify_for_network(self, network_id: str, webhook: str):
-        hashed_webhook = HashedWebhook.from_webhook(webhook)
+    def _notify_for_network(self, network_id: str, webhook: Webhook):
         store = self.store_manager.get_store(network_id)
         notified_node_analysis = store.get_consistency_context(
-            hashed_webhook.hashed_webhook, NodeStatusEntry, webhook
+            f"discord:{webhook.name}:{webhook.hashed}", NodeStatusEntry, webhook.url
         )
         if notified_node_analysis.is_leader():
             if self.node_status_consistent(store):
@@ -116,6 +121,7 @@ class WebhookHandler:
                             node_id,
                             status.status,
                             WebhookType.NODE,
+                            webhook,
                         )
 
             if self.monitor_status_consistent(store):
@@ -138,12 +144,14 @@ class WebhookHandler:
                             monitor_id,
                             status.status,
                             WebhookType.MONITOR,
+                            webhook,
                         )
 
     def webhook_thread(self):
         while True:
             for network_id in self.store_manager.stores:
-                if webhook := self._get_webhook(network_id):
+                webhooks = self._get_webhook(network_id)
+                for webhook in webhooks:
                     self._notify_for_network(network_id, webhook)
             val = self.flag.wait(5)
             if val:
@@ -159,8 +167,8 @@ class WebhookHandler:
         node_id: str,
         status: AnalysisNodeStatus,
         webhook_type: WebhookType,
+        webhook: Webhook,
     ):
-        webhook = self._get_webhook(network_id)
         name = {
             WebhookType.NODE: "Node",
             WebhookType.MONITOR: "Monitor",
@@ -220,7 +228,7 @@ class WebhookHandler:
             data = {"embeds": [embed]}
 
             try:
-                response = self.session.post(webhook, json=data, timeout=10)
+                response = self.session.post(webhook.url, json=data, timeout=10)
                 if response.status_code != 204:
                     self.logger.error(
                         "Failed to send webhook for node in network",

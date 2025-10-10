@@ -348,7 +348,7 @@ class LeaderElectionHandler(UpdateHandler):
 
     def handle_update(self) -> None:
         self.logger.debug("Leader election event triggered")
-        for cluster in self.store.all_consistency_contexts():
+        for cluster in self.store.local_consistency_contexts():
             self._process_cluster(cluster)
 
 

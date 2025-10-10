@@ -8,8 +8,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import FileResponse
 
-from meshmon.api.processor import generate_api
-from meshmon.api.structure import (
+from meshmon.api.processor import (
+    generate_api,
+    generate_cluster_api,
+    generate_notification_cluster_info,
+)
+from meshmon.api.structure.cluster_info import ClusterInfoApi
+from meshmon.api.structure.notification_cluster import NotificationClusterApi
+from meshmon.api.structure.status import (
     MeshMonApi,
 )
 from meshmon.config import (
@@ -211,6 +217,22 @@ def view():
     """Get network view data. Requires JWT authentication."""
     logger.debug("View request for networks")
     networks = generate_api(store_manager, config)
+    return networks
+
+
+@api.get("/api/cluster", response_model=ClusterInfoApi)
+def cluster_view():
+    """Get cluster view data. Requires JWT authentication."""
+    logger.debug("Cluster view request for networks")
+    networks = generate_cluster_api(store_manager)
+    return networks
+
+
+@api.get("/api/notification_cluster", response_model=NotificationClusterApi)
+def notification_cluster_view():
+    """Get notification cluster view data. Requires JWT authentication."""
+    logger.debug("Notification cluster view request for networks")
+    networks = generate_notification_cluster_info(store_manager)
     return networks
 
 

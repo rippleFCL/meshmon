@@ -282,7 +282,6 @@ class StoreNodeList(BaseModel):
 
 class StoreConsistentContextData(BaseModel):
     context: StoreContextData | None = None
-    nodes: SignedBlockData | None = None
     leader: SignedBlockData | None = None
     ctx_name: str
     sig: str
@@ -293,10 +292,6 @@ class StoreConsistentContextData(BaseModel):
         if self.context:
             verified = (
                 self.context.verify(verifier, "context", f"{path}.context") and verified
-            )
-        if self.nodes:
-            verified = (
-                self.nodes.verify(verifier, "nodes", f"{path}.nodes") and verified
             )
         if self.leader:
             verified = (
@@ -317,13 +312,6 @@ class StoreConsistentContextData(BaseModel):
         sig = base64.b64encode(signer.sign(data)).decode()
         return cls(
             context=StoreContextData.new(signer, "context"),
-            nodes=SignedBlockData.new(
-                signer,
-                StoreNodeList(nodes=[]),
-                "nodes",
-                f"{path}.nodes",
-                rep_type=DateEvalType.NEWER,
-            ),
             leader=SignedBlockData.new(
                 signer,
                 SignedBlockData.new(
@@ -368,7 +356,6 @@ class StoreConsistentContextData(BaseModel):
             self.sig = data.sig
             self.ctx_name = data.ctx_name
             self.context = data.context
-            self.nodes = data.nodes
             self.leader = data.leader
             updated_paths.append(f"{path}")
             return updated_paths
@@ -384,26 +371,6 @@ class StoreConsistentContextData(BaseModel):
                     f"{path}.context", data.context, verifier, "context"
                 )
             )
-
-        if self.nodes is None and data.nodes is not None:
-            if data.nodes.verify(verifier, "nodes", f"{path}.nodes"):
-                self.nodes = data.nodes
-                updated_paths.append(f"{path}.nodes")
-        elif self.nodes is not None and data.nodes is not None:
-            if (
-                self.nodes.replacement_type == DateEvalType.NEWER
-                and data.nodes.date > self.nodes.date
-            ):
-                if data.nodes.verify(verifier, "nodes", f"{path}.nodes"):
-                    self.nodes = data.nodes
-                    updated_paths.append(f"{path}.nodes")
-            elif (
-                self.nodes.replacement_type == DateEvalType.OLDER
-                and data.nodes.date < self.nodes.date
-            ):
-                if data.nodes.verify(verifier, "nodes", f"{path}.nodes"):
-                    self.nodes = data.nodes
-                    updated_paths.append(f"{path}.nodes")
 
         if self.leader is None and data.leader is not None:
             if data.leader.verify(verifier, "leader", f"{path}.leader"):
@@ -440,20 +407,6 @@ class StoreConsistentContextData(BaseModel):
         else:
             ctx_diff = self.context
 
-        if self.nodes and other.nodes:
-            if self.nodes.replacement_type == DateEvalType.NEWER:
-                nodes_diff = (
-                    self.nodes if self.nodes.date >= other.nodes.date else other.nodes
-                )
-            else:
-                nodes_diff = (
-                    self.nodes if self.nodes.date <= other.nodes.date else other.nodes
-                )
-        elif other.nodes is not None:
-            nodes_diff = other.nodes
-        else:
-            nodes_diff = self.nodes
-
         if self.leader and other.leader:
             if self.leader.replacement_type == DateEvalType.NEWER:
                 leader_diff = (
@@ -475,7 +428,6 @@ class StoreConsistentContextData(BaseModel):
         if self.date >= other.date:
             diff_data = StoreConsistentContextData(
                 context=ctx_diff,
-                nodes=nodes_diff,
                 leader=leader_diff,
                 ctx_name=self.ctx_name,
                 sig=self.sig,
@@ -484,7 +436,6 @@ class StoreConsistentContextData(BaseModel):
         else:
             diff_data = StoreConsistentContextData(
                 context=ctx_diff,
-                nodes=nodes_diff,
                 leader=leader_diff,
                 ctx_name=other.ctx_name,
                 sig=other.sig,

@@ -5,6 +5,8 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import NetworkDetail from './pages/NetworkDetail'
 import NetworkGraph from './pages/NetworkGraph'
+import NotificationClusterPage from './pages/NotificationCluster'
+import ClusterPage from './pages/Cluster'
 
 function App() {
     return (
@@ -16,6 +18,8 @@ function App() {
                             <Route path="/" element={<Dashboard />} />
                             <Route path="/networks/:networkId" element={<NetworkDetail />} />
                             <Route path="/graph" element={<NetworkGraph />} />
+                            <Route path="/notification-cluster" element={<NotificationClusterPage />} />
+                            <Route path="/cluster" element={<ClusterPage />} />
                         </Routes>
                     </Layout>
                 </Router>

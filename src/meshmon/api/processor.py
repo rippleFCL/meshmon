@@ -5,13 +5,26 @@ from meshmon.analysis.analysis import (
     get_monitor_status,
     get_node_ping_status,
 )
+from meshmon.api.structure.cluster_info import (
+    ClusterClockTableEntry,
+    ClusterInfo,
+    ClusterInfoApi,
+    ClusterNodeStatusEnum,
+)
+from meshmon.api.structure.notification_cluster import (
+    NotificationCluster,
+    NotificationClusterApi,
+    NotificationClusters,
+    NotificationClusterStatusEnum,
+)
 from meshmon.config import NetworkConfig, NetworkConfigLoader
+from meshmon.pulsewave.data import StoreLeaderStatus, StoreNodeStatus
 
 from ..distrostore import StoreManager
 from ..dstypes import DSNodeInfo, DSNodeStatus, DSPingData
 from ..pulsewave.store import SharedStore
 from ..update_handlers import NodeStatusEntry
-from .structure import (
+from .structure.status import (
     ConnectionInfo,
     ConnectionNodeInfo,
     ConnectionType,
@@ -46,6 +59,13 @@ PING_TO_MONITOR_STATUS = {
     DSNodeStatus.ONLINE: MonitorStatusEnum.UP,
     DSNodeStatus.OFFLINE: MonitorStatusEnum.DOWN,
     DSNodeStatus.UNKNOWN: MonitorStatusEnum.UNKNOWN,
+}
+
+LEADER_STATUS_MAPPING = {
+    StoreLeaderStatus.LEADER: NotificationClusterStatusEnum.LEADER,
+    StoreLeaderStatus.FOLLOWER: NotificationClusterStatusEnum.FOLLOWER,
+    StoreLeaderStatus.WAITING_FOR_CONSENSUS: NotificationClusterStatusEnum.WAITING_FOR_CONSENSUS,
+    StoreLeaderStatus.NOT_PARTICIPATING: NotificationClusterStatusEnum.NOT_PARTICIPATING,
 }
 
 
@@ -199,4 +219,54 @@ def generate_api(stores: StoreManager, config: NetworkConfigLoader) -> MeshMonAp
             continue
         net_info = get_network_info(store, netconf)
         api.networks[net_id] = net_info
+    return api
+
+
+def generate_cluster_api(stores: StoreManager) -> ClusterInfoApi:
+    api = ClusterInfoApi()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for net_id, store in stores.stores.items():
+        ctx = store.get_consistency()
+        clock_table = ctx.clock_table
+        node_status = ctx.node_status_table
+        clock_table_data: dict[str, ClusterClockTableEntry] = {}
+        for node_id, clock in clock_table:
+            clock_table_data[node_id] = ClusterClockTableEntry(
+                delta_ms=clock.delta.total_seconds() * 1000, node_time=now + clock.delta
+            )
+        node_status_data: dict[str, ClusterNodeStatusEnum] = {}
+        for node_id, status in node_status:
+            if status.status == StoreNodeStatus.ONLINE:
+                node_status_data[node_id] = ClusterNodeStatusEnum.ONLINE
+            elif status.status == StoreNodeStatus.OFFLINE:
+                node_status_data[node_id] = ClusterNodeStatusEnum.OFFLINE
+            else:
+                node_status_data[node_id] = ClusterNodeStatusEnum.UNKNOWN
+        api.networks[net_id] = ClusterInfo(
+            clock_table=clock_table_data, node_statuses=node_status_data
+        )
+    return api
+
+
+def name_from_cluster_id(cluster_id: str) -> str:
+    if cluster_id.count(":") == 2:
+        webhook_type, name, _ = cluster_id.split(":", 2)
+        if webhook_type in ("discord"):
+            return name
+    return cluster_id
+
+
+def generate_notification_cluster_info(stores: StoreManager) -> NotificationClusterApi:
+    api = NotificationClusterApi()
+    for network_id, store in stores.stores.items():
+        clusters = NotificationClusters()
+        for node_context in store.all_consistency_contexts():
+            for cluster_id, leader_status in node_context.node_statuses():
+                name = name_from_cluster_id(cluster_id)
+                if name not in clusters.clusters:
+                    clusters.clusters[name] = NotificationCluster()
+                clusters.clusters[name].node_statuses[node_context.node_id] = (
+                    LEADER_STATUS_MAPPING[leader_status.status]
+                )
+        api.networks[network_id] = clusters
     return api

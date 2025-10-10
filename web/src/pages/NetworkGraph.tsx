@@ -724,7 +724,8 @@ export default function NetworkGraph() {
             {selectedNetwork && (
                 <>
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-                        <div className="h-[calc(100vh-12rem)] min-h-[500px] relative max-h-[calc(100vh-12rem)]">
+                        {/* Adjusted height: sidebar layout no longer needs to subtract fixed top header */}
+                        <div className="h-[calc(100vh-8rem)] min-h-[500px] relative max-h-[calc(100vh-8rem)]">
                             {!initialLayoutDone && (
                                 <div className="absolute inset-0 flex items-center justify-center z-10">
                                     <div className="px-3 py-2 text-sm rounded-md bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600">

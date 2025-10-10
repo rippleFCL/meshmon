@@ -1,6 +1,6 @@
 import axios from 'axios'
-import { MultiNetworkAnalysis } from '../types'
-import { mockHealth, mockMultiNetworkAnalysis } from './mockData'
+import { MeshMonApi } from '../types'
+import { mockHealth } from './mockData'
 
 const api = axios.create({
   baseURL: '/api',
@@ -12,39 +12,26 @@ const USE_API_MOCKS = typeof import.meta !== 'undefined' && (import.meta as any)
 const MOCK_DELAY_MS = 200
 
 // Background snapshots for live data when using mocks
-let liveViewDataSnapshot: MultiNetworkAnalysis | null = null
+let liveViewDataSnapshot: MeshMonApi | null = null
 let liveHealthSnapshot: any | null = null
 
-export const getLiveViewDataSnapshot = (): MultiNetworkAnalysis | null => liveViewDataSnapshot
+export const getLiveViewDataSnapshot = (): MeshMonApi | null => liveViewDataSnapshot
 export const getLiveHealthSnapshot = (): any | null => liveHealthSnapshot
 
 // Main API - using the /view endpoint
 export const meshmonApi = {
-  getViewData: (): Promise<{ data: MultiNetworkAnalysis }> => {
+  getViewData: (): Promise<{ data: MeshMonApi }> => {
     if (USE_API_MOCKS) {
-      // Fetch mock and live in parallel and merge networks (live overwrites on id collision)
-      const mockPromise = new Promise<{ data: MultiNetworkAnalysis }>((resolve) =>
-        setTimeout(() => resolve({ data: mockMultiNetworkAnalysis }), MOCK_DELAY_MS)
-      )
-      const livePromise = api
-        .get<MultiNetworkAnalysis>('/view')
+      // In mock mode, still prefer live API to reflect current graph, fallback to simple empty structure
+      return api
+        .get<MeshMonApi>('/view')
         .then((res) => {
-          liveViewDataSnapshot = res.data
-          return res.data
+          liveViewDataSnapshot = res.data as any
+          return { data: res.data }
         })
-        .catch(() => null)
-
-      return Promise.all([mockPromise, livePromise]).then(([mockRes, liveData]) => {
-        const merged: MultiNetworkAnalysis = {
-          networks: {
-            ...mockRes.data.networks,
-            ...(liveData?.networks || {}),
-          },
-        }
-        return { data: merged }
-      })
+        .catch(() => ({ data: { networks: {} } as MeshMonApi }))
     }
-    return api.get<MultiNetworkAnalysis>('/view')
+    return api.get<MeshMonApi>('/view').then((res) => ({ data: res.data }))
   },
 }
 

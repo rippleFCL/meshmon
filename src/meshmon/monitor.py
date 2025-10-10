@@ -76,12 +76,12 @@ class HTTPMonitor(MonitorProto):
         try:
             st = time.time()
             response = requests.get(f"{self.monitor_info.host}", timeout=10)
-            rtt = (time.time() - st) * 1000
+            rtt = time.time() - st
         except requests.RequestException as exc:
             self.logger.debug("Request timed out", exc=exc)
             self._handle_error(ctx)
             return
-        if rtt > 9500:
+        if rtt > 9.5:
             self.logger.warning("High RTT detected", rtt_ms=rtt)
             self._handle_error(ctx)
         elif response.status_code != 200:
@@ -231,7 +231,7 @@ class MonitorManager:
         while True:
             try:
                 for store in self.store_manager.stores.values():
-                    node_info = DSNodeInfo(status=DSNodeStatus.ONLINE, version=VERSION)
+                    node_info = DSNodeInfo(version=VERSION)
                     store.set_value("node_info", node_info)
             except Exception as exc:
                 self.logger.error("Error in MonitorManager heartbeat", exc=exc)

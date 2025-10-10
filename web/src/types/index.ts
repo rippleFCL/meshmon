@@ -1,3 +1,49 @@
+// New simplified API types (from OpenAPI)
+// These mirror the backend /api/view response and are adapted to legacy shapes for the UI
+export type NodeStatusEnum = 'online' | 'offline' | 'unknown'
+export type MonitorStatusEnum = 'up' | 'down' | 'unknown'
+export type ConnectionType = 'up' | 'down' | 'unknown'
+
+export interface MeshMonApi {
+  networks: { [networkId: string]: NetworkInfoNew }
+}
+
+export interface NetworkInfoNew {
+  nodes: { [nodeId: string]: NodeInfoNew }
+  connections: ConnectionInfo[]
+  monitors: MonitorInfo[]
+  monitor_connections: MonitorConnectionInfo[]
+}
+
+export interface NodeInfoNew {
+  node_id: string
+  status: NodeStatusEnum
+  version: string
+}
+
+export interface ConnectionNodeInfo {
+  rtt: number
+  name: string
+  conn_type: ConnectionType
+}
+
+export interface ConnectionInfo {
+  src_node: ConnectionNodeInfo
+  dest_node: ConnectionNodeInfo
+}
+
+export interface MonitorInfo {
+  monitor_id: string
+  status: MonitorStatusEnum
+}
+
+export interface MonitorConnectionInfo {
+  node_id: string
+  monitor_id: string
+  status: MonitorStatusEnum
+  rtt: number
+}
+
 // API Response Types from the actual /view endpoint
 export interface MultiNetworkAnalysis {
   networks: {

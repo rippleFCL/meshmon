@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { RefreshCw, Wifi, WifiOff, Sun, Moon, LayoutDashboard, Network, GitBranch } from 'lucide-react'
+import { RefreshCw, Wifi, WifiOff, Sun, Moon, LayoutDashboard, GitBranch } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
 
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Networks', href: '/networks', icon: Network },
     { name: 'Network Graph', href: '/graph', icon: GitBranch },
 ]
 

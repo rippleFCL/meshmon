@@ -8,7 +8,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import FileResponse
 
-# from meshmon.analysis.analysis import MultiNetworkAnalysis, analyze_all_networks
+from meshmon.api.processor import generate_api
+from meshmon.api.structure import (
+    MeshMonApi,
+)
 from meshmon.config import (
     NetworkConfigLoader,
 )
@@ -121,7 +124,7 @@ async def lifespan(app: FastAPI):
     webhook_handler.stop()
     monitor_manager.stop_manager()
     for net_id, store in store_manager.stores.items():
-        node_info = DSNodeInfo(status=DSNodeStatus.OFFLINE, version=VERSION)
+        node_info = DSNodeInfo(version=VERSION)
         store.set_value("node_info", node_info)
     grpc_server.stop()
     monitor_manager.stop()
@@ -203,12 +206,12 @@ class ViewNetwork(BaseModel):
     networks: dict[str, StoreData] = {}
 
 
-# @api.get("/api/view", response_model=MultiNetworkAnalysis)
-# def view():
-#     """Get network view data. Requires JWT authentication."""
-#     logger.debug("View request for networks")
-#     networks = analyze_all_networks(store_manager, config)
-#     return networks
+@api.get("/api/view", response_model=MeshMonApi)
+def view():
+    """Get network view data. Requires JWT authentication."""
+    logger.debug("View request for networks")
+    networks = generate_api(store_manager, config)
+    return networks
 
 
 @api.get("/api/health")

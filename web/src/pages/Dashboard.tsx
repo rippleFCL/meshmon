@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { } from 'react-router-dom'
 import { Network, Server, Activity, AlertTriangle } from 'lucide-react'
 import { meshmonApi } from '../api'
-import { MultiNetworkAnalysis } from '../types'
+import { MeshMonApi } from '../types'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
+import StatsCard from '../components/dashboard/StatsCard'
+import NetworkItem from '../components/dashboard/NetworkItem'
+import NodeInfoRow from '../components/dashboard/NodeInfoRow'
 
 interface DashboardStats {
     totalNetworks: number
@@ -14,7 +17,7 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
-    const navigate = useNavigate()
+
     const { isDark } = useTheme()
     const { registerRefreshCallback } = useRefresh()
     const [stats, setStats] = useState<DashboardStats>({
@@ -23,7 +26,7 @@ export default function Dashboard() {
         avgLatency: 0,
         alertCount: 0
     })
-    const [viewData, setViewData] = useState<MultiNetworkAnalysis | null>(null)
+    const [viewData, setViewData] = useState<MeshMonApi | null>(null)
     const [loading, setLoading] = useState(true)
     const [refreshing, setRefreshing] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -50,27 +53,15 @@ export default function Dashboard() {
 
                 networks.forEach(networkId => {
                     const network = data.networks[networkId]
-                    totalNodes += network.total_nodes
-                    alertCount += network.offline_nodes
+                    const nodeIds = Object.keys(network.nodes)
+                    totalNodes += nodeIds.length
+                    alertCount += nodeIds.filter(id => network.nodes[id].status === 'offline').length
 
-                    // Calculate average latency from all connections
-                    Object.values(network.node_analyses).forEach(node => {
-                        // Add inbound connection latencies
-                        Object.values(node.inbound_info).forEach(connection => {
-                            if (connection.status === 'online') {
-                                totalLatency += connection.rtt
-                                latencyCount++
-                            }
-                        })
-
-                        // Add outbound connection latencies
-                        Object.values(node.outbound_info).forEach(connection => {
-                            if (connection.status === 'online') {
-                                totalLatency += connection.rtt
-                                latencyCount++
-                            }
-                        })
-                    })
+                    // Average latency from node-to-node connections (both directions)
+                    for (const c of network.connections) {
+                        if (c.src_node.conn_type === 'up') { totalLatency += c.src_node.rtt; latencyCount++ }
+                        if (c.dest_node.conn_type === 'up') { totalLatency += c.dest_node.rtt; latencyCount++ }
+                    }
                 })
 
                 setStats({
@@ -149,86 +140,19 @@ export default function Dashboard() {
 
             {/* Stats Grid - top row, 4 cards in a line */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="card p-6 stats-update">
-                    <div className="flex items-center">
-                        <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900' : 'bg-primary-100'}`}>
-                            <Network className={`h-6 w-6 ${isDark ? 'text-blue-400' : 'text-primary-600'}`} />
-                        </div>
-                        <div className="ml-4">
-                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.totalNetworks}</p>
-                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Networks</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="card p-6 stats-update">
-                    <div className="flex items-center">
-                        <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900' : 'bg-blue-100'}`}>
-                            <Server className={`h-6 w-6 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
-                        </div>
-                        <div className="ml-4">
-                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.totalNodes}</p>
-                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Active Nodes</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="card p-6 stats-update">
-                    <div className="flex items-center">
-                        <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900' : 'bg-green-100'}`}>
-                            <Activity className={`h-6 w-6 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
-                        </div>
-                        <div className="ml-4">
-                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.avgLatency}ms</p>
-                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Avg Latency</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="card p-6 stats-update">
-                    <div className="flex items-center">
-                        <div className={`p-3 rounded-lg ${isDark ? 'bg-red-900' : 'bg-red-100'}`}>
-                            <AlertTriangle className={`h-6 w-6 ${isDark ? 'text-red-400' : 'text-red-600'}`} />
-                        </div>
-                        <div className="ml-4">
-                            <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{stats.alertCount}</p>
-                            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Alerts</p>
-                        </div>
-                    </div>
-                </div>
+                <StatsCard icon={<Network className="h-6 w-6" />} value={stats.totalNetworks} label="Networks" />
+                <StatsCard icon={<Server className="h-6 w-6" />} value={stats.totalNodes} label="Active Nodes" iconBgClass={isDark ? 'bg-blue-900' : 'bg-blue-100'} iconColorClass={isDark ? 'text-blue-400' : 'text-blue-600'} />
+                <StatsCard icon={<Activity className="h-6 w-6" />} value={`${stats.avgLatency}ms`} label="Avg Latency" iconBgClass={isDark ? 'bg-green-900' : 'bg-green-100'} iconColorClass={isDark ? 'text-green-400' : 'text-green-600'} />
+                <StatsCard icon={<AlertTriangle className="h-6 w-6" />} value={stats.alertCount} label="Alerts" iconBgClass={isDark ? 'bg-red-900' : 'bg-red-100'} iconColorClass={isDark ? 'text-red-400' : 'text-red-600'} />
             </div>
 
             {/* Networks Section - full width, auto height */}
             <div className="card p-6 w-full data-fade">
                 <h3 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Networks</h3>
                 <div className="flex flex-wrap gap-3">
-                    {viewData && Object.entries(viewData.networks).map(([networkId, network]) => {
-                        const status = network.offline_nodes === 0 ? 'online' :
-                            network.online_nodes > 0 ? 'warning' : 'offline'
-                        const statusClass = status === 'online' ? 'status-online' :
-                            status === 'offline' ? 'status-offline' : 'status-warning'
-
-                        return (
-                            <div
-                                key={networkId}
-                                className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all duration-200 min-w-64 flex-1 ${isDark
-                                    ? 'bg-gray-700 hover:bg-gray-600'
-                                    : 'bg-gray-50 hover:bg-gray-100'
-                                    } hover:shadow-md`}
-                                onClick={() => navigate(`/networks/${networkId}`)}
-                            >
-                                <div>
-                                    <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{networkId}</span>
-                                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
-                                        {network.online_nodes}/{network.total_nodes} nodes online
-                                    </p>
-                                </div>
-                                <span className={`px-3 py-1 text-xs font-medium rounded-full ${statusClass}`}>
-                                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                                </span>
-                            </div>
-                        )
-                    })}
+                    {viewData && Object.entries(viewData.networks).map(([networkId, network]) => (
+                        <NetworkItem key={networkId} networkId={networkId} network={network} />
+                    ))}
                 </div>
             </div>
 
@@ -237,27 +161,39 @@ export default function Dashboard() {
                 <h3 className={`text-lg font-medium mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Node Information</h3>
                 <div className="space-y-3">
                     {viewData && Object.entries(viewData.networks).map(([networkId, network]) => {
-                        return Object.entries(network.node_analyses).map(([nodeId, node]) => {
-                            const avgInboundRtt = node.inbound_status.average_rtt || 0
-                            const avgOutboundRtt = node.outbound_status.average_rtt || 0
-                            const avgRtt = (avgInboundRtt + avgOutboundRtt) / 2
+                        const nodeIds = Object.keys(network.nodes)
+                        const metrics: Record<string, { inTotal: number; inOnline: number; inRttSum: number; inRttCount: number; outTotal: number; outOnline: number; outRttSum: number; outRttCount: number; status: string }>
+                            = Object.fromEntries(nodeIds.map(id => [id, { inTotal: 0, inOnline: 0, inRttSum: 0, inRttCount: 0, outTotal: 0, outOnline: 0, outRttSum: 0, outRttCount: 0, status: network.nodes[id].status }]))
 
+                        for (const c of network.connections) {
+                            const s = c.src_node, d = c.dest_node
+                            // s -> d
+                            metrics[d.name].inTotal++
+                            metrics[s.name].outTotal++
+                            if (s.conn_type === 'up') { metrics[d.name].inOnline++; metrics[s.name].outOnline++; metrics[d.name].inRttSum += s.rtt; metrics[d.name].inRttCount++; metrics[s.name].outRttSum += s.rtt; metrics[s.name].outRttCount++ }
+                            // d -> s
+                            metrics[s.name].inTotal++
+                            metrics[d.name].outTotal++
+                            if (d.conn_type === 'up') { metrics[s.name].inOnline++; metrics[d.name].outOnline++; metrics[s.name].inRttSum += d.rtt; metrics[s.name].inRttCount++; metrics[d.name].outRttSum += d.rtt; metrics[d.name].outRttCount++ }
+                        }
+
+                        return nodeIds.map(nodeId => {
+                            const m = metrics[nodeId]
+                            const avgInboundRtt = m.inRttCount > 0 ? m.inRttSum / m.inRttCount : 0
+                            const avgOutboundRtt = m.outRttCount > 0 ? m.outRttSum / m.outRttCount : 0
+                            const avgRtt = (avgInboundRtt + avgOutboundRtt) / 2
                             return (
-                                <div key={`${networkId}-${nodeId}`} className={`flex items-center space-x-3 p-3 rounded-lg transition-all duration-200 hover:shadow-sm ${isDark ? 'bg-gray-700' : 'bg-gray-50'
-                                    }`}>
-                                    <div className={`w-2 h-2 rounded-full transition-colors duration-200 ${node.node_status === 'online' ? 'bg-green-500' : 'bg-red-500'
-                                        }`}></div>
-                                    <div className="flex-1">
-                                        <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{nodeId} ({networkId})</p>
-                                        <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                                            {node.node_status} • Avg RTT: {avgRtt.toFixed(1)}ms
-                                        </p>
-                                    </div>
-                                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                                        In: {node.inbound_status.online_connections}/{node.inbound_status.total_connections} •
-                                        Out: {node.outbound_status.online_connections}/{node.outbound_status.total_connections}
-                                    </div>
-                                </div>
+                                <NodeInfoRow
+                                    key={`${networkId}-${nodeId}`}
+                                    networkId={networkId}
+                                    nodeId={nodeId}
+                                    status={m.status as any}
+                                    avgRtt={avgRtt}
+                                    inOnline={m.inOnline}
+                                    inTotal={m.inTotal}
+                                    outOnline={m.outOnline}
+                                    outTotal={m.outTotal}
+                                />
                             )
                         })
                     }).flat()}

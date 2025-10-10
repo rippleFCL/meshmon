@@ -17,7 +17,6 @@ class DSPingData(BaseModel):
 
 
 class DSNodeInfo(BaseModel):
-    status: DSNodeStatus
     version: str
 
 

@@ -48,6 +48,8 @@ def get_node_ping_status(store: SharedStore) -> dict[str, "AnalysisNodeStatus"]:
             node_statuses[node_id] = AnalysisNodeStatus.OFFLINE
         else:
             node_statuses[node_id] = AnalysisNodeStatus.UNKNOWN
+    if store.config.current_node.node_id not in node_statuses:
+        node_statuses[store.config.current_node.node_id] = AnalysisNodeStatus.ONLINE
     return node_statuses
 
 
@@ -82,7 +84,7 @@ def get_monitor_status(
 ) -> dict[str, "AnalysisNodeStatus"]:
     """Get the status of all monitors in the store."""
     monitor_config = get_monitor_config(config)
-    monitor_statuses: dict[str, dict[str, AnalysisNodeStatus]] = {}
+    monitor_statuses: list[dict[str, AnalysisNodeStatus]] = []
     for node in config.node_config:
         monitor_ctx = store.get_context("monitor_data", DSPingData, node.node_id)
         if monitor_ctx is None:
@@ -106,13 +108,27 @@ def get_monitor_status(
                 node_monitors[monitor_id] = AnalysisNodeStatus.OFFLINE
             else:
                 node_monitors[monitor_id] = AnalysisNodeStatus.UNKNOWN
-        monitor_statuses[node.node_id] = node_monitors
+        monitor_statuses.append(node_monitors)
     distilled_statuses: dict[str, AnalysisNodeStatus] = {}
-    for node_id, monitors in monitor_statuses.items():
-        if AnalysisNodeStatus.ONLINE in monitors.values():
-            distilled_statuses[node_id] = AnalysisNodeStatus.ONLINE
-        elif AnalysisNodeStatus.OFFLINE in monitors.values():
-            distilled_statuses[node_id] = AnalysisNodeStatus.OFFLINE
-        else:
-            distilled_statuses[node_id] = AnalysisNodeStatus.UNKNOWN
+    for monitors in monitor_statuses:
+        for monitor_id, monitor_status in monitors.items():
+            current_status = distilled_statuses.get(monitor_id)
+            if current_status == AnalysisNodeStatus.ONLINE:
+                continue
+
+            if monitor_status == AnalysisNodeStatus.ONLINE:
+                distilled_statuses[monitor_id] = AnalysisNodeStatus.ONLINE
+
+            if current_status == AnalysisNodeStatus.OFFLINE:
+                continue
+
+            if monitor_status == AnalysisNodeStatus.OFFLINE:
+                distilled_statuses[monitor_id] = AnalysisNodeStatus.OFFLINE
+
+            if current_status == AnalysisNodeStatus.UNKNOWN:
+                continue
+
+            if monitor_status == AnalysisNodeStatus.UNKNOWN:
+                distilled_statuses[monitor_id] = AnalysisNodeStatus.UNKNOWN
+
     return distilled_statuses

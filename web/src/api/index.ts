@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { MeshMonApi } from '../types'
-import { mockHealth } from './mockData'
+import { mockHealth, mockMeshMonApi } from './mockData'
 
 const api = axios.create({
   baseURL: '/api',
@@ -22,14 +22,14 @@ export const getLiveHealthSnapshot = (): any | null => liveHealthSnapshot
 export const meshmonApi = {
   getViewData: (): Promise<{ data: MeshMonApi }> => {
     if (USE_API_MOCKS) {
-      // In mock mode, still prefer live API to reflect current graph, fallback to simple empty structure
-      return api
+      // Return deterministic mock data immediately for a smooth dev experience
+      const mock = new Promise<{ data: MeshMonApi }>((resolve) => setTimeout(() => resolve({ data: mockMeshMonApi }), MOCK_DELAY_MS))
+      // Also try to fetch live data in the background to keep a snapshot for debugging
+      api
         .get<MeshMonApi>('/view')
-        .then((res) => {
-          liveViewDataSnapshot = res.data as any
-          return { data: res.data }
-        })
-        .catch(() => ({ data: { networks: {} } as MeshMonApi }))
+        .then((res) => { liveViewDataSnapshot = res.data as any })
+        .catch(() => { /* ignore in mock mode */ })
+      return mock
     }
     return api.get<MeshMonApi>('/view').then((res) => ({ data: res.data }))
   },

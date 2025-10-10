@@ -1,4 +1,4 @@
-import { MultiNetworkAnalysis, NetworkAnalysis, NodeAnalysis, AggregatedConnectionDetail, MonitorAnalysis } from '../types'
+import { MultiNetworkAnalysis, NetworkAnalysis, NodeAnalysis, AggregatedConnectionDetail, MonitorAnalysis, MeshMonApi, MonitorStatusEnum } from '../types'
 
 // Helper to build AggregatedConnectionDetail
 const agg = (total: number, online: number, avg: number): AggregatedConnectionDetail => ({
@@ -91,3 +91,57 @@ export const mockMultiNetworkAnalysis: MultiNetworkAnalysis = {
 }
 
 export const mockHealth = { ok: true }
+
+// Map legacy/analysis mock into the new MeshMonApi shape used by the UI
+const statusToConnType = (s: string): 'up' | 'down' | 'unknown' => (s === 'online' ? 'up' : s === 'offline' || s === 'node_down' ? 'down' : 'unknown')
+const monStatusToEnum = (s: string): MonitorStatusEnum => (s === 'online' || s === 'up') ? 'up' : (s === 'offline' || s === 'down') ? 'down' : 'unknown'
+
+export function toMeshMonApi(multi: MultiNetworkAnalysis): MeshMonApi {
+  const out: MeshMonApi = { networks: {} }
+  for (const [netId, net] of Object.entries(multi.networks)) {
+    // Nodes
+    const nodes: Record<string, { node_id: string; status: 'online' | 'offline' | 'unknown'; version: string }> = {}
+    for (const [nodeId, na] of Object.entries(net.node_analyses)) {
+      nodes[nodeId] = {
+        node_id: nodeId,
+        status: (na.node_status as any) || 'unknown',
+        version: na.node_info?.version || 'unknown',
+      }
+    }
+
+    // Connections (directed)
+    const connections: Array<{ src_node: { name: string; rtt: number; conn_type: 'up' | 'down' | 'unknown' }, dest_node: { name: string; rtt: number; conn_type: 'up' | 'down' | 'unknown' } }> = []
+    for (const [src, na] of Object.entries(net.node_analyses)) {
+      for (const [dst, detail] of Object.entries(na.outbound_info || {})) {
+        connections.push({
+          src_node: { name: src, rtt: (detail as any).rtt || 0, conn_type: statusToConnType((detail as any).status) },
+          dest_node: { name: dst, rtt: (detail as any).rtt || 0, conn_type: 'unknown' },
+        })
+      }
+    }
+
+    // Monitors
+    const monitors = Object.entries(net.monitor_analyses || {}).map(([mid, ma]) => ({
+      monitor_id: mid,
+      status: monStatusToEnum((ma as any).monitor_status),
+    }))
+
+    // Monitor connections
+    const monitor_connections: Array<{ node_id: string; monitor_id: string; status: MonitorStatusEnum; rtt: number }> = []
+    for (const [mid, ma] of Object.entries(net.monitor_analyses || {})) {
+      for (const [nid, det] of Object.entries((ma as MonitorAnalysis).inbound_info || {})) {
+        monitor_connections.push({
+          node_id: nid,
+          monitor_id: mid,
+          status: monStatusToEnum((det as any).status),
+          rtt: (det as any).rtt || 0,
+        })
+      }
+    }
+
+    ;(out.networks as any)[netId] = { nodes, connections, monitors, monitor_connections }
+  }
+  return out
+}
+
+export const mockMeshMonApi: MeshMonApi = toMeshMonApi(mockMultiNetworkAnalysis)

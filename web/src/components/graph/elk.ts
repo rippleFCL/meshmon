@@ -11,9 +11,10 @@ export async function computeElkPositions(processedNodes: Node[], processedEdges
     layoutOptions: {
       'elk.algorithm': 'force',
       // Tweak spacing for readability
-      'elk.spacing.nodeNode': '90',
-      'elk.spacing.edgeNode': '90',
-      'elk.spacing.edgeEdge': '90',
+      'elk.spacing.nodeNode': '48',
+      'elk.spacing.edgeNode': '48',
+      'elk.spacing.edgeEdge': '48',
+      'elk.padding': '10',
       // Force layout specific tweaks (kept conservative for stability)
       'elk.quality': 'default',
       'elk.force.iterations': '600',

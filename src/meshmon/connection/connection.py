@@ -2,30 +2,36 @@ import queue
 import threading
 from typing import Callable, Protocol
 
-from .proto.meshmon_pb2 import ProtocolData
+from .proto import PacketData
+from .grpc_types import Heartbeat, HeartbeatResponse, StoreUpdate
+
+
+class ProtocolHandler(Protocol):
+    def build_packet(self, data: StoreUpdate | Heartbeat | HeartbeatResponse) -> PacketData | None: ...
+
+    def handle_packet(self, request: PacketData, conn: "RawConnection") -> None: ...
 
 
 class RawConnection:
-    def __init__(self, stream_writer: queue.Queue):
-        self.stream_writer = stream_writer
-        self.handler = None
+    def __init__(self, protocol: ProtocolHandler):
+        self.stream_writer: queue.Queue[PacketData] = queue.Queue()
+        self.protocol = protocol
         self._closed = threading.Event()
 
-    def set_handler(self, handler: Callable[[ProtocolData], None]):
-        self.handler = handler
-
-    def handle_request(self, request: ProtocolData):
+    def handle_request(self, request: PacketData):
         if self._closed.is_set():
             return
-        if self.handler:
-            self.handler(request)
+        if self.protocol:
+            self.protocol.handle_packet(request, self)
 
-    def send_response(self, response: ProtocolData):
+    def send_response(self, response: Heartbeat | HeartbeatResponse | StoreUpdate):
         if self._closed.is_set():
             return
-        self.stream_writer.put(response)
+        packet = self.protocol.build_packet(response)
+        if packet:
+            self.stream_writer.put(packet)
 
-    def get_response(self, timeout: float | None = None) -> ProtocolData | None:
+    def get_response(self, timeout: float | None = None) -> PacketData | None:
         try:
             return self.stream_writer.get(timeout=timeout)
         except queue.Empty:
@@ -39,26 +45,17 @@ class RawConnection:
         return self._closed.is_set()
 
 
-class ProtocolHandler(Protocol):
-    def bind_connection(self, connection: "Connection") -> None: ...
-
-    def handle_packet(self, request: ProtocolData) -> None: ...
-
-
 class Connection:
     def __init__(
         self,
         dest_node_id: str,
         src_node_id: str,
         network: str,
-        handler: ProtocolHandler,
     ):
         self.dest_node_id = dest_node_id
         self.src_node_id = src_node_id
         self.network = network
-        self.connections = []
-        self.protocol = handler
-        self.protocol.bind_connection(self)
+        self.connections: list[RawConnection] = []
         self.conn_selector = 0
         self.conn_lock = threading.Lock()
 
@@ -66,18 +63,16 @@ class Connection:
     def is_active(self) -> bool:
         return any(not conn.is_closed for conn in self.connections)
 
-    def send_response(self, response: ProtocolData):
+    def send_response(self, response: Heartbeat | HeartbeatResponse | StoreUpdate):
         with self.conn_lock:
             if len(self.connections) == 0:
                 return
             self.conn_selector += 1
             self.conn_selector %= len(self.connections)
             self.connections[self.conn_selector].send_response(response)
-            return
 
     def add_raw_connection(self, raw_conn: RawConnection) -> None:
         with self.conn_lock:
-            raw_conn.set_handler(self.connection_handler)
             self.connections.append(raw_conn)
 
     def remove_raw_connection(self, raw_conn: RawConnection) -> None:
@@ -85,10 +80,6 @@ class Connection:
             with self.conn_lock:
                 self.connections.remove(raw_conn)
                 raw_conn.close()
-
-    def connection_handler(self, request: ProtocolData):
-        # Process the request and prepare a response
-        self.protocol.handle_packet(request)
 
 
 class ConnectionManager:
@@ -107,13 +98,10 @@ class ConnectionManager:
         dest_node_id: str,
         src_node_id: str,
         network_id: str,
-        handler: ProtocolHandler,
     ) -> Connection:
         with self.lock:
             if (dest_node_id, network_id) not in self.connections:
-                self.connections[(dest_node_id, network_id)] = Connection(
-                    dest_node_id, src_node_id, network_id, handler
-                )
+                self.connections[(dest_node_id, network_id)] = Connection(dest_node_id, src_node_id, network_id)
             return self.connections[(dest_node_id, network_id)]
 
     def __iter__(self):

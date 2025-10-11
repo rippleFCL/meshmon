@@ -1,3 +1,4 @@
+import os
 import queue
 import threading
 from typing import TYPE_CHECKING, Iterator
@@ -6,22 +7,23 @@ import grpc
 import structlog
 
 from meshmon.config import NetworkConfigLoader
+from meshmon.connection.grpc_types import Validator
 from meshmon.connection.protocol_handler import PulseWaveProtocol
+from meshmon.pulsewave.crypto import Signer, Verifier
+from meshmon.pulsewave.data import SignedBlockData
 
 from .connection import ConnectionManager, RawConnection
 from .proto import (
-    ConnectionInit,
-    Error,
+    ConnectionValidation,
     MeshMonServiceStub,
     ProtocolData,
-    StoreHeartbeatAck,
 )
 
 if TYPE_CHECKING:
     from .grpc_server import GrpcUpdateHandlerContainer
 
 
-class GrpcClient:
+class GrpcClientManager:
     """gRPC client that uses ConnectionManager and RawConnection to manage streams."""
 
     def __init__(
@@ -39,7 +41,7 @@ class GrpcClient:
         self.channels: dict[str, grpc.Channel] = {}
         self.stubs: dict[str, MeshMonServiceStub] = {}
         self.stream_threads: dict[str, threading.Thread] = {}
-        self.request_queues: dict[str, queue.Queue] = {}
+        self.clients: dict[str, "GrpcClient"] = {}
         self.stop_event = threading.Event()
         self._manager_thread = threading.Thread(
             target=self._connection_manager, daemon=True
@@ -69,7 +71,6 @@ class GrpcClient:
                     self.stream_threads.pop(k, None)
                     self.channels.pop(k, None)
                     self.stubs.pop(k, None)
-                    self.request_queues.pop(k, None)
 
                 for network in self.config.networks.values():
                     # Ensure connections to all configured peers
@@ -91,8 +92,6 @@ class GrpcClient:
     def connect_to(self, network_id: str, node_id: str, address: str) -> bool:
         """Connect to a peer node, create a RawConnection, and register in ConnectionManager."""
         try:
-            current_node_id = self.config.networks[network_id].node_id
-
             key = f"{network_id}:{node_id}"
             # Avoid duplicate connects
             existing = self.stream_threads.get(key)
@@ -112,128 +111,39 @@ class GrpcClient:
             )
             stub = MeshMonServiceStub(channel)
 
-            # Per-peer request queue (for outgoing messages) and raw connection (for incoming)
-            response_q: "queue.Queue" = queue.Queue()
-            raw_conn = RawConnection(response_q)
-
-            # Register raw connection with manager's Connection
-            connection = self.connection_manager.get_connection(node_id, network_id)
-            if connection is None:
-                self.logger.info(
-                    "Creating new connection for peer",
-                    server_node_id=node_id,
-                    client_node_id=current_node_id,
+            # Build per-peer client and start streaming thread
+            net = self.config.networks[network_id]
+            signer = net.key_mapping.signer
+            verifier = net.get_verifier(node_id)
+            if verifier is None:
+                self.logger.warning(
+                    "No verifier for peer node; skipping connect",
+                    node_id=node_id,
                     network_id=network_id,
                 )
-                handler = self.update_handlers.get_handler(network_id)
-                protocol_handler = PulseWaveProtocol(handler)
-                connection = self.connection_manager.add_connection(
-                    node_id, current_node_id, network_id, protocol_handler
-                )
-            connection.add_raw_connection(raw_conn)
+                return False
 
-            # Start streaming thread
-            def request_generator() -> Iterator[ProtocolData]:
-                # Initial ConnectionInit
-                yield ProtocolData(
-                    connection_init=ConnectionInit(
-                        node_id=current_node_id, network_id=network_id
-                    )
-                )
-                while not self.stop_event.is_set():
-                    try:
-                        # Read from the request queue (where write() puts messages)
-                        item = raw_conn.get_response(timeout=0.5)
-                        if item is not None:
-                            yield item
-                    except queue.Empty:
-                        pass
+            handler = self.update_handlers.get_handler(network_id)
+            client = GrpcClient(
+                channel=channel,
+                connection_manager=self.connection_manager,
+                handler=handler,
+                signer=signer,
+                verifier=verifier,
+                network_id=network_id,
+                peer_node_id=node_id,
+                self_node_id=net.node_id,
+                address=address,
+            )
 
-            def stream_worker():
-                try:
-                    response_iterator = stub.StreamUpdates(request_generator())
-                    initial_packet = next(response_iterator, None)
-                    if initial_packet is None or not initial_packet.HasField(
-                        "connection_ack"
-                    ):
-                        self.logger.warning(
-                            "Invalid first packet during GRPC stream initialization"
-                        )
-                        raw_conn.send_response(
-                            ProtocolData(
-                                error=Error(
-                                    code="INVALID_INITIAL_PACKET",
-                                    message="First packet must be connection_ack",
-                                    details="",
-                                )
-                            )
-                        )
-                    else:
-                        self.logger.info(
-                            "gRPC Bidirectional stream to server established",
-                            dest_node_id=node_id,
-                            network_id=network_id,
-                            address=address,
-                        )
-                        for resp in response_iterator:
-                            if resp is None:
-                                break
-                            # Forward responses into the RawConnection's response queue
-                            if resp.HasField("heartbeat"):
-                                self.logger.debug(
-                                    "Received heartbeat",
-                                    from_node=resp.heartbeat.node_id,
-                                    network_id=resp.heartbeat.network_id,
-                                )
-                                raw_conn.send_response(
-                                    ProtocolData(
-                                        heartbeat_ack=StoreHeartbeatAck(
-                                            node_id=current_node_id,
-                                            network_id=network_id,
-                                            timestamp=resp.heartbeat.timestamp,
-                                            success=True,
-                                        )
-                                    )
-                                )
-                            else:
-                                raw_conn.handle_request(resp)
-                        self.logger.info(
-                            "gRPC Bidirectional stream to server closed",
-                            dest_node_id=node_id,
-                        )
-                except grpc.RpcError as e:
-                    # Connection errors are expected during startup/reconnect
-                    if e.code() == grpc.StatusCode.UNAVAILABLE:  # type: ignore
-                        self.logger.debug(
-                            "Connection unavailable", node_id=node_id, address=address
-                        )
-                    else:
-                        self.logger.error(
-                            "gRPC stream error",
-                            node_id=node_id,
-                            error=str(e),
-                            code=e.code(),  # type: ignore
-                        )
-                        self.logger.info(
-                            "gRPC Bidirectional stream to server closed",
-                            dest_node_id=node_id,
-                        )
-                except Exception as e:
-                    self.logger.error(
-                        "Client stream error", node_id=node_id, error=str(e)
-                    )
-
-                finally:
-                    connection.remove_raw_connection(raw_conn)
-
-            t = threading.Thread(target=stream_worker, daemon=True)
+            t = threading.Thread(target=client.stream_worker, daemon=True)
             t.start()
 
             # Save references
             self.channels[key] = channel
             self.stubs[key] = stub
             self.stream_threads[key] = t
-            self.request_queues[key] = response_q
+            self.clients[key] = client
 
             return True
         except grpc.RpcError as e:
@@ -247,22 +157,16 @@ class GrpcClient:
             )
             return False
 
-    def write(self, network_id: str, node_id: str, request: ProtocolData) -> bool:
-        """Queue a request to a specific peer stream."""
-        key = f"{network_id}:{node_id}"
-        q = self.request_queues.get(key)
-        if not q:
-            return False
-        try:
-            q.put_nowait(request)
-            return True
-        except queue.Full:
-            return False
-
     def stop(self):
         self.stop_event.set()
         if self._manager_thread.is_alive():
             self._manager_thread.join(timeout=2.0)
+        # Ask clients to cancel their RPCs first
+        for client in list(self.clients.values()):
+            try:
+                client.stop_stream()
+            except Exception:
+                pass
         # Stop threads
         for t in self.stream_threads.values():
             if t.is_alive():
@@ -276,4 +180,241 @@ class GrpcClient:
         self.channels.clear()
         self.stubs.clear()
         self.stream_threads.clear()
-        self.request_queues.clear()
+        self.clients.clear()
+
+
+class GrpcClient:
+    def __init__(
+        self,
+        channel: grpc.Channel,
+        connection_manager: ConnectionManager,
+        handler: object,
+        signer: Signer,
+        verifier: Verifier,
+        network_id: str,
+        peer_node_id: str,
+        self_node_id: str,
+        address: str,
+    ):
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="connection.grpc_client", component="GrpcClient"
+        )
+        self.channel = channel
+        self.connection_manager = connection_manager
+        # handler here is the concrete GrpcUpdateHandler for this network
+        # typing: the container was used in manager; here we store the resolved handler
+        self.handler = handler  # type: ignore[assignment]
+        self.signer = signer
+        self.verifier = verifier
+        self.network_id = network_id
+        self.peer_node_id = peer_node_id
+        self.self_node_id = self_node_id
+        self.address = address
+
+        self.stub = MeshMonServiceStub(channel)
+        self.stop_event = threading.Event()
+        self.connection_active = threading.Event()
+        self.raw_conn: RawConnection | None = None
+        self._send_queue: "queue.Queue[ProtocolData]" = queue.Queue()
+        self._client_nonce: str | None = None
+        self._call: grpc.Call | None = None
+
+    def stop_stream(self):
+        """Cancel the active stream and signal shutdown."""
+        self.stop_event.set()
+        try:
+            if self._call is not None:
+                self._call.cancel()
+        except Exception:
+            pass
+
+    def request_generator(self) -> Iterator[ProtocolData]:
+        # Yield queued control frames first (e.g., initial ConnectionValidation),
+        # then PacketData coming from the RawConnection.
+        while not self.connection_active.is_set():
+            try:
+                item = self._send_queue.get(timeout=0.1)
+                yield item
+            except queue.Empty:
+                pass
+        while not self.stop_event.is_set():
+            if (
+                self.connection_active.is_set()
+                and self.raw_conn is not None
+                and not self.raw_conn.is_closed
+            ):
+                pkt = self.raw_conn.get_response(timeout=0.1)
+                if pkt is not None:
+                    yield ProtocolData(packet_data=pkt)
+
+    def stream_worker(self):
+        connection = None
+        try:
+            # Start the bidi stream with client nonce as metadata
+            client_nonce = os.urandom(256).hex()
+            self._client_nonce = client_nonce
+            response_iterator = self.stub.StreamUpdates(
+                self.request_generator(), metadata=(("client_nonce", client_nonce),)
+            )
+            # Track the underlying call to allow client-side abort/cancel
+            try:
+                self._call = response_iterator
+            except Exception:
+                self._call = None
+
+            # Wait for server's initial metadata (server_nonce)
+            # Ensure channel is READY before attempting to grab initial metadata
+            try:
+                grpc.channel_ready_future(self.channel).result(timeout=5)
+            except Exception:
+                self.logger.debug(
+                    "Could not establish Connection",
+                    dest_node_id=self.peer_node_id,
+                    address=self.address,
+                )
+                self.stop_stream()
+                return
+
+            try:
+                md = dict(response_iterator.initial_metadata())
+            except Exception:
+                md = {}
+            server_nonce = md.get("server_nonce")
+            if not server_nonce:
+                self.logger.warning(
+                    "Missing server_nonce in initial metadata",
+                    dest_node_id=self.peer_node_id,
+                )
+                self.stop_stream()
+                return
+
+            # Build and send our ConnectionValidation first packet
+            client_validator = Validator(
+                client_nonce=client_nonce,
+                server_nonce=server_nonce,
+                network_id=self.network_id,
+                node_id=self.self_node_id,
+            )
+            client_sbd = SignedBlockData.new(
+                self.signer, client_validator, "validator", "validator"
+            )
+            self._send_queue.put(
+                ProtocolData(
+                    connection_validation=ConnectionValidation(
+                        validator=client_sbd.model_dump_json()
+                    )
+                )
+            )
+
+            # Expect server's ConnectionValidation response
+            first_resp = next(response_iterator, None)
+            if first_resp is None or not first_resp.HasField("connection_validation"):
+                self.logger.warning(
+                    "Invalid first response from server; expected ConnectionValidation",
+                    dest_node_id=self.peer_node_id,
+                )
+                self.stop_stream()
+                return
+
+            try:
+                server_sbd = SignedBlockData.model_validate_json(
+                    first_resp.connection_validation.validator
+                )
+                server_validator = Validator.model_validate(server_sbd.data)
+            except Exception as e:
+                self.logger.warning("Failed to parse server validator", error=str(e))
+                self.stop_stream()
+                return
+
+            # Verify server's response
+            if (
+                not server_sbd.verify(self.verifier, "validator", "validator")
+                or server_validator.client_nonce != client_nonce
+                or server_validator.server_nonce != server_nonce
+                or server_validator.network_id != self.network_id
+                or server_validator.node_id != self.peer_node_id
+            ):
+                self.logger.warning(
+                    "Server failed client validation",
+                    dest_node_id=self.peer_node_id,
+                    network_id=self.network_id,
+                )
+                self.stop_stream()
+                return
+
+            # Wire protocol and register raw connection
+            protocol_handler = PulseWaveProtocol(
+                handler=self.handler,  # type: ignore[arg-type]
+                recv_nonce=server_validator,
+                send_nonce=client_validator,
+                signer=self.signer,
+                verifier=self.verifier,
+                mr_sbd=server_sbd,
+            )
+            self.raw_conn = RawConnection(protocol_handler)
+
+            # Register raw connection with ConnectionManager
+            connection = self.connection_manager.get_connection(
+                self.peer_node_id, self.network_id
+            )
+            if connection is None:
+                connection = self.connection_manager.add_connection(
+                    self.peer_node_id, self.self_node_id, self.network_id
+                )
+            connection.add_raw_connection(self.raw_conn)
+
+            self.logger.info(
+                "gRPC Bidirectional stream to server established",
+                dest_node_id=self.peer_node_id,
+                network_id=self.network_id,
+                address=self.address,
+            )
+            self.connection_active.set()
+
+            # Main receive loop
+            for resp in response_iterator:
+                if resp is None:
+                    break
+                if resp.HasField("packet_data") and self.raw_conn is not None:
+                    self.raw_conn.handle_request(resp.packet_data)
+
+            self.logger.info(
+                "gRPC Bidirectional stream to server closed",
+                dest_node_id=self.peer_node_id,
+            )
+        except grpc.RpcError as e:
+            # Connection errors are expected during startup/reconnect
+            if e.code() == grpc.StatusCode.UNAVAILABLE:  # type: ignore
+                self.logger.debug(
+                    "Connection unavailable",
+                    node_id=self.peer_node_id,
+                    address=self.address,
+                )
+            else:
+                self.logger.error(
+                    "gRPC stream error",
+                    node_id=self.peer_node_id,
+                    error=str(e),
+                    code=e.code(),  # type: ignore
+                )
+                self.logger.info(
+                    "gRPC Bidirectional stream to server closed",
+                    dest_node_id=self.peer_node_id,
+                )
+        except Exception as e:
+            self.logger.error(
+                "Client stream error", node_id=self.peer_node_id, error=str(e)
+            )
+
+        finally:
+            # Ensure the RPC is cancelled to abort the connection cleanly
+            try:
+                if self._call is not None:
+                    self._call.cancel()
+            except Exception:
+                pass
+            try:
+                if connection is not None and self.raw_conn is not None:
+                    connection.remove_raw_connection(self.raw_conn)
+            except Exception:
+                pass

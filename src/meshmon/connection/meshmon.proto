@@ -5,52 +5,21 @@ package meshmon;
 service MeshMonService {
     // Bidirectional streaming for mesh updates
     rpc StreamUpdates(stream ProtocolData) returns (stream ProtocolData);
-
 }
 
 message ProtocolData {
     oneof message_type {
-        StoreUpdate store_update = 1;
-        ConnectionInit connection_init = 3;
-        Error error = 5;
-        ConnectionAck connection_ack = 6;
-        StoreHeartbeat heartbeat = 7;
-        StoreHeartbeatAck heartbeat_ack = 8;
+        PacketData packet_data = 1;
+        ConnectionValidation connection_validation = 2;
     }
 }
 
-message StoreHeartbeat {
-    string node_id = 1;
-    string network_id = 2;  // Network/store identifier
-    int64 timestamp = 3;  // Unix timestamp in seconds
+message PacketData {
+    string packet_id = 1;
+    string data = 2;
+    string validator = 3;
 }
 
-message StoreHeartbeatAck {
-    string node_id = 1;
-    string network_id = 2;  // Network/store identifier
-    int64 timestamp = 3;  // Unix timestamp in seconds
-    bool success = 4;
-}
-
-message StoreUpdate {
-    string node_id = 1;
-    string network_id = 2;  // Network/store identifier
-    string data = 3;  // JSON serialized StoreData
-}
-
-
-message ConnectionInit {
-    string node_id = 1;
-    string network_id = 2;  // Network this connection is for
-    string version = 3;
-}
-
-message ConnectionAck {
-    string message = 1;
-}
-
-message Error {
-    string code = 1;
-    string message = 2;
-    string details = 3;
+message ConnectionValidation {
+    string validator = 1;
 }

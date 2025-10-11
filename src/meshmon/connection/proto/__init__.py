@@ -5,13 +5,9 @@ This module contains the generated protobuf classes and gRPC stubs.
 """
 
 from .meshmon_pb2 import (
-    ConnectionAck,
-    ConnectionInit,
-    Error,
+    ConnectionValidation,
+    PacketData,
     ProtocolData,
-    StoreHeartbeat,
-    StoreHeartbeatAck,
-    StoreUpdate,
 )
 from .meshmon_pb2_grpc import (
     MeshMonServiceServicer,
@@ -21,13 +17,9 @@ from .meshmon_pb2_grpc import (
 
 __all__ = [
     # Message types
-    "ConnectionInit",
-    "Error",
-    "StoreUpdate",
+    "ConnectionValidation",
+    "PacketData",
     "ProtocolData",
-    "ConnectionAck",
-    "StoreHeartbeat",
-    "StoreHeartbeatAck",
     # gRPC types
     "MeshMonServiceServicer",
     "MeshMonServiceStub",

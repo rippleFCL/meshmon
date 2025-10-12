@@ -260,13 +260,21 @@ def generate_notification_cluster_info(stores: StoreManager) -> NotificationClus
     api = NotificationClusterApi()
     for network_id, store in stores.stores.items():
         clusters = NotificationClusters()
+        ctx = store.get_consistency().node_status_table
+
         for node_context in store.all_consistency_contexts():
             for cluster_id, leader_status in node_context.node_statuses():
+                node_status = ctx.get(node_context.node_id)
                 name = name_from_cluster_id(cluster_id)
                 if name not in clusters.clusters:
                     clusters.clusters[name] = NotificationCluster()
-                clusters.clusters[name].node_statuses[node_context.node_id] = (
-                    LEADER_STATUS_MAPPING[leader_status.status]
-                )
+                if node_status is None or node_status.status == StoreNodeStatus.ONLINE:
+                    clusters.clusters[name].node_statuses[node_context.node_id] = (
+                        LEADER_STATUS_MAPPING[leader_status.status]
+                    )
+                else:
+                    clusters.clusters[name].node_statuses[
+                        node_context.node_id
+                    ] = NotificationClusterStatusEnum.OFFLINE
         api.networks[network_id] = clusters
     return api

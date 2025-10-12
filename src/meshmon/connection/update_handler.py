@@ -9,7 +9,7 @@ from ..pulsewave.data import StoreData
 from ..pulsewave.store import SharedStore
 from ..pulsewave.update.update import UpdateHandler, UpdateManager
 from .connection import ConnectionManager
-from .proto import ProtocolData, StoreHeartbeatAck, StoreUpdate
+from .grpc_types import StoreUpdate, HeartbeatResponse
 
 
 class IncrementalUpdater:
@@ -55,14 +55,7 @@ class GrpcUpdateHandler(UpdateHandler):
                 continue
             conn = self.connection_manager.get_connection(node, self.network_id)
             if conn:
-                conn.send_response(
-                    ProtocolData(
-                        store_update=StoreUpdate(
-                            data=msg,
-                            network_id=self.network_id,
-                            node_id=self.store.key_mapping.signer.node_id,
-                        )
-                    )
+                conn.send_response(StoreUpdate(data=msg)
                 )
                 if ping_ctx.get(node) is None:
                     ping_ctx.set(
@@ -76,34 +69,25 @@ class GrpcUpdateHandler(UpdateHandler):
 
     def handle_incoming_update(self, update: StoreUpdate) -> None:
         """Handle an incoming StoreUpdate message."""
-        if update.network_id != self.network_id:
-            return  # Ignore updates for other networks
         if not hasattr(self, "store"):
             self.logger.info("Store not bound, cannot handle incoming update")
             return
         self.store.update_from_dump(update.data)
 
-    def handle_heartbeat(self, heartbeat_ack: StoreHeartbeatAck) -> None:
+    def handle_heartbeat(self, heartbeat_ack: HeartbeatResponse, node_id: str) -> None:
         node_ctx = self.store.get_context("ping_data", DSPingData)
-        if not heartbeat_ack.success:
-            self.logger.warning(
-                "Heartbeat ack indicates failure",
-                from_node=heartbeat_ack.node_id,
-                network_id=heartbeat_ack.network_id,
-            )
-            return
-        current_status = node_ctx.get(heartbeat_ack.node_id)
+
+        current_status = node_ctx.get(node_id)
         if current_status and current_status.status == DSNodeStatus.OFFLINE:
             self.logger.info(
                 "Node is now online",
-                node_id=heartbeat_ack.node_id,
-                network_id=heartbeat_ack.network_id,
+                node_id=node_id,
             )
         node_ctx.set(
-            heartbeat_ack.node_id,
+            node_id,
             DSPingData(
                 status=DSNodeStatus.ONLINE,
-                req_time_rtt=(time.time_ns() - (heartbeat_ack.timestamp))
+                req_time_rtt=(time.time_ns() - (heartbeat_ack.node_time))
                 / 1_000_000_000,  # Convert ns to s
                 date=datetime.datetime.now(tz=datetime.timezone.utc),
             ),

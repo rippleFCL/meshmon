@@ -8,6 +8,7 @@ class NotificationClusterStatusEnum(Enum):
     FOLLOWER = "FOLLOWER"
     WAITING_FOR_CONSENSUS = "WAITING_FOR_CONSENSUS"
     NOT_PARTICIPATING = "NOT_PARTICIPATING"
+    OFFLINE = "OFFLINE"
 
 
 class NotificationCluster(BaseModel):

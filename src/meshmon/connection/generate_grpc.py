@@ -35,7 +35,7 @@ def generate_grpc_code():
         f"--proto_path={connection_dir}",
         f"--python_out={proto_dir}",
         f"--grpc_python_out={proto_dir}",
-        f"--mypy_out={proto_dir}",
+        f"--pyi_out={proto_dir}",
         str(proto_file),
     ]
 

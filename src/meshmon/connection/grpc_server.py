@@ -1,22 +1,25 @@
+import os
 import threading
 from concurrent import futures
 from typing import TYPE_CHECKING, Iterator
 
 import grpc
 import structlog
+from pydantic import ValidationError
 
 from meshmon.config import NetworkConfigLoader
 from meshmon.connection.protocol_handler import PulseWaveProtocol
 from meshmon.connection.update_handler import GrpcUpdateHandler
+from meshmon.pulsewave.crypto import Verifier
+from meshmon.pulsewave.data import SignedBlockData
 
 from .connection import ConnectionManager, RawConnection
-from .grpc_client import GrpcClient
+from .grpc_client import GrpcClientManager
+from .grpc_types import Validator
 from .proto import (
-    ConnectionAck,
-    Error,
+    ConnectionValidation,
     MeshMonServiceServicer,
     ProtocolData,
-    StoreHeartbeatAck,
     add_MeshMonServiceServicer_to_server,
 )
 
@@ -60,8 +63,7 @@ class MeshMonServicer(MeshMonServiceServicer):
         self,
         request_iterator: Iterator[ProtocolData],
         raw_conn: RawConnection,
-        src_node_id: str,
-        network_id: str,
+        verifier: Verifier,
     ):
         """Handle incoming requests in a separate thread."""
         try:
@@ -70,28 +72,17 @@ class MeshMonServicer(MeshMonServiceServicer):
                     break
                 if raw_conn.is_closed:
                     break
-                if request.HasField("heartbeat"):
-                    self.logger.debug(
-                        "Received heartbeat",
-                        from_node=request.heartbeat.node_id,
-                        network_id=request.heartbeat.network_id,
-                    )
-                    raw_conn.send_response(
-                        ProtocolData(
-                            heartbeat_ack=StoreHeartbeatAck(
-                                node_id=src_node_id,
-                                network_id=network_id,
-                                timestamp=request.heartbeat.timestamp,
-                                success=True,
-                            )
-                        )
-                    )
+                if request.HasField("packet_data"):
+                    raw_conn.handle_request(request.packet_data)
                 else:
-                    raw_conn.handle_request(request)
+                    self.logger.warning(
+                        "Received unknown request type, ignoring",
+                        node_id=verifier.node_id,
+                    )
 
         except Exception as e:
             self.logger.error(
-                "Request handler error for", node_id=src_node_id, error=str(e)
+                "Request handler error for", node_id=verifier.node_id, error=str(e)
             )
         finally:
             raw_conn.close()
@@ -100,48 +91,131 @@ class MeshMonServicer(MeshMonServiceServicer):
         self, request_iterator: Iterator[ProtocolData], context: grpc.ServicerContext
     ) -> Iterator[ProtocolData]:
         """Handle truly bidirectional streaming for mesh updates."""
-        import queue
+        nonce = os.urandom(256).hex()
+        context.send_initial_metadata((("server_nonce", nonce),))
+        client_nonce = dict(context.invocation_metadata()).get("client_nonce", "")
+        if not client_nonce:
+            context.abort(
+                grpc.StatusCode.UNAUTHENTICATED, "Missing client_nonce in metadata"
+            )
+            return
 
         initial_packet = next(request_iterator, None)
-        if initial_packet is None or not initial_packet.HasField("connection_init"):
+        if initial_packet is None or not initial_packet.HasField(
+            "connection_validation"
+        ):
             self.logger.warning(
                 "Invalid first packet during GRPC stream initialization"
             )
-            yield ProtocolData(
-                error=Error(
-                    code="INVALID_INITIAL_PACKET",
-                    message="First packet must be connection_init",
-                    details="",
-                )
+            context.abort(
+                grpc.StatusCode.UNAUTHENTICATED,
+                "Invalid first packet, expected ConnectionValidation",
             )
             return
-        yield ProtocolData(
-            connection_ack=ConnectionAck(message="Connection established")
-        )
-        connection_init = initial_packet.connection_init
-        current_node_id = self.config.networks[connection_init.network_id].node_id
-        response_queue: "queue.Queue[ProtocolData]" = queue.Queue()
-        raw_conn = RawConnection(response_queue)
+        try:
+            conn_init_sbd = SignedBlockData.model_validate_json(
+                initial_packet.connection_validation.validator
+            )
+            client_validator = Validator.model_validate(conn_init_sbd.data)
+        except ValidationError as e:
+            self.logger.warning(
+                "Failed to parse ConnectionValidation during gRPC stream initialization",
+                error=str(e),
+            )
+            context.abort(
+                grpc.StatusCode.UNAUTHENTICATED, "Invalid ConnectionValidation format"
+            )
+            return
+        try:
+            verifier = self.config.networks[client_validator.network_id].get_verifier(
+                client_validator.node_id
+            )
+            if not verifier:
+                self.logger.warning(
+                    "No verifier found for node during gRPC connection",
+                    node_id=client_validator.node_id,
+                    network_id=client_validator.network_id,
+                    peer=context.peer(),
+                )
+                context.abort(
+                    grpc.StatusCode.UNAUTHENTICATED, "Unknown node_id or network_id"
+                )
+                return
+            if (
+                not conn_init_sbd.verify(verifier, "validator", "validator")
+                or client_validator.server_nonce != nonce
+                or client_validator.client_nonce != client_nonce
+            ):
+                self.logger.warning(
+                    "Client failed server challenge",
+                    node_id=client_validator.node_id,
+                    network_id=client_validator.network_id,
+                    peer=context.peer(),
+                )
+                context.abort(
+                    grpc.StatusCode.UNAUTHENTICATED, "Client failed server challenge"
+                )
+                return
+            server_node_id = self.config.networks[client_validator.network_id].node_id
+            signer = self.config.networks[
+                client_validator.network_id
+            ].key_mapping.signer
+            server_validator = Validator(
+                server_nonce=nonce,
+                client_nonce=client_validator.client_nonce,
+                node_id=server_node_id,
+                network_id=client_validator.network_id,
+            )
+            validator = SignedBlockData.new(
+                signer, server_validator, "validator", "validator"
+            )
+            yield ProtocolData(
+                connection_validation=ConnectionValidation(
+                    validator=validator.model_dump_json()
+                )
+            )
+        except Exception as e:
+            self.logger.error(
+                "Error during gRPC stream initialization",
+                node_id=client_validator.node_id,
+                network_id=client_validator.network_id,
+                peer=context.peer(),
+                error=str(e),
+            )
+            context.abort(
+                grpc.StatusCode.UNAUTHENTICATED, "Error during authentication"
+            )
+            return
+        network_id = client_validator.network_id
+        client_node_id = client_validator.node_id
+        # If we reach here, the connection is authenticated
         with self.conn_lock:
             connection = self.connection_manager.get_connection(
-                connection_init.node_id, connection_init.network_id
+                client_node_id, network_id
             )
             if connection is None:
                 self.logger.info(
                     "Creating new connection for peer",
-                    server_node_id=current_node_id,
-                    client_node_id=connection_init.node_id,
-                    network_id=connection_init.network_id,
+                    server_node_id=server_node_id,
+                    client_node_id=client_node_id,
+                    network_id=network_id,
                     peer=context.peer(),
                 )
-                handler = self.update_handlers.get_handler(connection_init.network_id)
-                protocol_handler = PulseWaveProtocol(handler)
                 connection = self.connection_manager.add_connection(
-                    connection_init.node_id,
-                    current_node_id,
-                    connection_init.network_id,
-                    protocol_handler,
+                    client_node_id,
+                    server_node_id,
+                    network_id,
                 )
+            handler = self.update_handlers.get_handler(network_id)
+            protocol_handler = PulseWaveProtocol(
+                handler,
+                client_validator,
+                server_validator,
+                signer,
+                verifier,
+                conn_init_sbd,
+            )
+            raw_conn = RawConnection(protocol_handler)
             connection.add_raw_connection(raw_conn)
 
         request_thread = threading.Thread(
@@ -149,8 +223,7 @@ class MeshMonServicer(MeshMonServiceServicer):
             args=(
                 request_iterator,
                 raw_conn,
-                current_node_id,
-                connection_init.network_id,
+                verifier,
             ),
             daemon=True,
         )
@@ -160,8 +233,8 @@ class MeshMonServicer(MeshMonServiceServicer):
             "gRPC Bidirectional stream connection from client established",
             client_node_id=connection.dest_node_id,
             peer=context.peer(),
-            server_node_id=current_node_id,
-            network_id=connection_init.network_id,
+            server_node_id=server_node_id,
+            network_id=network_id,
         )
 
         try:
@@ -170,15 +243,16 @@ class MeshMonServicer(MeshMonServiceServicer):
                 try:
                     # Wait for responses with timeout to check stop_event periodically
                     response = raw_conn.get_response(0.5)
+
                     if response is None:
                         continue
-                    yield response
+                    yield ProtocolData(packet_data=response)
 
                 except Exception as e:
                     self.logger.error(
                         "Error sending response ",
-                        node_id=connection_init.node_id,
-                        network_id=connection_init.network_id,
+                        node_id=client_node_id,
+                        network_id=network_id,
                         peer=context.peer(),
                         error=str(e),
                     )
@@ -187,8 +261,8 @@ class MeshMonServicer(MeshMonServiceServicer):
         except Exception as e:
             self.logger.error(
                 "Stream error for ",
-                node_id=connection_init.node_id,
-                network_id=connection_init.network_id,
+                node_id=client_node_id,
+                network_id=network_id,
                 peer=context.peer(),
                 error=str(e),
             )
@@ -200,8 +274,8 @@ class MeshMonServicer(MeshMonServiceServicer):
 
             self.logger.info(
                 "gRPC Bidirectional stream connection closed",
-                node_id=connection.dest_node_id,
-                network_id=connection_init.network_id,
+                node_id=client_node_id,
+                network_id=network_id,
                 peer=context.peer(),
             )
 
@@ -260,7 +334,7 @@ class GrpcServer:
 
             # Start an outgoing client to connect to peers
             try:
-                self._client = GrpcClient(
+                self._client = GrpcClientManager(
                     self.connection_manager,
                     self.update_handlers,
                     self.config,

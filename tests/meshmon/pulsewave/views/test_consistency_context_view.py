@@ -162,7 +162,9 @@ class TestConsistencyContextViewGetConsistency:
         # Add data for second node
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         node_data.consistency.consistent_contexts["test_context"] = cons_ctx
         store.nodes[second_signer.node_id] = node_data
 
@@ -211,7 +213,9 @@ class TestConsistencyContextViewGetConsistentCtxEntry:
         # Setup node with data
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         cons_ctx.context = StoreContextData.new(second_signer, "context")
 
         test_data = SimpleTestModel(value="test", count=42)
@@ -241,7 +245,9 @@ class TestConsistencyContextViewGetConsistentCtxEntry:
         """Test getting entry when consistent context has no context."""
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         cons_ctx.context = None  # No context
         node_data.consistency.consistent_contexts["test_context"] = cons_ctx
         store.nodes[second_signer.node_id] = node_data
@@ -256,7 +262,9 @@ class TestConsistencyContextViewGetConsistentCtxEntry:
         """Test getting entry when key doesn't exist."""
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         cons_ctx.context = StoreContextData.new(second_signer, "context")
         node_data.consistency.consistent_contexts["test_context"] = cons_ctx
         store.nodes[second_signer.node_id] = node_data
@@ -411,7 +419,9 @@ class TestConsistencyContextViewGetLeaderStatus:
         # Setup second node with leader status
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
 
         leader_entry = StoreLeaderEntry(
             status=StoreLeaderStatus.LEADER, node_id=second_signer.node_id
@@ -442,7 +452,9 @@ class TestConsistencyContextViewGetLeaderStatus:
         """Test getting leader status when no leader is set."""
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         cons_ctx.leader = None
         node_data.consistency.consistent_contexts["test_context"] = cons_ctx
         store.nodes[second_signer.node_id] = node_data
@@ -514,7 +526,9 @@ class TestConsistencyContextViewIsLeader:
         # Setup second node as leader too
         node_data2 = StoreNodeData.new()
         node_data2.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx2 = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx2 = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
 
         leader_entry2 = StoreLeaderEntry(
             status=StoreLeaderStatus.LEADER, node_id=second_signer.node_id
@@ -573,7 +587,9 @@ class TestConsistencyContextViewIsLeader:
         third_signer = Signer("third_node", Ed25519PrivateKey.generate())
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(third_signer)
-        cons_ctx = StoreConsistentContextData.new(third_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            third_signer, "test_context", "test_ctx", None
+        )
 
         leader_entry = StoreLeaderEntry(
             status=StoreLeaderStatus.LEADER, node_id=third_signer.node_id
@@ -660,7 +676,9 @@ class TestConsistencyContextViewGetSet:
         # Add newer data to second node with clock entry
         node_data2 = StoreNodeData.new()
         node_data2.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx2 = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx2 = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         cons_ctx2.context = StoreContextData.new(second_signer, "context")
 
         test_data2 = SimpleTestModel(value="new", count=2)
@@ -721,7 +739,9 @@ class TestConsistencyContextViewOnlineNodes:
         # Setup second node with leader data so it appears in nodes()
         node_data2 = StoreNodeData.new()
         node_data2.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx2 = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx2 = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
 
         leader_entry = StoreLeaderEntry(
             status=StoreLeaderStatus.FOLLOWER, node_id=second_signer.node_id
@@ -812,7 +832,9 @@ class TestConsistencyContextViewNodes:
         # Setup second node with leader
         node_data2 = StoreNodeData.new()
         node_data2.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx2 = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx2 = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
 
         leader_entry2 = StoreLeaderEntry(
             status=StoreLeaderStatus.FOLLOWER, node_id=second_signer.node_id
@@ -844,7 +866,9 @@ class TestConsistencyContextViewNodes:
         """Test that nodes without leader are filtered out."""
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(second_signer)
-        cons_ctx = StoreConsistentContextData.new(second_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            second_signer, "test_context", "test_ctx", None
+        )
         cons_ctx.leader = None  # No leader
         node_data.consistency.consistent_contexts["test_context"] = cons_ctx
         store.nodes[second_signer.node_id] = node_data
@@ -858,7 +882,9 @@ class TestConsistencyContextViewNodes:
         third_signer = Signer("third_node", Ed25519PrivateKey.generate())
         node_data = StoreNodeData.new()
         node_data.consistency = StoreConsistencyData.new(third_signer)
-        cons_ctx = StoreConsistentContextData.new(third_signer, "test_context", None)
+        cons_ctx = StoreConsistentContextData.new(
+            third_signer, "test_context", "test_ctx", None
+        )
 
         leader_entry = StoreLeaderEntry(
             status=StoreLeaderStatus.FOLLOWER, node_id=third_signer.node_id

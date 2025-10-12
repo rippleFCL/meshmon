@@ -49,11 +49,17 @@ class HeartbeatController:
                     continue
                 now = datetime.datetime.now(tz=datetime.timezone.utc)
                 if (
-                    datetime.datetime.now(tz=datetime.timezone.utc) - ping_data.date
-                ).total_seconds() > nodes_config.poll_rate * nodes_config.retry and ping_data.status != DSNodeStatus.OFFLINE:
+                    (
+                        datetime.datetime.now(tz=datetime.timezone.utc) - ping_data.date
+                    ).total_seconds()
+                    > nodes_config.poll_rate * nodes_config.retry
+                    and ping_data.status != DSNodeStatus.OFFLINE
+                ):
                     node_ctx.set(
                         node_id,
-                        DSPingData(status=DSNodeStatus.OFFLINE, req_time_rtt=-1, date=now),
+                        DSPingData(
+                            status=DSNodeStatus.OFFLINE, req_time_rtt=-1, date=now
+                        ),
                     )
 
     def heartbeat_loop(self) -> None:
@@ -61,7 +67,9 @@ class HeartbeatController:
             for connection in self.connection_manager:
                 if self.needs_heartbeat(connection.network, connection.dest_node_id):
                     connection.send_response(Heartbeat(node_time=time.time_ns()))
-                    self.last_sent[(connection.network, connection.dest_node_id)] = time.time()
+                    self.last_sent[(connection.network, connection.dest_node_id)] = (
+                        time.time()
+                    )
             self.set_ping_status()
             if self.stop_event.wait(2):
                 break

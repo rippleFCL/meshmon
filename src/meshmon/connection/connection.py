@@ -1,13 +1,15 @@
 import queue
 import threading
-from typing import Callable, Protocol
+from typing import Protocol
 
-from .proto import PacketData
 from .grpc_types import Heartbeat, HeartbeatResponse, StoreUpdate
+from .proto import PacketData
 
 
 class ProtocolHandler(Protocol):
-    def build_packet(self, data: StoreUpdate | Heartbeat | HeartbeatResponse) -> PacketData | None: ...
+    def build_packet(
+        self, data: StoreUpdate | Heartbeat | HeartbeatResponse
+    ) -> PacketData | None: ...
 
     def handle_packet(self, request: PacketData, conn: "RawConnection") -> None: ...
 
@@ -101,7 +103,9 @@ class ConnectionManager:
     ) -> Connection:
         with self.lock:
             if (dest_node_id, network_id) not in self.connections:
-                self.connections[(dest_node_id, network_id)] = Connection(dest_node_id, src_node_id, network_id)
+                self.connections[(dest_node_id, network_id)] = Connection(
+                    dest_node_id, src_node_id, network_id
+                )
             return self.connections[(dest_node_id, network_id)]
 
     def __iter__(self):

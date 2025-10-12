@@ -9,7 +9,7 @@ from ..pulsewave.data import StoreData
 from ..pulsewave.store import SharedStore
 from ..pulsewave.update.update import UpdateHandler, UpdateManager
 from .connection import ConnectionManager
-from .grpc_types import StoreUpdate, HeartbeatResponse
+from .grpc_types import HeartbeatResponse, StoreUpdate
 
 
 class IncrementalUpdater:
@@ -55,8 +55,7 @@ class GrpcUpdateHandler(UpdateHandler):
                 continue
             conn = self.connection_manager.get_connection(node, self.network_id)
             if conn:
-                conn.send_response(StoreUpdate(data=msg)
-                )
+                conn.send_response(StoreUpdate(data=msg))
                 if ping_ctx.get(node) is None:
                     ping_ctx.set(
                         node,

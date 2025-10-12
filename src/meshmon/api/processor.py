@@ -273,8 +273,8 @@ def generate_notification_cluster_info(stores: StoreManager) -> NotificationClus
                         LEADER_STATUS_MAPPING[leader_status.status]
                     )
                 else:
-                    clusters.clusters[name].node_statuses[
-                        node_context.node_id
-                    ] = NotificationClusterStatusEnum.OFFLINE
+                    clusters.clusters[name].node_statuses[node_context.node_id] = (
+                        NotificationClusterStatusEnum.OFFLINE
+                    )
         api.networks[network_id] = clusters
     return api

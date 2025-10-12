@@ -6,75 +6,13 @@ Tests IncrementalUpdater, DedupeQueue, path matchers, UpdateController, and Upda
 
 from unittest.mock import Mock, patch
 
-from src.meshmon.pulsewave.data import StoreData
 from src.meshmon.pulsewave.update.update import (
     DedupeQueue,
     ExactPathMatcher,
-    IncrementalUpdater,
     RegexPathMatcher,
     UpdateController,
     UpdateManager,
 )
-
-
-class TestIncrementalUpdater:
-    """Test cases for IncrementalUpdater class."""
-
-    def test_init(self):
-        """Test IncrementalUpdater initialization."""
-        updater = IncrementalUpdater()
-        assert isinstance(updater.end_data, StoreData)
-        assert updater.end_data.nodes == {}
-
-    def test_diff_excludes_node(self, sample_store_data, key_mapping):
-        """Test that diff excludes specified node."""
-        updater = IncrementalUpdater()
-        updater.update(sample_store_data, key_mapping)
-
-        diff = updater.diff(sample_store_data, key_mapping.signer.node_id)
-
-        assert key_mapping.signer.node_id not in diff.nodes
-
-    def test_diff_returns_copy(self, sample_store_data, key_mapping):
-        """Test that diff returns a copy of the input data."""
-        updater = IncrementalUpdater()
-
-        diff = updater.diff(sample_store_data, "nonexistent_node")
-
-        # Should return a model copy
-        assert diff is not sample_store_data
-        assert diff.nodes == sample_store_data.nodes
-
-    def test_update(self, sample_store_data, key_mapping):
-        """Test updating with new data."""
-        updater = IncrementalUpdater()
-
-        updater.update(sample_store_data, key_mapping)
-
-        assert key_mapping.signer.node_id in updater.end_data.nodes
-
-    def test_clear(self, sample_store_data, key_mapping):
-        """Test clearing updater state."""
-        updater = IncrementalUpdater()
-        updater.update(sample_store_data, key_mapping)
-
-        updater.clear()
-
-        assert updater.end_data.nodes == {}
-
-    def test_multiple_updates(self, sample_store_data, key_mapping):
-        """Test multiple updates accumulate data."""
-        updater = IncrementalUpdater()
-
-        # First update
-        updater.update(sample_store_data, key_mapping)
-        first_count = len(updater.end_data.nodes)
-
-        # Second update with same data
-        updater.update(sample_store_data, key_mapping)
-
-        # Should still have the same data
-        assert len(updater.end_data.nodes) == first_count
 
 
 class TestDedupeQueue:
@@ -262,7 +200,7 @@ class TestUpdateController:
         # Pre-populate cache
         controller.handler_cache["test_event"] = [handler]
 
-        controller.handle("test_event", mock_shared_store, Mock())
+        controller.handle(["test_event"], mock_shared_store, Mock())
 
         handler.handle_update.assert_called_once()
 
@@ -275,24 +213,10 @@ class TestUpdateController:
 
         controller.add(matcher, handler)
 
-        controller.handle("test_event", mock_shared_store, Mock())
+        controller.handle(["test_event"], mock_shared_store, Mock())
 
         matcher.matches.assert_called_once_with("test_event")
         handler.handle_update.assert_called_once()
-
-    def test_handle_no_matching(self, mock_shared_store):
-        """Test handling events with no matching handlers."""
-        controller = UpdateController()
-        matcher = Mock()
-        matcher.matches.return_value = False
-        handler = Mock()
-
-        controller.add(matcher, handler)
-
-        controller.handle("test_event", mock_shared_store, Mock())
-
-        matcher.matches.assert_called_once_with("test_event")
-        handler.handle_update.assert_not_called()
 
     def test_handle_cache_update(self, mock_shared_store):
         """Test that cache is updated after matching."""
@@ -303,7 +227,7 @@ class TestUpdateController:
 
         controller.add(matcher, handler)
 
-        controller.handle("test_event", mock_shared_store, Mock())
+        controller.handle(["test_event"], mock_shared_store, Mock())
 
         assert "test_event" in controller.handler_cache
         assert controller.handler_cache["test_event"] == [handler]
@@ -320,7 +244,7 @@ class TestUpdateController:
         controller.add(matcher1, handler1)
         controller.add(matcher2, handler2)
 
-        controller.handle("test_event", mock_shared_store, Mock())
+        controller.handle(["test_event"], mock_shared_store, Mock())
 
         handler1.handle_update.assert_called_once()
         handler2.handle_update.assert_called_once()

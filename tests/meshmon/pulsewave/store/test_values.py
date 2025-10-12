@@ -52,7 +52,11 @@ class TestSharedStoreValues:
 
             # Verify SignedBlockData.new was called correctly
             mock_new.assert_called_once_with(
-                mock_signer, test_data, block_id="test_key", rep_type=DateEvalType.NEWER
+                mock_signer,
+                test_data,
+                block_id="test_key",
+                path="nodes.test_node.values.test_key",
+                rep_type=DateEvalType.NEWER,
             )
 
     def test_set_value_works_empty_store(self, shared_store, mock_signer):
@@ -67,7 +71,11 @@ class TestSharedStoreValues:
 
             # Verify SignedBlockData.new was called correctly
             mock_new.assert_called_once_with(
-                mock_signer, test_data, block_id="test_key", rep_type=DateEvalType.NEWER
+                mock_signer,
+                test_data,
+                block_id="test_key",
+                path="nodes.test_node.values.test_key",
+                rep_type=DateEvalType.NEWER,
             )
 
     def test_set_value_with_custom_eval_type(self, shared_store, mock_signer):
@@ -78,7 +86,11 @@ class TestSharedStoreValues:
             shared_store.set_value("test_key", test_data, DateEvalType.OLDER)
 
             mock_new.assert_called_once_with(
-                mock_signer, test_data, block_id="test_key", rep_type=DateEvalType.OLDER
+                mock_signer,
+                test_data,
+                block_id="test_key",
+                path="nodes.test_node.values.test_key",
+                rep_type=DateEvalType.OLDER,
             )
 
     def test_set_value_with_default_eval_type(self, shared_store, mock_signer):
@@ -93,6 +105,7 @@ class TestSharedStoreValues:
                 mock_signer,
                 test_data,
                 block_id="default_key",
+                path="nodes.test_node.values.default_key",
                 rep_type=DateEvalType.NEWER,
             )
 

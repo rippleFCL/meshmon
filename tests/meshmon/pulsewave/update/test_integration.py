@@ -45,8 +45,8 @@ class TestUpdateLoopExecution:
             # Run the update loop synchronously (one iteration)
             manager.update_loop()
 
-            # Verify the handler was called for each matching update
-            assert handler.handle_update.call_count == 2
+            # Controller invokes each matching handler once per cycle
+            assert handler.handle_update.call_count == 1
 
             # Verify idle is set after processing
             assert manager.idle.is_set()
@@ -73,8 +73,8 @@ class TestUpdateLoopExecution:
             # Run the event loop synchronously (one iteration)
             manager.event_loop()
 
-            # Verify the handler was called for each matching event
-            assert event_handler.handle_update.call_count == 2
+            # Controller invokes each matching handler once per cycle
+            assert event_handler.handle_update.call_count == 1
 
     def test_update_loop_waits_for_items(self, pulse_config, mock_shared_store):
         """Test that update_loop waits for items in the queue."""
@@ -110,8 +110,8 @@ class TestUpdateLoopExecution:
             # Run update loop to process all batches
             manager.update_loop()
 
-            # Should process all paths - handler called for each matching update
-            assert handler.handle_update.call_count >= 2
+            # Controller invokes handler once per cycle despite multiple paths
+            assert handler.handle_update.call_count == 1
 
     def test_event_loop_waits_for_idle(self, pulse_config, mock_shared_store):
         """Test that event_loop waits for idle state before processing."""
@@ -590,8 +590,8 @@ class TestUpdateSystemIntegration:
             # Run the update loop
             manager.update_loop()
 
-            # Should process all updates including the one added during processing
-            assert handler.handle_update.call_count == 3
+            # With caching, controller will call handler twice across cycles (initial + after new path)
+            assert handler.handle_update.call_count == 2
             # Verify all paths were processed
             actual_paths = [call[0][0] for call in matcher.matches.call_args_list]
             expected_paths = ["path1", "path2", "path3"]

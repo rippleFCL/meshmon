@@ -48,7 +48,7 @@ class Verifier:
             return None
         return content.decode("utf-8")
 
-    def verify(self, message: bytes, signature: bytes, path: str) -> bool:
+    def verify(self, message: bytes, signature: bytes, path: str = "") -> bool:
         """
         Verify the signature of the raw message using the public key.
         """

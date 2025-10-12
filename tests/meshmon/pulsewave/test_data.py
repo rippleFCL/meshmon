@@ -191,10 +191,10 @@ class TestStoreContextData:
         )
 
         # Should verify successfully
-        assert context_data.verify(mock_verifier, "test_context") is True
+        assert context_data.verify(mock_verifier, "test_context", "test") is True
 
         # Should fail with wrong context name
-        assert context_data.verify(mock_verifier, "wrong_context") is False
+        assert context_data.verify(mock_verifier, "wrong_context", "test") is False
 
     def test_update_context_data(
         self, mock_signer, mock_verifier, sample_data, fixed_datetime
@@ -388,7 +388,7 @@ class TestStoreConsistencyData:
         consistency_data = StoreConsistencyData.new(mock_signer)
 
         # Should verify successfully
-        assert consistency_data.verify(mock_verifier) is True
+        assert consistency_data.verify(mock_verifier, "test_consistency") is True
 
     def test_diff_consistency_data(self, mock_signer):
         """Test diffing consistency data."""
@@ -497,7 +497,7 @@ class TestStoreNodeData:
         node_data.consistency = StoreConsistencyData.new(mock_signer)
 
         # Should verify successfully
-        assert node_data.verify(mock_verifier) is True
+        assert node_data.verify(mock_verifier, "test_context") is True
 
     def test_diff_node_data(self, mock_signer, sample_data):
         """Test diffing node data."""
@@ -818,7 +818,7 @@ class TestStoreContextDataEdgeCases:
             mock_dt.timezone = datetime.timezone
 
             signed_block = SignedBlockData.new(
-                mock_signer, sample_data, "key1", DateEvalType.NEWER
+                mock_signer, sample_data, "key1", "test", DateEvalType.NEWER
             )
             ctx1.data["key1"] = signed_block
 
@@ -829,7 +829,7 @@ class TestStoreContextDataEdgeCases:
 
             ctx2 = StoreContextData.new(mock_signer, "test_ctx")
             old_signed_block = SignedBlockData.new(
-                mock_signer, sample_data, "key1", DateEvalType.NEWER
+                mock_signer, sample_data, "key1", "test", DateEvalType.NEWER
             )
             ctx2.data["key1"] = old_signed_block
 
@@ -900,7 +900,7 @@ class TestStoreConsistencyDataEdgeCases:
         wrong_verifier = wrong_signer.get_verifier()
 
         # Verify with wrong verifier
-        result = consistency.verify(wrong_verifier)
+        result = consistency.verify(wrong_verifier, "test_consistency")
 
         assert result is False
 
@@ -929,7 +929,6 @@ class TestStoreConsistencyDataEdgeCases:
         ctx_data = StoreContextData.new(mock_signer, "sub_ctx")
         consistent_ctx = StoreConsistentContextData(
             context=ctx_data,
-            nodes=None,
             leader=None,
             ctx_name="sub_ctx",
             sig="sig",
@@ -1100,26 +1099,29 @@ class TestStoreConsistentContextData:
 
     def test_new_creates_all_fields(self, mock_signer):
         """Test creating StoreConsistentContextData."""
-        consistent_ctx = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+        consistent_ctx = StoreConsistentContextData.new(mock_signer, "ctx1", "test_ctx")
 
         assert consistent_ctx.ctx_name == "ctx1"
         assert consistent_ctx.context is not None
-        assert consistent_ctx.nodes is not None
         assert consistent_ctx.leader is not None
 
     def test_verify(self, mock_signer):
         """Test verification of StoreConsistentContextData."""
-        consistent_ctx = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+        consistent_ctx = StoreConsistentContextData.new(mock_signer, "ctx1", "test_ctx")
         verifier = mock_signer.get_verifier()
 
-        result = consistent_ctx.verify(verifier)
+        result = consistent_ctx.verify(verifier, "test_ctx")
 
         assert result is True
 
     def test_update_with_ctx_name_mismatch(self, mock_signer):
         """Test update with mismatched context names."""
-        consistent_ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
-        consistent_ctx2 = StoreConsistentContextData.new(mock_signer, "ctx2", None)
+        consistent_ctx1 = StoreConsistentContextData.new(
+            mock_signer, "ctx1", "test_ctx"
+        )
+        consistent_ctx2 = StoreConsistentContextData.new(
+            mock_signer, "ctx2", "test_ctx"
+        )
 
         verifier = mock_signer.get_verifier()
         paths = consistent_ctx1.update("path", consistent_ctx2, verifier, "ctx1")
@@ -1132,14 +1134,18 @@ class TestStoreConsistentContextData:
         with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
             mock_dt.datetime.now.return_value = fixed_datetime
             mock_dt.timezone = datetime.timezone
-            consistent_ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+            consistent_ctx1 = StoreConsistentContextData.new(
+                mock_signer, "ctx1", "test_ctx"
+            )
 
         # Create newer data
         with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
             future_time = fixed_datetime + datetime.timedelta(hours=1)
             mock_dt.datetime.now.return_value = future_time
             mock_dt.timezone = datetime.timezone
-            consistent_ctx2 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+            consistent_ctx2 = StoreConsistentContextData.new(
+                mock_signer, "ctx1", "test_ctx"
+            )
 
         verifier = mock_signer.get_verifier()
         paths = consistent_ctx1.update("path", consistent_ctx2, verifier, "ctx1")
@@ -1151,8 +1157,12 @@ class TestStoreConsistentContextData:
         """Test update rejects data that fails verification."""
         wrong_signer = Signer("wrong", Ed25519PrivateKey.generate())
 
-        consistent_ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
-        consistent_ctx2 = StoreConsistentContextData.new(wrong_signer, "ctx1", None)
+        consistent_ctx1 = StoreConsistentContextData.new(
+            mock_signer, "ctx1", "test_ctx"
+        )
+        consistent_ctx2 = StoreConsistentContextData.new(
+            wrong_signer, "ctx1", "test_ctx"
+        )
 
         verifier = mock_signer.get_verifier()
         paths = consistent_ctx1.update("path", consistent_ctx2, verifier, "ctx1")
@@ -1162,8 +1172,12 @@ class TestStoreConsistentContextData:
 
     def test_update_context_data(self, mock_signer, sample_data):
         """Test update of context data within consistent context."""
-        consistent_ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
-        consistent_ctx2 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+        consistent_ctx1 = StoreConsistentContextData.new(
+            mock_signer, "ctx1", "test_ctx"
+        )
+        consistent_ctx2 = StoreConsistentContextData.new(
+            mock_signer, "ctx1", "test_ctx"
+        )
 
         # Add data to the inner context
         signed_block = SignedBlockData.new(mock_signer, sample_data, "key1")
@@ -1175,37 +1189,11 @@ class TestStoreConsistentContextData:
         # Should update the context
         assert len(paths) > 0 or "key1" in consistent_ctx1.context.data  # type: ignore
 
-    def test_update_nodes(self, mock_signer, fixed_datetime):
-        """Test update of nodes within consistent context."""
-        with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
-            mock_dt.datetime.now.return_value = fixed_datetime
-            mock_dt.timezone = datetime.timezone
-            consistent_ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
-
-        # Create newer consistent context with different nodes
-        with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
-            future_time = fixed_datetime + datetime.timedelta(hours=1)
-            mock_dt.datetime.now.return_value = future_time
-            mock_dt.timezone = datetime.timezone
-            consistent_ctx2 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
-            # Manually update the nodes to trigger the update path
-            new_nodes = SignedBlockData.new(
-                mock_signer,
-                StoreNodeList(nodes=["node1", "node2"]),
-                "nodes",
-                DateEvalType.NEWER,
-            )
-            consistent_ctx2.nodes = new_nodes
-
-        verifier = mock_signer.get_verifier()
-        paths = consistent_ctx1.update("path", consistent_ctx2, verifier, "ctx1")
-
-        # Should update nodes
-        assert len(paths) > 0
-
     def test_all_paths(self, mock_signer):
         """Test all_paths includes all fields."""
-        consistent_ctx = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+        consistent_ctx = StoreConsistentContextData.new(
+            mock_signer, "ctx1", "test_ctx", None
+        )
 
         paths = consistent_ctx.all_paths("root")
 
@@ -1217,13 +1205,13 @@ class TestStoreConsistentContextData:
         with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
             mock_dt.datetime.now.return_value = fixed_datetime
             mock_dt.timezone = datetime.timezone
-            ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+            ctx1 = StoreConsistentContextData.new(mock_signer, "ctx1", "test_ctx", None)
 
         with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
             future_time = fixed_datetime + datetime.timedelta(hours=1)
             mock_dt.datetime.now.return_value = future_time
             mock_dt.timezone = datetime.timezone
-            ctx2 = StoreConsistentContextData.new(mock_signer, "ctx1", None)
+            ctx2 = StoreConsistentContextData.new(mock_signer, "ctx1", "test_ctx", None)
 
         diff = ctx1.diff(ctx2)
 
@@ -1260,7 +1248,9 @@ class TestAdditionalCoverageForDataPy:
             mock_dt.datetime.now.return_value = fixed_datetime
             mock_dt.timezone = datetime.timezone
             ctx1 = StoreContextData.new(mock_signer, "test_ctx")
-            signed_block1 = SignedBlockData.new(mock_signer, sample_data, "key1")
+            signed_block1 = SignedBlockData.new(
+                mock_signer, sample_data, "key1", path="nodes.test_node.values.key1"
+            )
             ctx1.data["key1"] = signed_block1
 
         with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
@@ -1268,7 +1258,9 @@ class TestAdditionalCoverageForDataPy:
             mock_dt.datetime.now.return_value = future_time
             mock_dt.timezone = datetime.timezone
             ctx2 = StoreContextData.new(mock_signer, "test_ctx")
-            signed_block2 = SignedBlockData.new(mock_signer, sample_data, "key2")
+            signed_block2 = SignedBlockData.new(
+                mock_signer, sample_data, "key2", path="nodes.test_node.values.key2"
+            )
             ctx2.data["key2"] = signed_block2
 
         # ctx1.date < ctx2.date, so diff should use ctx2's metadata
@@ -1284,7 +1276,9 @@ class TestAdditionalCoverageForDataPy:
             mock_dt.datetime.now.return_value = fixed_datetime
             mock_dt.timezone = datetime.timezone
             ctx1 = StoreContextData.new(mock_signer, "test_ctx")
-            signed_block_old = SignedBlockData.new(mock_signer, sample_data, "key1")
+            signed_block_old = SignedBlockData.new(
+                mock_signer, sample_data, "key1", path="nodes.test_node.values.key1"
+            )
             ctx1.data["key1"] = signed_block_old
             ctx1.data["key_only_in_ctx1"] = signed_block_old
 
@@ -1293,7 +1287,9 @@ class TestAdditionalCoverageForDataPy:
             mock_dt.datetime.now.return_value = future_time
             mock_dt.timezone = datetime.timezone
             ctx2 = StoreContextData.new(mock_signer, "test_ctx")
-            signed_block_new = SignedBlockData.new(mock_signer, sample_data, "key1")
+            signed_block_new = SignedBlockData.new(
+                mock_signer, sample_data, "key1", path="nodes.test_node.values.key1"
+            )
             ctx2.data["key1"] = signed_block_new
             ctx2.data["key_only_in_ctx2"] = signed_block_new
 
@@ -1330,7 +1326,9 @@ class TestAdditionalCoverageForDataPy:
             node1 = StoreNodeData()
             ctx1 = StoreContextData.new(mock_signer, "ctx1")
             node1.contexts["ctx1"] = ctx1
-            value1 = SignedBlockData.new(mock_signer, sample_data, "key1")
+            value1 = SignedBlockData.new(
+                mock_signer, sample_data, "key1", path="nodes.test_node.values.key1"
+            )
             node1.values["key1"] = value1
 
         with patch("src.meshmon.pulsewave.data.datetime") as mock_dt:
@@ -1341,7 +1339,9 @@ class TestAdditionalCoverageForDataPy:
             node2 = StoreNodeData()
             ctx2 = StoreContextData.new(mock_signer, "ctx2")
             node2.contexts["ctx2"] = ctx2
-            value2 = SignedBlockData.new(mock_signer, sample_data, "key1")
+            value2 = SignedBlockData.new(
+                mock_signer, sample_data, "key1", path="nodes.test_node.values.key1"
+            )
             node2.values["key1"] = value2
 
         diff = node1.diff(node2)

@@ -86,7 +86,11 @@ class TestMutableStoreCtxView:
 
         # Should create signed block data
         mock_signed_block_cls.new.assert_called_once_with(
-            mock_signer, test_data, block_id="test_key", rep_type=DateEvalType.NEWER
+            mock_signer,
+            test_data,
+            block_id="test_key",
+            path="nodes.test_node.contexts.test_context.test_key",
+            rep_type=DateEvalType.NEWER,
         )
 
         # Should store the signed data
@@ -125,7 +129,11 @@ class TestMutableStoreCtxView:
 
         # Should use custom rep_type
         mock_signed_block_cls.new.assert_called_once_with(
-            mock_signer, test_data, block_id="test_key", rep_type=DateEvalType.OLDER
+            mock_signer,
+            test_data,
+            block_id="test_key",
+            path="nodes.test_node.contexts.test_context.test_key",
+            rep_type=DateEvalType.OLDER,
         )
 
     @patch("src.meshmon.pulsewave.views.logger")

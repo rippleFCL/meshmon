@@ -72,7 +72,7 @@ class TestSharedStoreConsistencyContextsIterator:
 
     def test_all_consistency_contexts_empty(self, shared_store):
         """Test all_consistency_contexts when no contexts exist."""
-        contexts = list(shared_store.all_consistency_contexts())
+        contexts = list(shared_store.local_consistency_contexts())
 
         assert len(contexts) == 0
 
@@ -94,7 +94,7 @@ class TestSharedStoreConsistencyContextsIterator:
         }
         node_data.consistency = consistency
 
-        contexts = list(shared_store.all_consistency_contexts())
+        contexts = list(shared_store.local_consistency_contexts())
 
         assert len(contexts) == 3
         assert "ctx1" in contexts
@@ -107,7 +107,7 @@ class TestSharedStoreConsistencyContextsIterator:
         node_data = shared_store._get_node()
         node_data.consistency = None
 
-        contexts = list(shared_store.all_consistency_contexts())
+        contexts = list(shared_store.local_consistency_contexts())
 
         assert len(contexts) == 0
 

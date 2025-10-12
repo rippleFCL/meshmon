@@ -52,14 +52,14 @@ class TestVerifier:
         message = b"Hello, World!"
         signature = private_key.sign(message)
 
-        assert verifier.verify(message, signature) is True
+        assert verifier.verify(message, signature, "test_peer") is True
 
     def test_verify_invalid_signature(self, verifier):
         """Test verifying an invalid signature."""
         message = b"Hello, World!"
         invalid_signature = b"invalid_signature_bytes"
 
-        assert verifier.verify(message, invalid_signature) is False
+        assert verifier.verify(message, invalid_signature, "test_peer") is False
 
     def test_verify_wrong_message(self, ed25519_key_pair):
         """Test verifying signature with wrong message."""
@@ -70,7 +70,7 @@ class TestVerifier:
         different_message = b"Different message"
         signature = private_key.sign(original_message)
 
-        assert verifier.verify(different_message, signature) is False
+        assert verifier.verify(different_message, signature, "test_peer") is False
 
     def test_decode_message_valid(self, ed25519_key_pair):
         """Test decoding a valid encoded message."""
@@ -225,7 +225,7 @@ class TestSigner:
         signature = signer.sign(message)
         verifier = signer.get_verifier()
 
-        assert verifier.verify(message, signature) is True
+        assert verifier.verify(message, signature, "test") is True
 
     def test_encode_decode_message_roundtrip(self, signer):
         """Test encoding and decoding message in roundtrip."""

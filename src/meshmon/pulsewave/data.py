@@ -37,7 +37,7 @@ class SignedBlockData(BaseModel):
         signer: Signer,
         data: BaseModel,
         block_id: str,
-        path: str,
+        path: str = "",
         rep_type: DateEvalType = DateEvalType.NEWER,
         secret: str | None = None,
     ) -> "SignedBlockData":
@@ -67,7 +67,11 @@ class SignedBlockData(BaseModel):
         )
 
     def verify(
-        self, verifier: Verifier, block_id: str, path: str, secret: str | None = None
+        self,
+        verifier: Verifier,
+        block_id: str,
+        path: str = "",
+        secret: str | None = None,
     ) -> bool:
         data_sig_str = SignedBlockSignature(
             data=self.data,
@@ -306,7 +310,7 @@ class StoreConsistentContextData(BaseModel):
         return verified
 
     @classmethod
-    def new(cls, signer: Signer, ctx_name: str, path: str, secret: str | None):
+    def new(cls, signer: Signer, ctx_name: str, path: str, secret: str | None = None):
         date = datetime.datetime.now(datetime.timezone.utc)
         data = json.dumps({"ctx_name": ctx_name, "date": date.isoformat()}).encode()
         sig = base64.b64encode(signer.sign(data)).decode()

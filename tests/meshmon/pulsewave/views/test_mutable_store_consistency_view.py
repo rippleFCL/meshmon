@@ -155,7 +155,10 @@ class TestMutableStoreConsistencyView:
 
         # Should create signed block data
         mock_signed_block_cls.new.assert_called_once_with(
-            mock_signer, test_pulse, block_id="clock_pulse"
+            mock_signer,
+            test_pulse,
+            path="nodes.test_node.contexts.test_context.clock_pulse",
+            block_id="clock_pulse",
         )
 
         # Should store the signed data

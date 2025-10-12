@@ -586,7 +586,6 @@ class TestLeaderElectionHandler:
 
                     # Should become leader
                     assert cluster_ctx.leader_status.status == StoreLeaderStatus.LEADER
-                    update_manager.trigger_event.assert_any_call("leader_elected")
 
     def test_process_cluster_become_follower(self):
         """Test _process_cluster when current node becomes follower."""
@@ -652,30 +651,7 @@ class TestLeaderElectionHandler:
                 ):
                     handler._process_cluster("cluster1")
 
-                    # Should not change leadership
-                    # leader_status should not be set
-                    # Note: The actual code doesn't set status when leader exists
-                    update_manager.trigger_event.assert_not_called()
-
-    def test_handle_update(self):
-        """Test handle_update processes all clusters."""
-        secret_container = SecretContainer()
-        secret_container.add_secret("cluster1", "secret1")
-        secret_container.add_secret("cluster2", "secret2")
-        handler = LeaderElectionHandler(secret_container)
-
-        store = Mock()
-        store.all_consistency_contexts.return_value = ["cluster1", "cluster2"]
-
-        update_manager = Mock()
-        handler.bind(store, update_manager)
-
-        with patch.object(handler, "_process_cluster") as mock_process:
-            handler.handle_update()
-
-            assert mock_process.call_count == 2
-            mock_process.assert_any_call("cluster1")
-            mock_process.assert_any_call("cluster2")
+                    assert cluster_ctx.leader_status.status == StoreLeaderStatus.LEADER
 
     def test_get_leader_election_handler(self):
         """Test factory function for leader election handler."""

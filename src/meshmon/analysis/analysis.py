@@ -1,8 +1,7 @@
 import datetime
 from enum import Enum
 
-from meshmon.config import NetworkConfig, NetworkMonitor
-
+from ..config.config import NetworkConfig, NetworkMonitor
 from ..dstypes import DSNodeStatus, DSPingData
 from ..pulsewave.store import SharedStore
 
@@ -56,10 +55,6 @@ def get_node_ping_status(store: SharedStore) -> dict[str, "AnalysisNodeStatus"]:
 def get_all_monitors(config: NetworkConfig) -> list[str]:
     """Get a list of all monitor IDs from the network configuration."""
     monitor_ids = set()
-    for node in config.node_config:
-        if node.local_monitors:
-            for monitor in node.local_monitors:
-                monitor_ids.add(monitor.name)
     for monitor in config.monitors:
         monitor_ids.add(monitor.name)
     return list(monitor_ids)
@@ -72,9 +67,6 @@ def get_monitor_config(config: NetworkConfig):
         local_monitor_dict: dict[str, NetworkMonitor] = {}
         for monitor in config.monitors:
             local_monitor_dict[monitor.name] = monitor
-        if node.local_monitors:
-            for monitor in node.local_monitors:
-                local_monitor_dict[monitor.name] = monitor
         monitor_dict[node.node_id] = local_monitor_dict
     return monitor_dict
 

@@ -1,17 +1,23 @@
 import os
 import queue
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
 import grpc
 import structlog
 
-from meshmon.config import NetworkConfigLoader
-from meshmon.connection.grpc_types import Validator
-from meshmon.connection.protocol_handler import PulseWaveProtocol
-from meshmon.pulsewave.crypto import Signer, Verifier
-from meshmon.pulsewave.data import SignedBlockData
+from meshmon.config.bus import ConfigBus, ConfigPreprocessor, ConfigWatcher
 
+from ..config.config import Config
+from ..connection.grpc_types import Validator
+from ..connection.protocol_handler import (
+    ConnectionConfig,
+    ConnectionConfigPreprocessor,
+    PulseWaveProtocol,
+)
+from ..pulsewave.crypto import Signer, Verifier
+from ..pulsewave.data import SignedBlockData
 from .connection import ConnectionManager, RawConnection
 from .proto import (
     ConnectionValidation,
@@ -23,6 +29,50 @@ if TYPE_CHECKING:
     from .grpc_server import GrpcUpdateHandlerContainer
 
 
+@dataclass
+class ClientTarget:
+    verifier: Verifier
+    signer: Signer
+    network_id: str
+    node_id: str
+    self_node_id: str
+    address: str
+
+
+class ClientTargetsPreprocessor(ConfigPreprocessor[list[ClientTarget]]):
+    def preprocess(self, config: Config | None) -> list[ClientTarget]:
+        client_targets = []
+        if config is None:
+            return client_targets
+        for network_id, network in config.networks.items():
+            for node in network.node_config:
+                if node.node_id == network.node_id:
+                    continue
+                if not node.url:
+                    continue
+                verifier = network.key_mapping.get_verifier(node.node_id)
+                if verifier is None:
+                    continue
+                address = node.url
+                if address.startswith("grpc://"):
+                    address = address[7:]
+                elif address.startswith("http://"):
+                    address = address[7:]
+                elif address.startswith("https://"):
+                    address = address[8:]
+                client_targets.append(
+                    ClientTarget(
+                        verifier=verifier,
+                        signer=network.key_mapping.signer,
+                        network_id=network_id,
+                        node_id=node.node_id,
+                        self_node_id=network.node_id,
+                        address=address,
+                    )
+                )
+        return client_targets
+
+
 class GrpcClientManager:
     """gRPC client that uses ConnectionManager and RawConnection to manage streams."""
 
@@ -30,13 +80,18 @@ class GrpcClientManager:
         self,
         connection_manager: ConnectionManager,
         update_handlers: "GrpcUpdateHandlerContainer",
-        config: NetworkConfigLoader,
+        config_bus: ConfigBus,
     ):
         self.logger = structlog.stdlib.get_logger().bind(
             module="connection.grpc_client"
         )
         self.connection_manager = connection_manager
-        self.config = config
+        self.config_bus = config_bus
+        watcher = config_bus.get_watcher(ClientTargetsPreprocessor())
+        if watcher is None:
+            raise ValueError("No initial config available for gRPC client")
+        self.config = watcher.current_config
+        watcher.subscribe(self.reload)
         self.update_handlers = update_handlers
         self.channels: dict[str, grpc.Channel] = {}
         self.stubs: dict[str, MeshMonServiceStub] = {}
@@ -44,20 +99,10 @@ class GrpcClientManager:
         self.clients: dict[str, "GrpcClient"] = {}
         self.stop_event = threading.Event()
         self._manager_thread = threading.Thread(
-            target=self._connection_manager, daemon=True
+            target=self._connection_manager,
+            name="grpc-client-manager",
         )
         self._manager_thread.start()
-
-    def _normalize_address(self, url: str | None) -> str | None:
-        if not url:
-            return None
-        if url.startswith("grpc://"):
-            return url[7:]
-        if url.startswith("http://"):
-            return url[7:]
-        if url.startswith("https://"):
-            url = url[8:]
-        return url
 
     def _connection_manager(self):
         reconnect_interval = 10
@@ -71,35 +116,28 @@ class GrpcClientManager:
                     self.stream_threads.pop(k, None)
                     self.channels.pop(k, None)
                     self.stubs.pop(k, None)
-
-                for network in self.config.networks.values():
-                    # Ensure connections to all configured peers
-                    for node in network.node_config:
-                        if node.node_id == network.node_id:
-                            continue
-                        address = self._normalize_address(node.url)
-                        if not address:
-                            continue
-                        key = f"{network.network_id}:{node.node_id}"
-                        t = self.stream_threads.get(key)
-                        if t is None or not t.is_alive():
-                            self.connect_to(network.network_id, node.node_id, address)
+                # Ensure connections to all configured peers
+                for target in self.config:
+                    key = f"{target.network_id}:{target.node_id}"
+                    t = self.stream_threads.get(key)
+                    if t is None or not t.is_alive():
+                        self.connect_to_target(target)
             except Exception as e:
                 self.logger.exception("Error in connection manager loop", error=str(e))
             finally:
                 self.stop_event.wait(reconnect_interval)
 
-    def connect_to(self, network_id: str, node_id: str, address: str) -> bool:
-        """Connect to a peer node, create a RawConnection, and register in ConnectionManager."""
+    def connect_to_target(self, target: ClientTarget) -> bool:
+        """Connect to a peer node using a ClientTarget, create a RawConnection, and register in ConnectionManager."""
         try:
-            key = f"{network_id}:{node_id}"
+            key = f"{target.network_id}:{target.node_id}"
             # Avoid duplicate connects
             existing = self.stream_threads.get(key)
             if existing and existing.is_alive():
                 return True
             # Setup channel and stub
             channel = grpc.insecure_channel(
-                address,
+                target.address,
                 options=[
                     ("grpc.keepalive_time_ms", 10000),
                     ("grpc.keepalive_timeout_ms", 5000),
@@ -112,31 +150,34 @@ class GrpcClientManager:
             stub = MeshMonServiceStub(channel)
 
             # Build per-peer client and start streaming thread
-            net = self.config.networks[network_id]
-            signer = net.key_mapping.signer
-            verifier = net.get_verifier(node_id)
-            if verifier is None:
+            handler = self.update_handlers.get_handler(target.network_id)
+
+            # Create a config watcher for this client
+            config_watcher = self.config_bus.get_watcher(
+                ConnectionConfigPreprocessor(target.network_id, target.node_id)
+            )
+            if config_watcher is None:
                 self.logger.warning(
-                    "No verifier for peer node; skipping connect",
-                    node_id=node_id,
-                    network_id=network_id,
+                    "No config available for client; skipping connect",
+                    node_id=target.node_id,
+                    network_id=target.network_id,
                 )
                 return False
 
-            handler = self.update_handlers.get_handler(network_id)
             client = GrpcClient(
                 channel=channel,
                 connection_manager=self.connection_manager,
                 handler=handler,
-                signer=signer,
-                verifier=verifier,
-                network_id=network_id,
-                peer_node_id=node_id,
-                self_node_id=net.node_id,
-                address=address,
+                network_id=target.network_id,
+                peer_node_id=target.node_id,
+                address=target.address,
+                config_watcher=config_watcher,
             )
 
-            t = threading.Thread(target=client.stream_worker, daemon=True)
+            t = threading.Thread(
+                target=client.stream_worker,
+                name=f"grpc-client-stream-{target.network_id}-{target.node_id}",
+            )
             t.start()
 
             # Save references
@@ -148,12 +189,15 @@ class GrpcClientManager:
             return True
         except grpc.RpcError as e:
             self.logger.debug(
-                "gRPC connection failed", node_id=node_id, address=address, error=str(e)
+                "gRPC connection failed",
+                node_id=target.node_id,
+                address=target.address,
+                error=str(e),
             )
             return False
         except Exception as e:
             self.logger.error(
-                "Failed to connect to node", node_id=node_id, error=str(e)
+                "Failed to connect to node", node_id=target.node_id, error=str(e)
             )
             return False
 
@@ -182,6 +226,10 @@ class GrpcClientManager:
         self.stream_threads.clear()
         self.clients.clear()
 
+    def reload(self, new_config: list[ClientTarget]) -> None:
+        """Reload the client configuration and reconnect as needed."""
+        self.config = new_config
+
 
 class GrpcClient:
     def __init__(
@@ -189,12 +237,10 @@ class GrpcClient:
         channel: grpc.Channel,
         connection_manager: ConnectionManager,
         handler: object,
-        signer: Signer,
-        verifier: Verifier,
         network_id: str,
         peer_node_id: str,
-        self_node_id: str,
         address: str,
+        config_watcher: ConfigWatcher[ConnectionConfig],
     ):
         self.logger = structlog.stdlib.get_logger().bind(
             module="connection.grpc_client", component="GrpcClient"
@@ -204,12 +250,19 @@ class GrpcClient:
         # handler here is the concrete GrpcUpdateHandler for this network
         # typing: the container was used in manager; here we store the resolved handler
         self.handler = handler  # type: ignore[assignment]
-        self.signer = signer
-        self.verifier = verifier
         self.network_id = network_id
         self.peer_node_id = peer_node_id
-        self.self_node_id = self_node_id
         self.address = address
+
+        # Use the provided config watcher
+        self.config_watcher = config_watcher
+        self.config = config_watcher.current_config
+        config_watcher.subscribe(self.reload)
+
+        # Initialize with current config
+        self.signer = self.config.signer
+        self.verifier = self.config.verifier
+        self.self_node_id = self.config.local_node_id
 
         self.stub = MeshMonServiceStub(channel)
         self.stop_event = threading.Event()
@@ -219,19 +272,41 @@ class GrpcClient:
         self._client_nonce: str | None = None
         self._call: grpc.Call | None = None
 
+    def reload(self, new_config: ConnectionConfig) -> None:
+        """Handle config reload - update signer, verifier, and self_node_id"""
+        self.logger.info(
+            "Reloading client config",
+            network_id=self.network_id,
+            peer_node_id=self.peer_node_id,
+        )
+        self.config = new_config
+        self.signer = new_config.signer
+        self.verifier = new_config.verifier
+        self.self_node_id = new_config.local_node_id
+
+        # If there's an active connection, we should restart it with new config
+        # For now, just log - the connection will use the new config on next reconnect
+        if self.connection_active.is_set():
+            self.logger.warning(
+                "Config changed while connection active - will apply on reconnect",
+                network_id=self.network_id,
+                peer_node_id=self.peer_node_id,
+            )
+
     def stop_stream(self):
         """Cancel the active stream and signal shutdown."""
         self.stop_event.set()
         try:
             if self._call is not None:
                 self._call.cancel()
+            self.channel.close()
         except Exception:
             pass
 
     def request_generator(self) -> Iterator[ProtocolData]:
         # Yield queued control frames first (e.g., initial ConnectionValidation),
         # then PacketData coming from the RawConnection.
-        while not self.connection_active.is_set():
+        while not self.connection_active.is_set() and not self.stop_event.is_set():
             try:
                 item = self._send_queue.get(timeout=0.1)
                 yield item
@@ -290,8 +365,8 @@ class GrpcClient:
 
             # Build and send our ConnectionValidation first packet
             client_validator = Validator(
-                client_nonce=client_nonce,
-                server_nonce=server_nonce,
+                local_nonce=client_nonce,
+                remote_nonce=server_nonce,
                 network_id=self.network_id,
                 node_id=self.self_node_id,
             )
@@ -329,8 +404,8 @@ class GrpcClient:
             # Verify server's response
             if (
                 not server_sbd.verify(self.verifier, "validator", "validator")
-                or server_validator.client_nonce != client_nonce
-                or server_validator.server_nonce != server_nonce
+                or server_validator.local_nonce != server_nonce
+                or server_validator.remote_nonce != client_nonce
                 or server_validator.network_id != self.network_id
                 or server_validator.node_id != self.peer_node_id
             ):
@@ -345,10 +420,9 @@ class GrpcClient:
             # Wire protocol and register raw connection
             protocol_handler = PulseWaveProtocol(
                 handler=self.handler,  # type: ignore[arg-type]
-                recv_nonce=server_validator,
-                send_nonce=client_validator,
-                signer=self.signer,
-                verifier=self.verifier,
+                remote_nonce=server_nonce,
+                local_nonce=client_nonce,
+                watcher=self.config_watcher,
                 mr_sbd=server_sbd,
             )
             self.raw_conn = RawConnection(protocol_handler)
@@ -373,6 +447,8 @@ class GrpcClient:
 
             # Main receive loop
             for resp in response_iterator:
+                if self.raw_conn.is_closed:
+                    break
                 if resp is None:
                     break
                 if resp.HasField("packet_data") and self.raw_conn is not None:
@@ -409,8 +485,7 @@ class GrpcClient:
         finally:
             # Ensure the RPC is cancelled to abort the connection cleanly
             try:
-                if self._call is not None:
-                    self._call.cancel()
+                self.stop_stream()
             except Exception:
                 pass
             try:

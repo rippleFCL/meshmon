@@ -2,8 +2,8 @@ from pydantic import BaseModel
 
 
 class Validator(BaseModel):
-    client_nonce: str
-    server_nonce: str
+    local_nonce: str
+    remote_nonce: str
     network_id: str
     node_id: str
 

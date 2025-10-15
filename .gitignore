@@ -5,6 +5,7 @@ __pycache__/
 
 config/
 conf/
+!src/meshmon/config/
 
 test.compose.yml
 

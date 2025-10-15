@@ -1,12 +1,16 @@
 import datetime
 import time
+from dataclasses import dataclass
 from threading import Event, Thread
 from typing import Protocol
 
 import requests
 from structlog.stdlib import get_logger
 
-from .config import MonitorTypes, NetworkConfigLoader, NetworkMonitor
+from meshmon.config.config import Config
+from meshmon.config.structure.network import MonitorTypes, NetworkMonitor
+
+from .config.bus import ConfigBus, ConfigPreprocessor, ConfigWatcher
 from .distrostore import (
     StoreManager,
 )
@@ -29,22 +33,62 @@ class MonitorProto(Protocol):
     @property
     def poll_rate(self) -> int: ...
 
+    @property
+    def monitor_info(self) -> NetworkMonitor: ...
+
+
+class HTTPMonitorConfigPreprocessor(ConfigPreprocessor[NetworkMonitor]):
+    """Preprocessor for a specific HTTP monitor's config"""
+
+    def __init__(self, network_id: str, monitor_name: str):
+        self.network_id = network_id
+        self.monitor_name = monitor_name
+
+    def preprocess(self, config: Config | None) -> NetworkMonitor | None:
+        if config is None:
+            return None
+
+        network = config.networks.get(self.network_id)
+        if network is None:
+            return None
+
+        # Find the monitor by name
+        for monitor in network.monitors:
+            if monitor.name == self.monitor_name:
+                return monitor
+
+        return None
+
 
 class HTTPMonitor(MonitorProto):
     def __init__(
         self,
         store_manager: StoreManager,
         net_id: str,
-        monitor_info: NetworkMonitor,
-        config: NetworkConfigLoader,
+        monitor_name: str,
+        config_watcher: ConfigWatcher[NetworkMonitor],
     ):
         self.store = store_manager
         self._net_id = net_id
-        self.monitor_info = monitor_info
-        self.config = config
+        self._monitor_name = monitor_name
+        self.config_watcher = config_watcher
+        self._monitor_info = config_watcher.current_config
+        config_watcher.subscribe(self.reload)
         self.error_count = 0
-        self.logger = get_logger().bind(name=self.name, net_id=net_id)
+        self.logger = get_logger().bind(
+            module="monitor", component="HTTPMonitor", name=self.name, net_id=net_id
+        )
         self.session = requests.Session()
+
+    def reload(self, new_config: NetworkMonitor) -> None:
+        """Handle config reload - update monitor configuration."""
+        self._monitor_info = new_config
+        # Reset error count when config changes
+        self.error_count = 0
+
+    @property
+    def monitor_info(self) -> NetworkMonitor:
+        return self._monitor_info
 
     @property
     def net_id(self) -> str:
@@ -52,17 +96,17 @@ class HTTPMonitor(MonitorProto):
 
     @property
     def name(self) -> str:
-        return f"HTTPMonitor-{self._net_id}-{self.monitor_info.name}"
+        return f"HTTPMonitor-{self._net_id}-{self._monitor_name}"
 
     @property
     def poll_rate(self) -> int:
-        return self.monitor_info.interval
+        return self._monitor_info.interval
 
     def setup(self):
         store = self.store.get_store(self._net_id)
         ctx = store.get_context("monitor_data", DSPingData)
         ctx.set(
-            self.monitor_info.name,
+            self._monitor_info.name,
             DSPingData(
                 status=DSNodeStatus.UNKNOWN,
                 req_time_rtt=-1,
@@ -75,7 +119,7 @@ class HTTPMonitor(MonitorProto):
         ctx = store.get_context("monitor_data", DSPingData)
         try:
             st = time.time()
-            response = requests.get(f"{self.monitor_info.host}", timeout=10)
+            response = requests.get(f"{self._monitor_info.host}", timeout=10)
             rtt = time.time() - st
         except requests.RequestException as exc:
             self.logger.debug("Request timed out", exc=exc)
@@ -89,17 +133,17 @@ class HTTPMonitor(MonitorProto):
                 "Invalid response from monitor",
                 status=response.status_code,
                 body=response.text,
-                monitor=self.monitor_info.name,
+                monitor=self._monitor_info.name,
             )
             self._handle_error(ctx)
         else:
             self.logger.debug(
                 "Successful response from monitor",
-                monitor=self.monitor_info.name,
+                monitor=self._monitor_info.name,
             )
             self.error_count = 0
             ctx.set(
-                self.monitor_info.name,
+                self._monitor_info.name,
                 DSPingData(
                     status=DSNodeStatus.ONLINE,
                     req_time_rtt=rtt,
@@ -111,26 +155,26 @@ class HTTPMonitor(MonitorProto):
         self.logger.debug(
             "Error count increased",
             count=self.error_count,
-            monitor=self.monitor_info.name,
+            monitor=self._monitor_info.name,
         )
-        current_node = ctx.get(self.monitor_info.name)
-        if self.error_count >= self.monitor_info.retry:
+        current_node = ctx.get(self._monitor_info.name)
+        if self.error_count >= self._monitor_info.retry:
             if current_node:
                 if current_node.status != DSNodeStatus.OFFLINE:
                     self.logger.info(
                         "Max retries exceeded for monitor, marking as OFFLINE",
-                        retry=self.monitor_info.retry,
-                        monitor=self.monitor_info.name,
+                        retry=self._monitor_info.retry,
+                        monitor=self._monitor_info.name,
                     )
             else:
                 self.logger.info(
                     "Max retries exceeded for monitor, marking as OFFLINE",
-                    retry=self.monitor_info.retry,
-                    monitor=self.monitor_info.name,
+                    retry=self._monitor_info.retry,
+                    monitor=self._monitor_info.name,
                 )
 
             ctx.set(
-                self.monitor_info.name,
+                self._monitor_info.name,
                 DSPingData(
                     status=DSNodeStatus.OFFLINE,
                     req_time_rtt=-1,
@@ -141,10 +185,10 @@ class HTTPMonitor(MonitorProto):
             if current_node:
                 self.logger.debug(
                     "Incrementing retry count for remote",
-                    monitor=self.monitor_info.name,
+                    monitor=self._monitor_info.name,
                 )
                 ctx.set(
-                    self.monitor_info.name,
+                    self._monitor_info.name,
                     DSPingData(
                         status=current_node.status,
                         req_time_rtt=current_node.req_time_rtt,
@@ -154,10 +198,10 @@ class HTTPMonitor(MonitorProto):
             else:
                 self.logger.debug(
                     "Setting initial UNKNOWN status for remote",
-                    monitor=self.monitor_info.name,
+                    monitor=self._monitor_info.name,
                 )
                 ctx.set(
-                    self.monitor_info.name,
+                    self._monitor_info.name,
                     DSPingData(
                         status=DSNodeStatus.UNKNOWN,
                         req_time_rtt=-1,
@@ -169,8 +213,8 @@ class HTTPMonitor(MonitorProto):
     def run(self) -> None:
         self.logger.debug(
             "Sending ping to monitor",
-            monitor=self.monitor_info.name,
-            url=self.monitor_info.host,
+            monitor=self._monitor_info.name,
+            url=self._monitor_info.host,
         )
         self._sent_ping()
 
@@ -178,7 +222,10 @@ class HTTPMonitor(MonitorProto):
 class Monitor:
     def __init__(self, monitor: MonitorProto):
         self.monitor = monitor
-        self.thread = Thread(target=self.monitor_thread, daemon=True)
+        self.thread = Thread(
+            target=self.monitor_thread,
+            name=f"monitor-{self.monitor.name}-thread",
+        )
         self.stop_flag = Event()
         self.logger = get_logger().bind(name=self.monitor.name)
 
@@ -209,23 +256,61 @@ class Monitor:
         self.thread.join()
         self.logger.debug("Monitor thread stopped")
 
+    @property
+    def network_id(self) -> str:
+        return self.monitor.net_id
+
+    @property
+    def mon_config(self) -> NetworkMonitor:
+        return self.monitor.monitor_info
+
+
+@dataclass
+class MonitorConfig:
+    monitors: dict[tuple[str, str], NetworkMonitor]
+
+
+class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
+    def preprocess(self, config: Config | None) -> MonitorConfig:
+        monitors: dict[tuple[str, str], NetworkMonitor] = {}
+        if config is None:
+            return MonitorConfig(monitors=monitors)
+        for net_id, network in config.networks.items():
+            # Find local node
+            local_node = None
+            for node in network.node_config:
+                if node.node_id == network.node_id:
+                    local_node = node
+                    break
+            if local_node is None:
+                continue
+            unique: dict[str, NetworkMonitor] = {m.name: m for m in network.monitors}
+            for m in unique.values():
+                monitors[(net_id, m.name)] = m
+        return MonitorConfig(monitors=monitors)
+
 
 class MonitorManager:
     def __init__(
         self,
         store_manager: StoreManager,
-        config: NetworkConfigLoader,
+        config_bus: ConfigBus,
     ):
+        config_watcher = config_bus.get_watcher(MonitorConfigPreprocessor())
+        if config_watcher is None:
+            raise ValueError("No initial config available for monitor manager")
         self.store_manager = store_manager
-        self.config = config
+        self.config_bus = config_bus
+        self.config_watcher = config_watcher
+        self.config = config_watcher.current_config
+        self.config_watcher.subscribe(self.reload)
         self.logger = get_logger()
-        self.monitors: dict[str, Monitor] = self._initialize_monitors()
+        self.monitors: dict[tuple[str, str], Monitor] = {}
         self.stop_flag = Event()
-        self.thread = Thread(target=self.manager, daemon=True)
-        self.thread.start()
-        self.logger.debug(
-            "MonitorManager initialized with monitors", count=len(self.monitors)
-        )
+        self.thread = Thread(target=self.manager, name="monitor-manager")
+        self.logger.debug("MonitorManager initialized")
+        # Initialize monitors from current config
+        self._create_monitors(self.config.monitors)
 
     def manager(self):
         while True:
@@ -239,67 +324,88 @@ class MonitorManager:
             if val:
                 break
 
-    def _initialize_monitors(self) -> dict[str, Monitor]:
-        self.logger.debug("Initializing monitors from network configuration")
-        monitors = {}
-        for net_id, network in self.config.networks.items():
-            self.logger.debug("Processing network", net_id=net_id)
-            # Find the local node in this network
-            local_node = None
-            for node in network.node_config:
-                if node.node_id == network.node_id:
-                    local_node = node
-                    break
+    def _create_monitors(
+        self, desired_monitors: dict[tuple[str, str], NetworkMonitor]
+    ) -> None:
+        """Create and start monitors from the desired monitor config."""
+        for key, m_info in desired_monitors.items():
+            if key not in self.monitors:
+                net_id, monitor_name = key
+                if m_info.type == MonitorTypes.HTTP:
+                    self.logger.debug("Creating HTTP monitor", key=key)
 
-            if local_node is None:
-                self.logger.warning(
-                    "Local node not found in network, skipping", net_id=net_id
-                )
-                continue  # Skip this network if local node not found
+                    # Create a config watcher for this specific monitor
+                    monitor_watcher = self.config_bus.get_watcher(
+                        HTTPMonitorConfigPreprocessor(net_id, monitor_name)
+                    )
+                    if monitor_watcher is None:
+                        self.logger.warning(
+                            "No config available for monitor; skipping",
+                            network_id=net_id,
+                            monitor_name=monitor_name,
+                        )
+                        continue
 
-            self.logger.debug(
-                "Found local node in network",
-                local=local_node.node_id,
-                net_id=net_id,
-            )
-            global_monitors = network.monitors
-
-            unique_monitors = {m.name: m for m in global_monitors}
-            for monitor in local_node.local_monitors:
-                unique_monitors[monitor.name] = monitor
-
-            for monitor_info in unique_monitors.values():
-                if monitor_info.type == MonitorTypes.HTTP:
-                    monitor_key = f"{net_id}_monitor_{monitor_info.name}"
-                    self.logger.debug("Creating HTTP monitor", key=monitor_key)
                     monitor = HTTPMonitor(
-                        self.store_manager,
-                        net_id,
-                        monitor_info,
-                        self.config,
+                        self.store_manager, net_id, monitor_name, monitor_watcher
                     )
                     monitor_wrapper = Monitor(monitor)
-                    monitors[monitor_key] = monitor_wrapper
+                    self.monitors[key] = monitor_wrapper
                     monitor_wrapper.start()
                 else:
                     self.logger.warning(
-                        f"Unsupported monitor type {monitor_info.type} for monitor, skipping",
-                        net_id=net_id,
-                        monitor=monitor_info.name,
+                        "Unsupported monitor type; skipping",
+                        key=key,
+                        type=str(m_info.type),
                     )
 
-        self.logger.debug("Successfully initialized monitors", count=len(monitors))
-        return monitors
+    def reload(self, new_config: MonitorConfig) -> None:
+        """Handle config reload - stop removed/changed monitors and create new ones."""
+        self.logger.info("Reloading monitors with new configuration")
+        self.config = new_config
 
-    def reload(self):
-        self.logger.info("Reloading MonitorManager configuration")
-        # Stop all existing monitors
-        self.logger.debug("Stopping existing monitors", count=len(self.monitors))
-        self.stop()
-        # Reinitialize monitors with new configuration
-        self.logger.debug("Reinitializing monitors with new configuration")
-        self.monitors = self._initialize_monitors()
-        self.logger.info("MonitorManager reload completed")
+        desired_monitors = new_config.monitors
+        current_keys = set(self.monitors.keys())
+        desired_keys = set(desired_monitors.keys())
+
+        # Stop monitors that are no longer desired or changed
+        to_remove = []
+        for key in current_keys - desired_keys:
+            to_remove.append(key)
+
+        for key in current_keys & desired_keys:
+            # If config changed, we will recreate
+            mon = self.monitors[key]
+            m_info_new: NetworkMonitor = desired_monitors[key]
+            if isinstance(mon.monitor, HTTPMonitor):
+                m_info_old: NetworkMonitor = mon.mon_config
+                if m_info_old != m_info_new:
+                    to_remove.append(key)
+            else:
+                # Unknown type: recreate to be safe
+                to_remove.append(key)
+
+        for key in to_remove:
+            try:
+                self.logger.debug("Stopping removed/changed monitor", key=key)
+                self.monitors[key].stop()
+            except Exception:
+                pass
+        for key in to_remove:
+            try:
+                self.monitors[key].join()
+            except Exception:
+                pass
+            self.monitors.pop(key, None)
+
+        # Create and start new/changed monitors
+        self._create_monitors(desired_monitors)
+
+        self.logger.info("Monitor reload complete", total=len(self.monitors))
+
+    def start(self):
+        self.logger.info("Starting MonitorManager thread")
+        self.thread.start()
 
     def stop(self):
         self.logger.info("Stopping all monitors in MonitorManager")
@@ -315,5 +421,6 @@ class MonitorManager:
     def stop_manager(self):
         self.logger.info("Stopping MonitorManager")
         self.stop_flag.set()
-        self.thread.join()
+        if self.thread.is_alive():
+            self.thread.join()
         self.logger.info("MonitorManager stopped")

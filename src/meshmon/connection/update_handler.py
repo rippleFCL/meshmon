@@ -3,6 +3,8 @@ import time
 
 import structlog
 
+from meshmon.pulsewave.update.events import ExactPathMatcher
+
 from ..dstypes import DSNodeStatus, DSPingData
 from ..pulsewave.crypto import KeyMapping
 from ..pulsewave.data import StoreData
@@ -39,6 +41,7 @@ class GrpcUpdateHandler(UpdateHandler):
             component="grpc_update_handler",
             network_id=network_id,
         )
+        self._matcher = ExactPathMatcher("instant_update")
         self.network_id = network_id
         self.connection_manager = connection_manager
 
@@ -51,7 +54,7 @@ class GrpcUpdateHandler(UpdateHandler):
         msg = self.store.dump()
         ping_ctx = self.store.get_context("ping_data", DSPingData)
         for node in self.store.nodes:
-            if node == self.store.key_mapping.signer.node_id:
+            if node == self.store.config.key_mapping.signer.node_id:
                 continue
             conn = self.connection_manager.get_connection(node, self.network_id)
             if conn:
@@ -91,3 +94,10 @@ class GrpcUpdateHandler(UpdateHandler):
                 date=datetime.datetime.now(tz=datetime.timezone.utc),
             ),
         )
+
+    def stop(self) -> None:
+        """Stop any background tasks."""
+        pass
+
+    def matcher(self) -> ExactPathMatcher:
+        return self._matcher

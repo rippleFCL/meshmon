@@ -2,8 +2,23 @@ import queue
 import threading
 from typing import Protocol
 
+import structlog
+
+from ..config.bus import ConfigPreprocessor
+from ..config.config import Config
 from .grpc_types import Heartbeat, HeartbeatResponse, StoreUpdate
 from .proto import PacketData
+
+
+class ConnManConfigPreprocessor(ConfigPreprocessor[list[tuple[str, str]]]):
+    def preprocess(self, config: Config | None) -> list[tuple[str, str]]:
+        connections = []
+        if config is None:
+            return connections
+        for network in config.networks.values():
+            for node in network.node_config:
+                connections.append((node.node_id, network.network_id))
+        return connections
 
 
 class ProtocolHandler(Protocol):
@@ -61,6 +76,12 @@ class Connection:
         self.conn_selector = 0
         self.conn_lock = threading.Lock()
 
+    def close(self):
+        with self.conn_lock:
+            for conn in self.connections:
+                conn.close()
+            self.connections = []
+
     @property
     def is_active(self) -> bool:
         return any(not conn.is_closed for conn in self.connections)
@@ -87,7 +108,10 @@ class Connection:
 class ConnectionManager:
     def __init__(self):
         self.connections: dict[tuple[str, str], Connection] = {}
-        self.lock = threading.Lock()
+        self.logger = structlog.get_logger().bind(
+            module="connection.manager", component="ConnectionManager"
+        )
+        self.lock = threading.RLock()
 
     def get_connection(self, node_id: str, network_id: str) -> Connection | None:
         with self.lock:
@@ -108,6 +132,31 @@ class ConnectionManager:
                 )
             return self.connections[(dest_node_id, network_id)]
 
+    def remove_connection(self, node_id: str, network_id: str) -> None:
+        with self.lock:
+            if (node_id, network_id) in self.connections:
+                conn = self.connections[(node_id, network_id)]
+                conn.close()
+                del self.connections[(node_id, network_id)]
+
     def __iter__(self):
         with self.lock:
             return iter(self.connections.values())
+
+    def reload(self, config: Config):
+        with self.lock:
+            to_remove = []
+            for (node_id, network_id), conn in self.connections.items():
+                if network_id not in config.networks:
+                    to_remove.append((node_id, network_id))
+                    continue
+                network = config.networks[network_id]
+                if node_id not in [n.node_id for n in network.node_config]:
+                    to_remove.append((node_id, network_id))
+            for node_id, network_id in to_remove:
+                self.logger.info(
+                    "Removing obsolete connection",
+                    node_id=node_id,
+                    network_id=network_id,
+                )
+                self.remove_connection(node_id, network_id)

@@ -113,7 +113,9 @@ class UpdateManager:
         self,
         store: "SharedStore",
     ):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.update", component="UpdateManager"
+        )
         self.event_queue = DedupeQueue()
         self.event_controller = UpdateController()
         self.idle = Event()

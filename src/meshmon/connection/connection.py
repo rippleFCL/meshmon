@@ -4,7 +4,7 @@ from typing import Protocol
 
 import structlog
 
-from ..config.bus import ConfigPreprocessor
+from ..config.bus import ConfigBus, ConfigPreprocessor
 from ..config.config import Config
 from .grpc_types import Heartbeat, HeartbeatResponse, StoreUpdate
 from .proto import PacketData
@@ -105,11 +105,30 @@ class Connection:
                 raw_conn.close()
 
 
+class ConnectionManagerConfigPreprocessor(ConfigPreprocessor[set[tuple[str, str]]]):
+    def preprocess(self, config: Config | None) -> set[tuple[str, str]]:
+        connections = set()
+        if config is None:
+            return connections
+        for network in config.networks.values():
+            for node in network.node_config:
+                if node.node_id == network.node_id:
+                    continue
+                connections.add((node.node_id, network.network_id))
+        return connections
+
+
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self, config_bus: ConfigBus):
+        self.config_bus = config_bus
+        watcher = config_bus.get_watcher(ConnectionManagerConfigPreprocessor())
+        if watcher is None:
+            raise ValueError("No initial config available for connection manager")
+        watcher.subscribe(self.reload)
+        self.watcher = watcher
         self.connections: dict[tuple[str, str], Connection] = {}
         self.logger = structlog.get_logger().bind(
-            module="connection.manager", component="ConnectionManager"
+            module="meshmon.connection.connection", component="ConnectionManager"
         )
         self.lock = threading.RLock()
 
@@ -143,15 +162,16 @@ class ConnectionManager:
         with self.lock:
             return iter(self.connections.values())
 
-    def reload(self, config: Config):
+    def reload(self, config: set[tuple[str, str]]) -> None:
+        self.logger.info(
+            "Config reload triggered for ConnectionManager",
+            new_connection_count=len(config),
+            current_connection_count=len(self.connections),
+        )
         with self.lock:
             to_remove = []
             for (node_id, network_id), conn in self.connections.items():
-                if network_id not in config.networks:
-                    to_remove.append((node_id, network_id))
-                    continue
-                network = config.networks[network_id]
-                if node_id not in [n.node_id for n in network.node_config]:
+                if (node_id, network_id) not in config:
                     to_remove.append((node_id, network_id))
             for node_id, network_id in to_remove:
                 self.logger.info(

@@ -7,12 +7,11 @@ from typing import TYPE_CHECKING, Iterator
 import grpc
 import structlog
 
-from meshmon.config.bus import ConfigBus, ConfigPreprocessor, ConfigWatcher
+from meshmon.config.bus import ConfigBus, ConfigPreprocessor
 
 from ..config.config import Config
 from ..connection.grpc_types import Validator
 from ..connection.protocol_handler import (
-    ConnectionConfig,
     ConnectionConfigPreprocessor,
     PulseWaveProtocol,
 )
@@ -83,7 +82,7 @@ class GrpcClientManager:
         config_bus: ConfigBus,
     ):
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_client"
+            module="meshmon.connection.grpc_client", component="GrpcClientManager"
         )
         self.connection_manager = connection_manager
         self.config_bus = config_bus
@@ -153,16 +152,6 @@ class GrpcClientManager:
             handler = self.update_handlers.get_handler(target.network_id)
 
             # Create a config watcher for this client
-            config_watcher = self.config_bus.get_watcher(
-                ConnectionConfigPreprocessor(target.network_id, target.node_id)
-            )
-            if config_watcher is None:
-                self.logger.warning(
-                    "No config available for client; skipping connect",
-                    node_id=target.node_id,
-                    network_id=target.network_id,
-                )
-                return False
 
             client = GrpcClient(
                 channel=channel,
@@ -171,7 +160,10 @@ class GrpcClientManager:
                 network_id=target.network_id,
                 peer_node_id=target.node_id,
                 address=target.address,
-                config_watcher=config_watcher,
+                config_bus=self.config_bus,
+                verifier=target.verifier,
+                signer=target.signer,
+                self_node_id=target.self_node_id,
             )
 
             t = threading.Thread(
@@ -228,7 +220,13 @@ class GrpcClientManager:
 
     def reload(self, new_config: list[ClientTarget]) -> None:
         """Reload the client configuration and reconnect as needed."""
+        self.logger.info(
+            "Config reload triggered for GrpcClientManager",
+            new_target_count=len(new_config),
+            old_target_count=len(self.config),
+        )
         self.config = new_config
+        self.logger.debug("GrpcClientManager config updated successfully")
 
 
 class GrpcClient:
@@ -238,12 +236,18 @@ class GrpcClient:
         connection_manager: ConnectionManager,
         handler: object,
         network_id: str,
+        self_node_id: str,
+        verifier: Verifier,
+        signer: Signer,
         peer_node_id: str,
         address: str,
-        config_watcher: ConfigWatcher[ConnectionConfig],
+        config_bus: ConfigBus,
     ):
+        self.self_node_id = self_node_id
+        self.verifier = verifier
+        self.signer = signer
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_client", component="GrpcClient"
+            module="meshmon.connection.grpc_client", component="GrpcClient"
         )
         self.channel = channel
         self.connection_manager = connection_manager
@@ -253,16 +257,7 @@ class GrpcClient:
         self.network_id = network_id
         self.peer_node_id = peer_node_id
         self.address = address
-
-        # Use the provided config watcher
-        self.config_watcher = config_watcher
-        self.config = config_watcher.current_config
-        config_watcher.subscribe(self.reload)
-
-        # Initialize with current config
-        self.signer = self.config.signer
-        self.verifier = self.config.verifier
-        self.self_node_id = self.config.local_node_id
+        self.config_bus = config_bus
 
         self.stub = MeshMonServiceStub(channel)
         self.stop_event = threading.Event()
@@ -271,27 +266,6 @@ class GrpcClient:
         self._send_queue: "queue.Queue[ProtocolData]" = queue.Queue()
         self._client_nonce: str | None = None
         self._call: grpc.Call | None = None
-
-    def reload(self, new_config: ConnectionConfig) -> None:
-        """Handle config reload - update signer, verifier, and self_node_id"""
-        self.logger.info(
-            "Reloading client config",
-            network_id=self.network_id,
-            peer_node_id=self.peer_node_id,
-        )
-        self.config = new_config
-        self.signer = new_config.signer
-        self.verifier = new_config.verifier
-        self.self_node_id = new_config.local_node_id
-
-        # If there's an active connection, we should restart it with new config
-        # For now, just log - the connection will use the new config on next reconnect
-        if self.connection_active.is_set():
-            self.logger.warning(
-                "Config changed while connection active - will apply on reconnect",
-                network_id=self.network_id,
-                peer_node_id=self.peer_node_id,
-            )
 
     def stop_stream(self):
         """Cancel the active stream and signal shutdown."""
@@ -416,13 +390,24 @@ class GrpcClient:
                 )
                 self.stop_stream()
                 return
+            config_watcher = self.config_bus.get_watcher(
+                ConnectionConfigPreprocessor(self.network_id, self.peer_node_id)
+            )
+            if config_watcher is None:
+                self.logger.warning(
+                    "No config available for client; skipping connect",
+                    node_id=self.peer_node_id,
+                    network_id=self.network_id,
+                )
+                self.stop_stream()
+                return
 
             # Wire protocol and register raw connection
             protocol_handler = PulseWaveProtocol(
                 handler=self.handler,  # type: ignore[arg-type]
                 remote_nonce=server_nonce,
                 local_nonce=client_nonce,
-                watcher=self.config_watcher,
+                watcher=config_watcher,
                 mr_sbd=server_sbd,
             )
             self.raw_conn = RawConnection(protocol_handler)

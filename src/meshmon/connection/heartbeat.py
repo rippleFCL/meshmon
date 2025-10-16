@@ -3,6 +3,8 @@ import threading
 import time
 from dataclasses import dataclass
 
+import structlog
+
 from ..config.bus import ConfigBus, ConfigPreprocessor
 from ..config.config import Config
 from ..config.structure.network import NetworkNodeInfo
@@ -42,6 +44,10 @@ class HeartbeatController:
         config_bus: ConfigBus,
         store: StoreManager,
     ):
+        self.logger = structlog.get_logger().bind(
+            module="meshmon.connection.heartbeat",
+            component="HeartbeatController",
+        )
         self.connection_manager = connection_manager
         watcher = config_bus.get_watcher(HeartbeatConfigPreprocessor())
         if watcher is None:
@@ -108,8 +114,26 @@ class HeartbeatController:
         self.thread.join()
 
     def reload(self, new_config: HeartbeatConfig) -> None:
+        self.logger.info(
+            "Config reload triggered for HeartbeatController",
+            new_node_count=len(new_config.node_configs),
+            old_node_count=len(self.config.node_configs),
+        )
         self.config = new_config
         # Clean up last_sent entries for nodes that no longer exist
+        removed_count = 0
         for network_id, node_id in list(self.last_sent.keys()):
             if (network_id, node_id) not in new_config.node_configs:
                 del self.last_sent[(network_id, node_id)]
+                removed_count += 1
+        for network_id, store in self.store_manager.stores.items():
+            node_ctx = store.get_context("ping_data", DSPingData)
+            for node_id, ping_data in list(node_ctx):
+                if (network_id, node_id) not in new_config.node_configs:
+                    node_ctx.delete(node_id)
+                    removed_count += 1
+
+        self.logger.debug(
+            "HeartbeatController config updated successfully",
+            removed_entries=removed_count,
+        )

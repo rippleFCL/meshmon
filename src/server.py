@@ -75,7 +75,7 @@ structlog.configure_once(
     wrapper_class=structlog.make_filtering_bound_logger(_LEVELS.get(log_level, 20)),
     cache_logger_on_first_use=True,
 )
-logger = structlog.stdlib.get_logger()
+logger = structlog.stdlib.get_logger().bind(module="server")
 
 # JWT Configuration
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
@@ -86,7 +86,7 @@ logger.info("Starting server initialization with config file", config=CONFIG_FIL
 logger.info("Initializing configuration loader...")
 config_loader = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
 
-logger.info("Setting up configuration bus...")
+logger.info("Initializing configuration bus...")
 config_bus = ConfigBus()
 
 logger.info("Initializing gRPC server...")
@@ -166,9 +166,11 @@ class ViewNetwork(BaseModel):
 @api.get("/api/view", response_model=MeshMonApi)
 def view():
     """Get network view data. Requires JWT authentication."""
-    logger.debug("View request for networks")
-    networks = generate_api(store_manager, config_loader.config)
-    return networks
+    if config_bus.config:
+        logger.debug("View request for networks")
+        networks = generate_api(store_manager, config_bus.config)
+        return networks
+    return MeshMonApi()
 
 
 @api.get("/api/cluster", response_model=ClusterInfoApi)

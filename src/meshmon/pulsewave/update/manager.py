@@ -19,7 +19,9 @@ class ClockPulseGenerator:
         store: "SharedStore",
         update_manager: UpdateManager,
     ):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.manager", component="ClockPulseGenerator"
+        )
         self.store = store
         self.update_manager = update_manager
         self._stop = Event()

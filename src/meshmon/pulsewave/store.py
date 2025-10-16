@@ -34,8 +34,6 @@ from .views import (
     StoreCtxView,
 )
 
-logger = structlog.stdlib.get_logger().bind(module="pulsewave.store")
-
 
 class SharedStore:
     def __init__(
@@ -46,6 +44,10 @@ class SharedStore:
         self.store: StoreData = StoreData()
         self.config_watcher = config_watcher
         self.config = config_watcher.current_config
+
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.store", component="SharedStore"
+        )
         config_watcher.subscribe(self.new_config)
         self.secret_store = SecretContainer()
         self.update_manager = UpdateManager(self)
@@ -61,14 +63,68 @@ class SharedStore:
         )
 
         self.consistency_controller = ClockPulseGenerator(self, self.update_manager)
-        logger.debug("SharedStore initialized.")
+        self.new_config(
+            config_watcher.current_config
+        )  # Initialize store based on current config
+        self.logger.debug("SharedStore initialized.")
 
     def add_handler(self, handler: UpdateHandler):
         self.update_manager.add_handler(handler)
 
     def new_config(self, config: PulseWaveConfig):
+        self.logger.info(
+            "Config reload triggered for SharedStore",
+            network_id=config.current_node.node_id,
+            node_count=len(config.nodes),
+        )
+        old_node_id = self.config.current_node.node_id
         self.config = config
+        if old_node_id != config.current_node.node_id:
+            self.logger.info(
+                "Node ID for this MeshMon instance has changed in the new config",
+                old_node_id=old_node_id,
+                new_node_id=config.current_node.node_id,
+            )
+            store_data = self.store.nodes.get(old_node_id)
+            if store_data:
+                self.store.nodes[config.current_node.node_id] = store_data
+                del self.store.nodes[old_node_id]
+
+        to_remove = []
+        for node_id in self.store.nodes:
+            if node_id not in config.nodes:
+                to_remove.append(node_id)
+        for node_id in to_remove:
+            self.logger.info(
+                "Removing data for node no longer in config", node_id=node_id
+            )
+            del self.store.nodes[node_id]
+
+        all_nodes = list(config.nodes.keys())
+        store_data = self.store.nodes.get(config.current_node.node_id)
+        if store_data is None:
+            store_data = StoreNodeData.new()
+            self.store.nodes[config.current_node.node_id] = store_data
+        consistency_data = store_data.consistency
+        if consistency_data is None:
+            consistency_data = StoreConsistencyData.new(config.key_mapping.signer)
+            store_data.consistency = consistency_data
+        clock_table = consistency_data.clock_table
+        clock_table.allowed_keys = all_nodes
+        clock_table.resign(config.key_mapping.signer)
+        pulse_table = consistency_data.pulse_table
+        pulse_table.allowed_keys = all_nodes
+        pulse_table.resign(config.key_mapping.signer)
+        node_status_table = consistency_data.node_status_table
+        node_status_table.allowed_keys = all_nodes
+        node_status_table.resign(config.key_mapping.signer)
+
         self.update_manager.trigger_event("config_reload")
+        self.update_manager.trigger_event("update")
+        self.logger.debug(
+            "SharedStore config updated successfully",
+            network_id=config.current_node.node_id,
+        )
 
     @overload
     def _get_node(self) -> StoreNodeData: ...
@@ -205,6 +261,24 @@ class SharedStore:
             secret,
         )
 
+    def delete_consistency_context(self, context_name: str):
+        if context_name in self.secret_store:
+            self.secret_store.delete_secret(context_name)
+        consistency = self._get_consistency()
+        if context_name in list(consistency.consistent_contexts):
+            del consistency.consistent_contexts[context_name]
+            node_id = self.config.key_mapping.signer.node_id
+            if context_name in consistency.allowed_contexts:
+                consistency.allowed_contexts.remove(context_name)
+                consistency.resign(self.config.key_mapping.signer)
+            self.update_manager.trigger_update(
+                [f"nodes.{node_id}.consistency.consistent_contexts.{context_name}"]
+            )
+        else:
+            self.logger.warning(
+                "Consistency context not found to delete", context_name=context_name
+            )
+
     def local_consistency_contexts(self) -> Iterator[str]:
         node_data = self._get_node()
         if node_data and node_data.consistency:
@@ -297,9 +371,9 @@ class SharedStore:
     def stop(self):
         self.update_manager.stop()
         self.consistency_controller.stop()
-        logger.info("SharedStore stopped.")
+        self.logger.info("SharedStore stopped.")
 
     def start(self):
         self.update_manager.start()
         self.consistency_controller.start()
-        logger.info("SharedStore started.")
+        self.logger.info("SharedStore started.")

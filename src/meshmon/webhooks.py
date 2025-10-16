@@ -70,7 +70,9 @@ class WebhookManager:
         self.config_watcher = config_watcher
         self.config = config_watcher.current_config
         config_watcher.subscribe(self.reload)
-        self.logger = get_logger()
+        self.logger = get_logger().bind(
+            module="meshmon.webhooks", component="WebhookManager"
+        )
         self.flag = threading.Event()
         self.thread = threading.Thread(
             target=self.webhook_thread, name="webhook-handler"
@@ -194,8 +196,29 @@ class WebhookManager:
 
     def reload(self, new_config: WebhookConfig) -> None:
         """Handle config reload - update webhook configuration."""
-        self.logger.info("Reloading webhook configuration")
+        self.logger.info(
+            "Config reload triggered for WebhookManager",
+            network_count=len(new_config.webhooks),
+            total_webhooks=sum(len(hooks) for hooks in new_config.webhooks.values()),
+        )
         self.config = new_config
+        self.logger.debug("WebhookManager config updated successfully")
+        all_webhooks: dict[str, list[tuple[str, str]]] = {}
+        for network_id, hooks in new_config.webhooks.items():
+            for hook in hooks:
+                all_webhooks.setdefault(network_id, []).append((hook.name, hook.hashed))
+
+        for network_id, store in self.store_manager.stores.items():
+            hooks = all_webhooks.get(network_id, [])
+            for consistency_ctx in store.local_consistency_contexts():
+                if consistency_ctx.startswith("discord:"):
+                    _, name, hashed = consistency_ctx.split(":", 2)
+                    if (name, hashed) not in hooks:
+                        self.logger.info(
+                            "Removing stale webhook consistency context",
+                            network_id=network_id,
+                        )
+                        store.delete_consistency_context(consistency_ctx)
 
     def handle_webhook(
         self,

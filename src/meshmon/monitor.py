@@ -24,6 +24,8 @@ class MonitorProto(Protocol):
 
     def setup(self) -> None: ...
 
+    def shutdown(self) -> None: ...
+
     @property
     def net_id(self) -> str: ...
 
@@ -76,15 +78,29 @@ class HTTPMonitor(MonitorProto):
         config_watcher.subscribe(self.reload)
         self.error_count = 0
         self.logger = get_logger().bind(
-            module="monitor", component="HTTPMonitor", name=self.name, net_id=net_id
+            module="meshmon.monitor",
+            component="HTTPMonitor",
+            name=self.name,
+            net_id=net_id,
         )
         self.session = requests.Session()
 
     def reload(self, new_config: NetworkMonitor) -> None:
         """Handle config reload - update monitor configuration."""
+        self.logger.debug(
+            "Config reload triggered for HTTPMonitor",
+            network_id=self._net_id,
+            monitor_name=new_config.name,
+            monitor_type=new_config.type,
+        )
         self._monitor_info = new_config
         # Reset error count when config changes
         self.error_count = 0
+        self.logger.info(
+            "HTTPMonitor config updated successfully",
+            network_id=self._net_id,
+            monitor_name=new_config.name,
+        )
 
     @property
     def monitor_info(self) -> NetworkMonitor:
@@ -218,6 +234,11 @@ class HTTPMonitor(MonitorProto):
         )
         self._sent_ping()
 
+    def shutdown(self) -> None:
+        store = self.store.get_store(self._net_id)
+        ctx = store.get_context("monitor_data", DSPingData)
+        ctx.delete(self._monitor_info.name)
+
 
 class Monitor:
     def __init__(self, monitor: MonitorProto):
@@ -227,7 +248,9 @@ class Monitor:
             name=f"monitor-{self.monitor.name}-thread",
         )
         self.stop_flag = Event()
-        self.logger = get_logger().bind(name=self.monitor.name)
+        self.logger = get_logger().bind(
+            module="meshmon.monitor", component="Monitor", name=self.monitor.name
+        )
 
     def monitor_thread(self):
         self.logger.debug("Starting monitor thread")
@@ -240,6 +263,7 @@ class Monitor:
             val = self.stop_flag.wait(self.monitor.poll_rate)
             if val:
                 break
+        self.monitor.shutdown()
         self.logger.debug("Monitor thread stopped")
 
     def start(self) -> None:
@@ -304,7 +328,9 @@ class MonitorManager:
         self.config_watcher = config_watcher
         self.config = config_watcher.current_config
         self.config_watcher.subscribe(self.reload)
-        self.logger = get_logger()
+        self.logger = get_logger().bind(
+            module="meshmon.monitor", component="MonitorManager"
+        )
         self.monitors: dict[tuple[str, str], Monitor] = {}
         self.stop_flag = Event()
         self.thread = Thread(target=self.manager, name="monitor-manager")
@@ -361,7 +387,11 @@ class MonitorManager:
 
     def reload(self, new_config: MonitorConfig) -> None:
         """Handle config reload - stop removed/changed monitors and create new ones."""
-        self.logger.info("Reloading monitors with new configuration")
+        self.logger.info(
+            "Config reload triggered for MonitorManager",
+            current_monitor_count=len(self.monitors),
+            new_monitor_count=len(new_config.monitors),
+        )
         self.config = new_config
 
         desired_monitors = new_config.monitors
@@ -385,6 +415,12 @@ class MonitorManager:
                 # Unknown type: recreate to be safe
                 to_remove.append(key)
 
+        self.logger.debug(
+            "Monitors to remove/recreate",
+            remove_count=len(to_remove),
+            keys=list(to_remove),
+        )
+
         for key in to_remove:
             try:
                 self.logger.debug("Stopping removed/changed monitor", key=key)
@@ -401,7 +437,10 @@ class MonitorManager:
         # Create and start new/changed monitors
         self._create_monitors(desired_monitors)
 
-        self.logger.info("Monitor reload complete", total=len(self.monitors))
+        self.logger.info(
+            "MonitorManager reload complete",
+            total_monitors=len(self.monitors),
+        )
 
     def start(self):
         self.logger.info("Starting MonitorManager thread")

@@ -24,7 +24,7 @@ class LifecycleManager:
     ):
         self.heartbeat_controller = heartbeat_controller
         self.logger = get_logger().bind(
-            module="lifecycle", component="LifecycleManager"
+            module="meshmon.lifecycle", component="LifecycleManager"
         )
         self.grpc_server = grpc_server
         self.config = config
@@ -37,6 +37,7 @@ class LifecycleManager:
         self.thread = threading.Thread(target=self.watcher, name="lifecycle-manager")
 
     def watcher(self):
+        self.logger.info("Starting lifecycle manager watcher thread")
         if not self.config_bus.loaded:
             try:
                 config = self.config.load()

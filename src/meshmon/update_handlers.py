@@ -1,5 +1,6 @@
 import datetime
 
+import structlog
 from pydantic import BaseModel
 
 from meshmon.config.bus import ConfigPreprocessor, ConfigWatcher
@@ -38,16 +39,20 @@ class NodeStatusTableHandler(UpdateHandler):
         # Implementation for handling updates and updating the status table
         status = get_node_ping_status(self.store)
         status_ctx = self.store.get_context("node_status", NodeStatusEntry)
-        for node_id, status in status.items():
+        for node_id, status_data in status.items():
             current_status = status_ctx.get(node_id)
-            if current_status is None or current_status.status != status:
+            if current_status is None or current_status.status != status_data:
                 status_ctx.set(
                     node_id,
                     NodeStatusEntry(
-                        status=status,
+                        status=status_data,
                         last_updated=datetime.datetime.now(datetime.timezone.utc),
                     ),
                 )
+                self.update_manager.trigger_event("update")
+        for node_id, _ in list(status_ctx):
+            if node_id not in status:
+                status_ctx.delete(node_id)
                 self.update_manager.trigger_event("update")
 
     def stop(self) -> None:
@@ -79,6 +84,9 @@ class MonitorStatusTableHandler(UpdateHandler):
             ]
         )
         self.network_config = self.config_watcher.current_config
+        self.logger = structlog.get_logger().bind(
+            module="meshmon.update_handlers", component="MonitorStatusTableHandler"
+        )
         self.config_watcher.subscribe(self.reload)
 
     def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None:
@@ -92,16 +100,20 @@ class MonitorStatusTableHandler(UpdateHandler):
         # Implementation for handling updates and updating the status table
         status = get_monitor_status(self.store, self.network_config)
         status_ctx = self.store.get_context("monitor_status", NodeStatusEntry)
-        for node_id, status in status.items():
+        for node_id, status_data in status.items():
             current_status = status_ctx.get(node_id)
-            if current_status is None or current_status.status != status:
+            if current_status is None or current_status.status != status_data:
                 status_ctx.set(
                     node_id,
                     NodeStatusEntry(
-                        status=status,
+                        status=status_data,
                         last_updated=datetime.datetime.now(datetime.timezone.utc),
                     ),
                 )
+                self.update_manager.trigger_event("update")
+        for node_id, _ in list(status_ctx):
+            if node_id not in status:
+                status_ctx.delete(node_id)
                 self.update_manager.trigger_event("update")
 
     def stop(self) -> None:
@@ -111,4 +123,13 @@ class MonitorStatusTableHandler(UpdateHandler):
         return self._matcher
 
     def reload(self, new_config: NetworkConfig) -> None:
+        self.logger.info(
+            "Config reload triggered for MonitorStatusTableHandler",
+            network_id=new_config.network_id,
+            monitor_count=len(new_config.monitors),
+        )
         self.network_config = new_config
+        self.logger.debug(
+            "MonitorStatusTableHandler config updated successfully",
+            network_id=new_config.network_id,
+        )

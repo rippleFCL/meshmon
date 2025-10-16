@@ -75,12 +75,13 @@ class StoreManager:
         self.config_bus = config_bus
         self.stores: dict[str, SharedStore] = {}
         self.logger = structlog.stdlib.get_logger().bind(
-            module="pulsewave.distrostore", component="StoreManager"
+            module="meshmon.distrostore", component="StoreManager"
         )
         # gRPC components for each network
         self.grpc_server = grpc_server
 
     def create_store(self, network_id: str) -> None:
+        self.logger.info("Creating store for network", network_id=network_id)
         config_watcher = self.config_bus.get_watcher(
             PulseWaveConfigPreprocessor(network_id)
         )
@@ -117,11 +118,31 @@ class StoreManager:
         return self.stores[network_id]
 
     def load_config(self, networks: set[str]):
+        self.logger.info(
+            "Config reload triggered for StoreManager",
+            new_network_count=len(networks),
+            current_network_count=len(self.stores),
+        )
         current_networks = set(self.stores.keys())
-        for network_id in networks - current_networks:
+        to_add = networks - current_networks
+        to_remove = current_networks - networks
+
+        self.logger.debug(
+            "Store changes to apply",
+            networks_to_add=list(to_add),
+            networks_to_remove=list(to_remove),
+        )
+
+        for network_id in to_add:
+            self.logger.debug("Creating store for new network", network_id=network_id)
             self.create_store(network_id)
-        for network_id in current_networks - networks:
+        for network_id in to_remove:
             self.logger.info("Removing store for network", network_id=network_id)
             store = self.stores[network_id]
             store.stop()
             del self.stores[network_id]
+
+        self.logger.info(
+            "StoreManager config updated successfully",
+            total_stores=len(self.stores),
+        )

@@ -32,7 +32,9 @@ class ClockTableHandler(UpdateHandler):
                 f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{config_watcher.current_config.current_node.node_id}$"
             ]
         )
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="ClockTableHandler"
+        )
 
     def reload(self, config: PulseWaveConfig):
         self.config_watcher = config
@@ -91,7 +93,9 @@ class ClockTableHandler(UpdateHandler):
 
 class PulseTableHandler(UpdateHandler):
     def __init__(self):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="PulseTableHandler"
+        )
         self._matcher = RegexPathMatcher(
             ["^nodes\\.(\\w|-)+\\.consistency\\.clock_pulse$"]
         )
@@ -133,7 +137,9 @@ class PulseTableHandler(UpdateHandler):
 
 class NodeStatusHandler(UpdateHandler):
     def __init__(self):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="NodeStatusHandler"
+        )
         self._matcher = RegexPathMatcher(
             ["^nodes\\.(\\w|-)+\\.consistency\\.clock_table\\.(\\w|-)+$"]
         )
@@ -219,7 +225,10 @@ class ClusterState(Enum):
 class LeaderElectionHandler(UpdateHandler):
     def __init__(self, secret_container: SecretContainer):
         self.secret_container = secret_container
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers",
+            component="LeaderElectionHandler",
+        )
         self.cluster_state = {}
         self._matcher = RegexPathMatcher(
             [
@@ -374,7 +383,9 @@ class LeaderElectionHandler(UpdateHandler):
 
 class DataUpdateHandler(UpdateHandler):
     def __init__(self):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="DataUpdateHandler"
+        )
         self._matcher = RegexPathMatcher(
             [
                 "^nodes\\.(\\w|-)+\\.values\\.(\\w|-)+$",

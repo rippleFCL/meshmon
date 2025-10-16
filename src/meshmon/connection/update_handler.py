@@ -37,8 +37,8 @@ class GrpcUpdateHandler(UpdateHandler):
     def __init__(self, network_id: str, connection_manager: "ConnectionManager"):
         super().__init__()
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.update_handler",
-            component="grpc_update_handler",
+            module="meshmon.connection.update_handler",
+            component="GrpcUpdateHandler",
             network_id=network_id,
         )
         self._matcher = ExactPathMatcher("instant_update")

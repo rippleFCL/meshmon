@@ -25,10 +25,18 @@ class RateLimitedHandler(UpdateHandler):
         self.trigger = Event()
         self.stop_event = Event()
         self._matcher = ExactPathMatcher("update")
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.callbacks")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.events", component="RateLimitedHandler"
+        )
 
     def reload(self, new_config: PulseWaveConfig) -> None:
+        self.logger.info(
+            "Config reload triggered for RateLimitedHandler",
+            old_interval=self.min_interval,
+            new_interval=new_config.update_rate_limit,
+        )
         self.min_interval = new_config.update_rate_limit
+        self.logger.debug("RateLimitedHandler config updated successfully")
 
     def _handler_loop(self):
         self.logger.debug("RateLimitedHandler loop started")

@@ -64,16 +64,21 @@ class PulseWaveProtocol(ProtocolHandler):
         self.watcher.subscribe(self.load)
         self.remote_nonce = remote_nonce
         self.local_nonce = local_nonce
-
-        self.load(self.watcher.current_config)
-
         self.handler = handler
         self.mr_sbd = mr_sbd
         self.logger = get_logger().bind(
-            module="connection.protocol_handler", component="pulse_wave_protocol"
+            module="meshmon.connection.protocol_handler", component="PulseWaveProtocol"
         )
 
+        self.load(self.watcher.current_config)
+
     def load(self, config: ConnectionConfig):
+        self.logger.info(
+            "Config reload triggered for PulseWaveProtocol",
+            network_id=config.network_id,
+            local_node_id=config.local_node_id,
+            remote_node_id=config.remote_node_id,
+        )
         self.signer = config.signer
         self.verifier = config.verifier
 
@@ -89,6 +94,10 @@ class PulseWaveProtocol(ProtocolHandler):
             remote_nonce=self.local_nonce,
             network_id=config.network_id,
             node_id=config.verifier.node_id,
+        )
+        self.logger.debug(
+            "PulseWaveProtocol config updated successfully",
+            network_id=config.network_id,
         )
 
     def build_packet(

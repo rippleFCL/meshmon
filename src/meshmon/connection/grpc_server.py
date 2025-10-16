@@ -88,7 +88,7 @@ class MeshMonServicer(MeshMonServiceServicer):
         self.config: ServerConfig = self.config_watcher.current_config
         self.config_watcher.subscribe(self.reload)
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_server", component="MeshMonServicer"
+            module="meshmon.connection.grpc_server", component="MeshMonServicer"
         )
         self.connection_manager = connection_manager
         self.conn_lock = threading.Lock()
@@ -324,7 +324,13 @@ class MeshMonServicer(MeshMonServiceServicer):
             )
 
     def reload(self, new_config: ServerConfig) -> None:
+        self.logger.info(
+            "Config reload triggered for MeshMonServicer",
+            verifier_count=len(new_config.verifiers),
+            signer_count=len(new_config.server_signers),
+        )
         self.config = new_config
+        self.logger.debug("MeshMonServicer config updated successfully")
 
 
 class GrpcServer:
@@ -333,10 +339,10 @@ class GrpcServer:
     def __init__(self, config_bus: ConfigBus):
         self.config_bus = config_bus
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_server", component="server"
+            module="meshmon.connection.grpc_server", component="GrpcServer"
         )
         self.server = None
-        self.connection_manager = ConnectionManager()
+        self.connection_manager = ConnectionManager(config_bus)
         self.update_handlers = GrpcUpdateHandlerContainer(self.connection_manager)
         self._client = None  # Embedded client instance
 

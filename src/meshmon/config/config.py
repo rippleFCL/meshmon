@@ -42,7 +42,9 @@ class NetworkConfigLoader:
         """
         self.config_dir = Path(config_dir)
         self.file_name = file_name
-        self.logger = get_logger()
+        self.logger = get_logger().bind(
+            module="meshmon.config.config", component="NetworkConfigLoader"
+        )
         self._node_cfg = self._load_node_config()
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
         self.nodecfg_latest_mtime = self.get_netconf_mtime()
@@ -108,7 +110,13 @@ class NetworkConfigLoader:
                         f"Node version constraint '{version}' for network '{net_cfg.directory}' is not compatible with current node version '{SEMVER}'"
                     )
                     return None
-
+        if net_cfg.node_id not in [node.node_id for node in root.node_config]:
+            self.logger.warning(
+                "Node ID for this MeshMon instance is not present in the node configuration for network",
+                network_id=root.network_id,
+                node_id=net_cfg.node_id,
+            )
+            return None
         self.logger.debug(
             f"Network {net_cfg.directory} has {len(root.node_config)} nodes"
         )

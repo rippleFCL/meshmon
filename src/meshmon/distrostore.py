@@ -2,34 +2,37 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from .config import NetworkConfig, NetworkConfigLoader
+from .config.bus import ConfigBus, ConfigPreprocessor
+from .config.config import Config
 from .pulsewave.config import CurrentNode, NodeConfig, PulseWaveConfig
 from .pulsewave.store import SharedStore
-from .update_handlers import get_monitor_status_handler, get_node_status_handler
+from .update_handlers import (
+    MonitorStatusTableHandler,
+    MonitorStatusTablePreprocessor,
+    NodeStatusTableHandler,
+)
 
 if TYPE_CHECKING:
     from .connection.grpc_server import GrpcServer
 
 
-class StoreManager:
-    def __init__(
-        self,
-        config: NetworkConfigLoader,
-        grpc_server: "GrpcServer",
-    ):
-        self.config = config
-        self.stores: dict[str, SharedStore] = {}
-        self.logger = structlog.stdlib.get_logger().bind(
-            module="pulsewave.distrostore", component="StoreManager"
-        )
+class StoreManagerConfigPreprocessor(ConfigPreprocessor[set[str]]):
+    def preprocess(self, config: Config | None) -> set[str]:
+        if config is None:
+            return set()
+        return set(config.networks.keys())
 
-        # gRPC components for each network
-        self.grpc_server = grpc_server
 
-        self.load_stores()
+class PulseWaveConfigPreprocessor(ConfigPreprocessor[PulseWaveConfig]):
+    def __init__(self, network_id: str):
+        self.network_id = network_id
 
-    def _pulse_wave_config(self, network: NetworkConfig) -> PulseWaveConfig:
-        """Create PulseWaveConfig from NetworkConfig."""
+    def preprocess(self, config: Config | None) -> PulseWaveConfig | None:
+        if config is None:
+            return None
+        network = config.networks.get(self.network_id)
+        if network is None:
+            return None
         # Create CurrentNode from network configuration
         current_node = CurrentNode(
             node_id=network.node_id,
@@ -57,51 +60,89 @@ class StoreManager:
             clock_pulse_interval=1,  # Default clock pulse interval
         )
 
-    def load_stores(self):
-        for network in self.config.networks.values():
-            db_config = self._pulse_wave_config(network)
 
+class StoreManager:
+    def __init__(
+        self,
+        config_bus: ConfigBus,
+        grpc_server: "GrpcServer",
+    ):
+        watcher = config_bus.get_watcher(StoreManagerConfigPreprocessor())
+        if watcher is None:
+            raise ValueError("No initial config available for store manager")
+        self.config_watcher = watcher
+        self.config_watcher.subscribe(self.load_config)
+        self.config_bus = config_bus
+        self.stores: dict[str, SharedStore] = {}
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.distrostore", component="StoreManager"
+        )
+        # gRPC components for each network
+        self.grpc_server = grpc_server
+
+    def create_store(self, network_id: str) -> None:
+        self.logger.info("Creating store for network", network_id=network_id)
+        config_watcher = self.config_bus.get_watcher(
+            PulseWaveConfigPreprocessor(network_id)
+        )
+        if config_watcher is None:
+            self.logger.warning(
+                "Could not create config watcher for network", network_id=network_id
+            )
+            return
             # Create LocalStores instance for this StoreManager
 
             # Create gRPC handler for this network
-            grpc_handler = self.grpc_server.get_handler(network.network_id)
+        grpc_handler = self.grpc_server.get_handler(network_id)
 
-            # Create the store with local handler
-            new_store = SharedStore(db_config, grpc_handler)
-            matcher, handler = get_node_status_handler()
-            new_store.add_handler(matcher, handler)
-            matcher, handler = get_monitor_status_handler(network)
-            new_store.add_handler(matcher, handler)
+        # Create the store with local handler
+        watcher = self.config_bus.get_watcher(
+            MonitorStatusTablePreprocessor(network_id)
+        )
+        if watcher is None:
+            self.logger.warning(
+                "Could not create monitor config watcher for network",
+                network_id=network_id,
+            )
+            return
+        new_store = SharedStore(config_watcher, grpc_handler)
+        new_store.start()
+        new_store.add_handler(MonitorStatusTableHandler(watcher))
+        new_store.add_handler(NodeStatusTableHandler())
 
-            if network.network_id in self.stores:
-                self.logger.info(
-                    "Store already exists; loading data from existing store",
-                    network_id=network.network_id,
-                )
-                new_store.update_from_dump(self.stores[network.network_id].dump())
-            else:
-                self.logger.info(
-                    "Creating new store",
-                    network_id=network.network_id,
-                )
+        self.stores[network_id] = new_store
 
-            self.stores[network.network_id] = new_store
-
-            self.logger.debug("Loaded store", network_id=network.network_id)
-
-        for network_id in list(self.stores.keys()):
-            if network_id not in self.config.networks:
-                self.logger.info(
-                    "Removing obsolete store",
-                    network_id=network_id,
-                )
-                self.grpc_server.stop(5)
-                del self.stores[network_id]
-
-    def reload(self):
-        self.load_stores()
+        self.logger.debug("Loaded store", network_id=network_id)
 
     def get_store(self, network_id: str):
         return self.stores[network_id]
 
-    def stop(self): ...
+    def load_config(self, networks: set[str]):
+        self.logger.info(
+            "Config reload triggered for StoreManager",
+            new_network_count=len(networks),
+            current_network_count=len(self.stores),
+        )
+        current_networks = set(self.stores.keys())
+        to_add = networks - current_networks
+        to_remove = current_networks - networks
+
+        self.logger.debug(
+            "Store changes to apply",
+            networks_to_add=list(to_add),
+            networks_to_remove=list(to_remove),
+        )
+
+        for network_id in to_add:
+            self.logger.debug("Creating store for new network", network_id=network_id)
+            self.create_store(network_id)
+        for network_id in to_remove:
+            self.logger.info("Removing store for network", network_id=network_id)
+            store = self.stores[network_id]
+            store.stop()
+            del self.stores[network_id]
+
+        self.logger.info(
+            "StoreManager config updated successfully",
+            total_stores=len(self.stores),
+        )

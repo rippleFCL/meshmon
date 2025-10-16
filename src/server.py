@@ -18,26 +18,26 @@ from meshmon.api.structure.notification_cluster import NotificationClusterApi
 from meshmon.api.structure.status import (
     MeshMonApi,
 )
-from meshmon.config import (
+from meshmon.config.bus import ConfigBus
+from meshmon.config.config import (
     NetworkConfigLoader,
 )
-from meshmon.conman import ConfigManager
 from meshmon.connection.grpc_server import GrpcServer
 from meshmon.connection.heartbeat import HeartbeatController
 from meshmon.distrostore import (
     StoreManager,
 )
 from meshmon.dstypes import (
-    DSNodeInfo,
     DSNodeStatus,
     DSPingData,
 )
+from meshmon.lifecycle import LifecycleManager
 from meshmon.monitor import MonitorManager
 from meshmon.pulsewave.store import (
     StoreData,
 )
 from meshmon.version import VERSION
-from meshmon.webhooks import WebhookHandler
+from meshmon.webhooks import WebhookManager
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -75,7 +75,7 @@ structlog.configure_once(
     wrapper_class=structlog.make_filtering_bound_logger(_LEVELS.get(log_level, 20)),
     cache_logger_on_first_use=True,
 )
-logger = structlog.stdlib.get_logger()
+logger = structlog.stdlib.get_logger().bind(module="server")
 
 # JWT Configuration
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
@@ -83,57 +83,50 @@ CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
 
 logger.info("Starting server initialization with config file", config=CONFIG_FILE_NAME)
 
+logger.info("Initializing configuration loader...")
+config_loader = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
 
-logger.info("Loading network configuration...")
-config = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
-logger.info("Loaded network configurations", count=len(config.networks))
+logger.info("Initializing configuration bus...")
+config_bus = ConfigBus()
 
 logger.info("Initializing gRPC server...")
-grpc_server = GrpcServer(config)
-logger.info("gRPC server initialized")
+grpc_server = GrpcServer(config_bus)
 
 logger.info("Initializing store manager...")
-store_manager = StoreManager(config, grpc_server)
-logger.info("Initialized store manager with stores", count=len(store_manager.stores))
+store_manager = StoreManager(config_bus, grpc_server)
 
 logger.info("Initializing Heartbeat controller...")
 heartbeat_controller = HeartbeatController(
-    grpc_server.connection_manager, config, store_manager
+    grpc_server.connection_manager, config_bus, store_manager
 )
-logger.info("Heartbeat controller initialized")
 
 logger.info("Initializing monitor manager...")
-monitor_manager = MonitorManager(store_manager, config)
-logger.info(
-    f"Initialized monitor manager with {len(monitor_manager.monitors)} monitors"
-)
+monitor_manager = MonitorManager(store_manager, config_bus)
 
-logger.info("Initializing webhook handler...")
-webhook_handler = WebhookHandler(store_manager, config)
-logger.info("Webhook handler initialized")
+logger.info("Initializing webhook manager...")
+webhook_manager = WebhookManager(store_manager, config_bus)
 
 logger.info("Initializing config manager...")
-config_manager = ConfigManager(config, store_manager)
-logger.info("Config manager initialized")
+lifecycle_manager = LifecycleManager(
+    config_loader,
+    webhook_manager,
+    store_manager,
+    grpc_server,
+    monitor_manager,
+    heartbeat_controller,
+    config_bus,
+)
 
-# Get password from config and hash it
 logger.info("Server initialization complete")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up the server...")
-    grpc_server.start()
-    heartbeat_controller.start()
+    lifecycle_manager.start()
     yield
-    heartbeat_controller.stop()
-    webhook_handler.stop()
-    monitor_manager.stop_manager()
-    for net_id, store in store_manager.stores.items():
-        node_info = DSNodeInfo(version=VERSION)
-        store.set_value("node_info", node_info)
-    grpc_server.stop()
-    monitor_manager.stop()
+    logger.info("Shutting down the server...")
+    lifecycle_manager.stop()
 
 
 api = FastAPI(lifespan=lifespan)
@@ -166,48 +159,6 @@ class ViewPingData(BaseModel):
         )
 
 
-# def validate_msg(body: MonBody, network_id: str, authorization: str) -> dict:
-#     """Validate message signature using the existing crypto verification system."""
-#     logger.debug(
-#         "Validating message for network", net_id=network_id, sig_id=body.sig_id
-#     )
-#     if not authorization or not authorization.startswith("Bearer "):
-#         logger.warning("Invalid authorization header for network", net_id=network_id)
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Missing or invalid Bearer token",
-#         )
-#
-#     store = store_manager.get_store(network_id)
-#     if not store:
-#         logger.warning("Network not found", net_id=network_id)
-#         raise HTTPException(status_code=404, detail="Network not found")
-#
-#     verifier = store.key_mapping.get_verifier(body.sig_id)
-#     if not verifier:
-#         logger.warning(
-#             f"No verifier found for sig_id: {body.sig_id} in network {network_id}"
-#         )
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
-#         )
-#
-#     header = authorization.removeprefix("Bearer ")
-#
-#     if not verifier.verify(json.dumps(body.data).encode(), base64.b64decode(header)):
-#         logger.warning(
-#             f"Signature verification failed for sig_id: {body.sig_id} in network {network_id}"
-#         )
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
-#         )
-#
-#     logger.debug(
-#         f"Message validation successful for {network_id}, sig_id: {body.sig_id}"
-#     )
-#     return body.data
-
-
 class ViewNetwork(BaseModel):
     networks: dict[str, StoreData] = {}
 
@@ -215,9 +166,11 @@ class ViewNetwork(BaseModel):
 @api.get("/api/view", response_model=MeshMonApi)
 def view():
     """Get network view data. Requires JWT authentication."""
-    logger.debug("View request for networks")
-    networks = generate_api(store_manager, config)
-    return networks
+    if config_bus.config:
+        logger.debug("View request for networks")
+        networks = generate_api(store_manager, config_bus.config)
+        return networks
+    return MeshMonApi()
 
 
 @api.get("/api/cluster", response_model=ClusterInfoApi)

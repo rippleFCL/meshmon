@@ -96,6 +96,25 @@ class StoreContextData(BaseModel):
     allowed_keys: list[str]
     sig: str
 
+    def resign(self, signer: Signer) -> None:
+        date = datetime.datetime.now(datetime.timezone.utc)
+        sig_str = json.dumps(
+            {
+                "context_name": self.context_name,
+                "date": date.isoformat(timespec="microseconds"),
+                "allowed_keys": self.allowed_keys,
+            }
+        ).encode()
+        sig = base64.b64encode(signer.sign(sig_str)).decode()
+        self.date = date
+        self.sig = sig
+        for key in list(self.data.keys()):  # we usually resign when allowed keys change
+            if key not in self.allowed_keys and key in self.data:
+                logger.info(
+                    f"Removing disallowed key {key} from context {self.context_name}"
+                )
+                del self.data[key]
+
     @classmethod
     def new(
         cls, signer: Signer, context_name: str, allowed_keys: list[str] | None = None
@@ -106,7 +125,7 @@ class StoreContextData(BaseModel):
         sig_str = json.dumps(
             {
                 "context_name": context_name,
-                "date": date.isoformat(),
+                "date": date.isoformat(timespec="microseconds"),
                 "allowed_keys": allowed_keys,
             }
         ).encode()
@@ -123,7 +142,7 @@ class StoreContextData(BaseModel):
         sig_str = json.dumps(
             {
                 "context_name": self.context_name,
-                "date": self.date.isoformat(),
+                "date": self.date.isoformat(timespec="microseconds"),
                 "allowed_keys": self.allowed_keys,
             }
         ).encode()
@@ -170,11 +189,10 @@ class StoreContextData(BaseModel):
             updated_paths.append(path)
 
         for key, value in context_data.data.items():
-            if self.allowed_keys and key not in self.allowed_keys:
-                logger.info(f"Key {key} not allowed in context {self.context_name}")
+            if key not in self.allowed_keys:
                 if key in self.data:
                     logger.info(
-                        f"Removing disallowed key {key} from context {self.context_name}"
+                        f"Removing deleted key {key} from context {self.context_name}"
                     )
                     del self.data[key]
                 continue
@@ -302,7 +320,10 @@ class StoreConsistentContextData(BaseModel):
                 self.leader.verify(verifier, "leader", f"{path}.leader") and verified
             )
         data = json.dumps(
-            {"ctx_name": self.ctx_name, "date": self.date.isoformat()}
+            {
+                "ctx_name": self.ctx_name,
+                "date": self.date.isoformat(timespec="microseconds"),
+            }
         ).encode()
         verified = (
             verifier.verify(data, base64.b64decode(self.sig), path=path) and verified
@@ -312,7 +333,9 @@ class StoreConsistentContextData(BaseModel):
     @classmethod
     def new(cls, signer: Signer, ctx_name: str, path: str, secret: str | None = None):
         date = datetime.datetime.now(datetime.timezone.utc)
-        data = json.dumps({"ctx_name": ctx_name, "date": date.isoformat()}).encode()
+        data = json.dumps(
+            {"ctx_name": ctx_name, "date": date.isoformat(timespec="microseconds")}
+        ).encode()
         sig = base64.b64encode(signer.sign(data)).decode()
         return cls(
             context=StoreContextData.new(signer, "context"),
@@ -463,16 +486,51 @@ class StoreConsistencyData(BaseModel):
     clock_pulse: SignedBlockData | None = None
     node_status_table: StoreContextData
     consistent_contexts: dict[str, StoreConsistentContextData] = {}
+    allowed_contexts: list[str] = []
+    date: datetime.datetime
+    sig: str
+
+    def resign(self, signer: Signer):
+        date = datetime.datetime.now(datetime.timezone.utc)
+        sig_data = json.dumps(
+            {
+                "date": date.isoformat(timespec="microseconds"),
+                "allowed_contexts": self.allowed_contexts,
+            }
+        ).encode()
+        self.sig = base64.b64encode(signer.sign(sig_data)).decode()
+        self.date = date
+        for context in list(self.consistent_contexts.values()):
+            if (
+                context not in self.allowed_contexts
+                and context.ctx_name in self.consistent_contexts
+            ):
+                logger.info(
+                    f"Removing disallowed consistent context {context.ctx_name}"
+                )
+                del self.consistent_contexts[context.ctx_name]
+        logger.debug("Resigning StoreConsistencyData")
 
     @classmethod
     def new(cls, signer: Signer) -> "StoreConsistencyData":
         clock_table = StoreContextData.new(signer, "clock_table")
         node_status_table = StoreContextData.new(signer, "node_status_table")
         pulse_table = StoreContextData.new(signer, "pulse_table")
+        date = datetime.datetime.now(datetime.timezone.utc)
+        sig_data = json.dumps(
+            {
+                "date": date.isoformat(timespec="microseconds"),
+                "allowed_contexts": [],
+            }
+        )
+        sig = base64.b64encode(signer.sign(sig_data.encode())).decode()
         return cls(
             clock_table=clock_table,
             node_status_table=node_status_table,
             pulse_table=pulse_table,
+            date=date,
+            sig=sig,
+            allowed_contexts=[],
         )
 
     def update(
@@ -523,10 +581,36 @@ class StoreConsistencyData(BaseModel):
                     self.clock_pulse = consistency_data.clock_pulse
                     updated_paths.append(f"{path}.clock_pulse")
 
+        if (
+            self.allowed_contexts != consistency_data.allowed_contexts
+            and consistency_data.date > self.date
+        ):
+            if consistency_data.verify(verifier, path):
+                self.allowed_contexts = consistency_data.allowed_contexts
+                self.date = consistency_data.date
+                self.sig = consistency_data.sig
+                to_remove = []
+                for ctx in self.consistent_contexts.keys():
+                    if ctx not in self.allowed_contexts:
+                        to_remove.append(ctx)
+                for ctx in to_remove:
+                    if ctx in self.consistent_contexts:
+                        del self.consistent_contexts[ctx]
+                        logger.info(
+                            "Removing disallowed consistent context",
+                            path=f"{path}.consistent_contexts.{ctx}",
+                        )
+
+                updated_paths.append(f"{path}.allowed_contexts")
+                updated_paths.append(f"{path}.date")
+                updated_paths.append(f"{path}.sig")
+
         combined_keys = set(self.consistent_contexts.keys()).union(
             set(consistency_data.consistent_contexts.keys())
         )
         for key in combined_keys:
+            if key not in self.allowed_contexts:
+                continue
             if (
                 key in self.consistent_contexts
                 and key not in consistency_data.consistent_contexts
@@ -567,12 +651,21 @@ class StoreConsistencyData(BaseModel):
         clock_table_diff = self.clock_table.diff(other.clock_table)
         node_status_table_diff = self.node_status_table.diff(other.node_status_table)
         pulse_table_diff = self.pulse_table.diff(other.pulse_table)
+
         diff_data = StoreConsistencyData(
             pulse_table=pulse_table_diff or self.pulse_table,
             clock_table=clock_table_diff or self.clock_table,
             node_status_table=node_status_table_diff or self.node_status_table,
             clock_pulse=self.clock_pulse,
+            date=self.date,
+            sig=self.sig,
+            allowed_contexts=self.allowed_contexts,
         )
+        if diff_data.date < other.date:
+            diff_data.date = other.date
+            diff_data.sig = other.sig
+            diff_data.allowed_contexts = other.allowed_contexts
+
         if self.clock_pulse and other.clock_pulse:
             if self.clock_pulse.date < other.clock_pulse.date:
                 diff_data.clock_pulse = other.clock_pulse

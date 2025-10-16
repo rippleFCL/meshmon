@@ -14,6 +14,11 @@ class SecretContainer:
         with self.lock:
             return self.secrets.get(key)
 
+    def delete_secret(self, key: str):
+        with self.lock:
+            if key in self.secrets:
+                del self.secrets[key]
+
     def validate_secret(self, key: str, value: str) -> bool:
         with self.lock:
             if key not in self.secrets:

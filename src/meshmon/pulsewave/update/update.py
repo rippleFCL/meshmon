@@ -4,16 +4,8 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
-from ..config import PulseWaveConfig
-
 if TYPE_CHECKING:
     from ..store import SharedStore
-
-
-class UpdateHandler(Protocol):
-    def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None: ...
-
-    def handle_update(self) -> None: ...
 
 
 class DedupeQueue:
@@ -47,6 +39,16 @@ class UpdateMatcher(Protocol):
     def matches(self, name: str) -> bool: ...
 
 
+class UpdateHandler(Protocol):
+    def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None: ...
+
+    def handle_update(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def matcher(self) -> UpdateMatcher: ...
+
+
 class RegexPathMatcher:
     def __init__(self, pattern: list[str]):
         self.pattern = re.compile("|".join(pattern))
@@ -65,20 +67,29 @@ class ExactPathMatcher:
 
 class UpdateController:
     def __init__(self):
-        self.handlers: list[tuple[UpdateMatcher, UpdateHandler]] = []
+        self.handlers: list[UpdateHandler] = []
         self.handler_cache: dict[str, list[UpdateHandler]] = {}
+        self.current_matchers: list[UpdateMatcher] = []
 
-    def handle(
-        self, events: list[str], store: "SharedStore", update_manager: "UpdateManager"
-    ) -> None:
+    def handle(self, events: list[str]) -> None:
         execute_handlers = []
+        updated = False
+        for handler in self.handlers:
+            if handler.matcher() not in self.current_matchers:
+                self.current_matchers.append(handler.matcher())
+                updated = True
+
+        if updated:  # Clear handler cache if matchers have changed
+            self.handler_cache.clear()
+
         for event in events:
             handlers = []
             if event in self.handler_cache:
                 for handler in self.handler_cache[event]:
                     handler.handle_update()
 
-            for matcher, handler in self.handlers:
+            for handler in self.handlers:
+                matcher = handler.matcher()
                 if matcher.matches(event):
                     handlers.append(handler)
                     if handler not in execute_handlers:
@@ -88,18 +99,23 @@ class UpdateController:
         for handler in execute_handlers:
             handler.handle_update()
 
-    def add(self, matcher: UpdateMatcher, handler: UpdateHandler):
-        self.handlers.append((matcher, handler))
+    def stop(self) -> None:
+        for handler in self.handlers:
+            handler.stop()
+
+    def add(self, handler: UpdateHandler):
+        self.handlers.append(handler)
         self.handler_cache.clear()
 
 
 class UpdateManager:
     def __init__(
         self,
-        db_config: PulseWaveConfig,
         store: "SharedStore",
     ):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.update", component="UpdateManager"
+        )
         self.event_queue = DedupeQueue()
         self.event_controller = UpdateController()
         self.idle = Event()
@@ -107,24 +123,26 @@ class UpdateManager:
         self.update_queue = DedupeQueue()
         self.update_controller = UpdateController()
 
-        self.db_config = db_config
         self.store = store
-        self.thread: Thread = Thread(
-            target=self.looped_executor, args=(self.update_loop,), daemon=True
+        self.update_thread: Thread = Thread(
+            target=self.looped_executor,
+            args=(self.update_loop,),
+            name="update-loop",
         )
-        self.thread.start()
         self.event_thread: Thread = Thread(
-            target=self.looped_executor, args=(self.event_loop,), daemon=True
+            target=self.looped_executor,
+            args=(self.event_loop,),
+            name="event-loop",
         )
-        self.event_thread.start()
+        self.stop_event: Event = Event()
 
-    def add_handler(self, matcher: UpdateMatcher, callback: UpdateHandler):
-        callback.bind(self.store, self)
-        self.update_controller.add(matcher, callback)
+    def add_handler(self, handler: UpdateHandler):
+        handler.bind(self.store, self)
+        self.update_controller.add(handler)
 
-    def add_event_handler(self, matcher: UpdateMatcher, callback: UpdateHandler):
-        callback.bind(self.store, self)
-        self.event_controller.add(matcher, callback)
+    def add_event_handler(self, handler: UpdateHandler):
+        handler.bind(self.store, self)
+        self.event_controller.add(handler)
 
     def trigger_update(self, path: list[str]):
         self.idle.clear()
@@ -134,25 +152,25 @@ class UpdateManager:
         self.event_queue.add([event])
 
     def event_loop(self):
-        self.event_queue.wait_for_items()
-        events = self.event_queue.pop_all()
-        if not self.idle.wait():
-            return
-        self.logger.debug("Processing events", event_ids=events)
-        self.event_controller.handle(events, self.store, self)
+        if self.event_queue.wait_for_items(1):
+            events = self.event_queue.pop_all()
+            if not self.idle.wait():
+                return
+            self.logger.debug("Processing events", event_ids=events)
+            self.event_controller.handle(events)
 
     def update_loop(self):
-        self.update_queue.wait_for_items()
-        while True:
-            paths = self.update_queue.pop_all()
-            self.logger.debug("Processing updates", path_ids=paths)
-            self.update_controller.handle(paths, self.store, self)
-            if self.update_queue.empty:
-                break
+        if self.update_queue.wait_for_items(1):
+            while True:
+                paths = self.update_queue.pop_all()
+                self.logger.debug("Processing updates", path_ids=paths)
+                self.update_controller.handle(paths)
+                if self.update_queue.empty:
+                    break
         self.idle.set()
 
     def looped_executor(self, func):
-        while True:
+        while self.stop_event.is_set() is False:
             func()
 
     def wait_until_idle(self, timeout: float | None = None) -> bool:
@@ -160,44 +178,15 @@ class UpdateManager:
 
     def stop(self):
         self.logger.info("Stopping update manager")
-        # TODO: Implement proper stopping mechanism
+        self.stop_event.set()
+        self.idle.set()
+        if self.update_thread.is_alive():
+            self.update_thread.join()
+        if self.event_thread.is_alive():
+            self.event_thread.join()
+        self.update_controller.stop()
+        self.event_controller.stop()
 
-
-#     async def _node_update_loop(self, node_cfg: NodeConfig):
-#         """Dedicated update loop for a single node with rate limiting"""
-#         node_id = node_cfg.node_id
-#         last_update_time = 0.0
-#         update_event = self.node_update_events[node_id]
-#         increment_handler = self.node_incremental_handlers[node_id]
-#         while True:
-#             # Wait for an update event
-#             await update_event.wait()
-#
-#             # Clear the event
-#             update_event.clear()
-#             # Apply rate limiting
-#             current_time = time.time()
-#
-#             # Get fresh data and send update
-#             data = increment_handler.diff(self.store.store, node_id)
-#             if data.nodes:
-#                 try:
-#                     update_success = await self.callback.handle_update(
-#                         data.model_dump_json(),
-#                         self,
-#                         node_cfg,
-#                         self.db_config.current_node,
-#                     )
-#                     if update_success:
-#                         increment_handler.update(data, self.db_config.key_mapping)
-#                     else:
-#                         increment_handler.clear()
-#                 except Exception as e:
-#                     # Log error but continue with other nodes
-#                     print(f"Error updating node {node_cfg.node_id}: {e}")
-#
-#             time_since_last = current_time - last_update_time
-#             last_update_time = time.time()
-#
-#             if time_since_last < self.rate_limit:
-#                 await asyncio.sleep(self.rate_limit - time_since_last)
+    def start(self):
+        self.update_thread.start()
+        self.event_thread.start()

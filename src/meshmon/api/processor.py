@@ -17,7 +17,7 @@ from meshmon.api.structure.notification_cluster import (
     NotificationClusters,
     NotificationClusterStatusEnum,
 )
-from meshmon.config import NetworkConfig, NetworkConfigLoader
+from meshmon.config.config import Config, NetworkConfig
 from meshmon.pulsewave.data import StoreLeaderStatus, StoreNodeStatus
 
 from ..distrostore import StoreManager
@@ -211,7 +211,7 @@ def get_network_info(store: SharedStore, network: NetworkConfig) -> NetworkInfo:
     )
 
 
-def generate_api(stores: StoreManager, config: NetworkConfigLoader) -> MeshMonApi:
+def generate_api(stores: StoreManager, config: Config) -> MeshMonApi:
     api = MeshMonApi()
     for net_id, store in stores.stores.items():
         netconf = config.networks.get(net_id)

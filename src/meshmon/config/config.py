@@ -1,81 +1,38 @@
 import os
 import shutil
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, StringConstraints
+from pydantic import StringConstraints
 from structlog.stdlib import get_logger
 
-from meshmon.version import SEMVER
-
-from .git import Repo
-from .pulsewave.crypto import KeyMapping, Signer, Verifier
-
-
-class ConfigTypes(Enum):
-    GIT = "git"
-    LOCAL = "local"
-
-
-class NodeCfgNetwork(BaseModel):
-    directory: str
-    node_id: Annotated[str, StringConstraints(to_lower=True)]
-    config_type: ConfigTypes = ConfigTypes.LOCAL
-    git_repo: str | None = None
-    discord_webhook: dict[str, str] | None = None
-
-
-class NodeCfg(BaseModel):
-    networks: list[NodeCfgNetwork]
-
-
-class MonitorTypes(Enum):
-    PING = "ping"
-    HTTP = "http"
-
-
-class NetworkMonitor(BaseModel):
-    name: str
-    type: MonitorTypes
-    host: str
-    interval: int = 10
-    retry: int = 2
-
-
-class NetworkNodeInfo(BaseModel):
-    node_id: Annotated[str, StringConstraints(to_lower=True)]
-    url: str | None = None
-    poll_rate: int = 10
-    retry: int = 2
-    local_monitors: list[NetworkMonitor] = []
-
-
-class NetworkRootConfig(BaseModel):
-    node_config: list[NetworkNodeInfo]
-    network_id: Annotated[str, StringConstraints(to_lower=True)]
-    node_version: list[str] | None = None
-    monitors: list[NetworkMonitor] = []
+from ..git import Repo
+from ..pulsewave.crypto import KeyMapping, Signer, Verifier
+from ..version import SEMVER
+from .structure.network import NetworkMonitor, NetworkNodeInfo, NetworkRootConfig
+from .structure.node_cfg import ConfigTypes, NodeCfg, NodeCfgNetwork
 
 
 @dataclass
 class NetworkConfig:
-    key_mapping: KeyMapping
     node_config: list[NetworkNodeInfo]
+    network_id: Annotated[str, StringConstraints(to_lower=True)]
     monitors: list[NetworkMonitor]
-    network_id: str
-    node_id: str
+    key_mapping: KeyMapping
+    node_id: Annotated[str, StringConstraints(to_lower=True)]
     node_cfg: NodeCfgNetwork
 
-    def get_verifier(self, peer_id: str) -> Verifier | None:
-        if peer_id not in self.key_mapping:
-            return None
-        return self.key_mapping.verifiers[peer_id]
+    def get_verifier(self, node_id: str) -> Verifier | None:
+        return self.key_mapping.get_verifier(node_id)
 
 
-# Class to load only network config
+@dataclass
+class Config:
+    networks: dict[str, NetworkConfig]
+
+
 class NetworkConfigLoader:
     def __init__(
         self, config_dir: Path | str = "config", file_name: str = "nodeconf.yml"
@@ -85,9 +42,10 @@ class NetworkConfigLoader:
         """
         self.config_dir = Path(config_dir)
         self.file_name = file_name
-        self.logger = get_logger()
-        self.node_cfg = self._load_node_config()
-        self.networks: dict[str, NetworkConfig] = self._load_all_network_configs()
+        self.logger = get_logger().bind(
+            module="meshmon.config.config", component="NetworkConfigLoader"
+        )
+        self._node_cfg = self._load_node_config()
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
         self.nodecfg_latest_mtime = self.get_netconf_mtime()
 
@@ -152,7 +110,13 @@ class NetworkConfigLoader:
                         f"Node version constraint '{version}' for network '{net_cfg.directory}' is not compatible with current node version '{SEMVER}'"
                     )
                     return None
-
+        if net_cfg.node_id not in [node.node_id for node in root.node_config]:
+            self.logger.warning(
+                "Node ID for this MeshMon instance is not present in the node configuration for network",
+                network_id=root.network_id,
+                node_id=net_cfg.node_id,
+            )
+            return None
         self.logger.debug(
             f"Network {net_cfg.directory} has {len(root.node_config)} nodes"
         )
@@ -200,20 +164,14 @@ class NetworkConfigLoader:
         net_configs = [self._load_network_config(cfg) for cfg in node_configs.networks]
         return {cfg.network_id: cfg for cfg in net_configs if cfg is not None}
 
-    def reload(self):
+    def load(self):
         """
         Reload all network configurations.
         """
-        self.node_cfg = self._load_node_config()
-        self.networks = self._load_all_network_configs()
+        self.config = Config(networks=self._load_all_network_configs())
         self.latest_mtime = self.get_latest_mtime(self.config_dir / "networks")
         self.nodecfg_latest_mtime = self.get_netconf_mtime()
-
-    def get_network(self, network_id: str) -> NetworkConfig | None:
-        """
-        Get a network configuration by its ID.
-        """
-        return self.networks.get(network_id)
+        return self.config
 
     def get_netconf_mtime(self) -> float:
         """
@@ -243,7 +201,7 @@ class NetworkConfigLoader:
         """
         has_changes = False
 
-        for network in self.node_cfg.networks:
+        for network in self._node_cfg.networks:
             # Only check Git-based networks
             network_path = self.config_dir / "networks" / network.directory
             if network.config_type == ConfigTypes.GIT and network.git_repo:
@@ -282,29 +240,3 @@ class NetworkConfigLoader:
             self.logger.info("Node configuration file has been modified, reloading")
             has_changes = True
         return has_changes
-
-
-def get_pingable_nodes(network: NetworkConfig) -> list[str]:
-    connectable: dict[str, bool] = {}
-    for node_cfg in network.node_config:
-        if node_cfg.url:
-            connectable[node_cfg.node_id] = True
-        else:
-            connectable[node_cfg.node_id] = False
-    allowed_keys = []
-    for node_id in network.key_mapping.verifiers.keys():
-        if connectable.get(node_id, False):
-            allowed_keys.append(node_id)
-    return allowed_keys
-
-
-def get_all_monitor_names(network: NetworkConfig, node_id: str) -> list[str]:
-    monitor_names = set()
-    for monitor in network.monitors:
-        monitor_names.add(monitor.name)
-    for node in network.node_config:
-        if node.node_id != node_id:
-            continue
-        for monitor in node.local_monitors:
-            monitor_names.add(monitor.name)
-    return list(monitor_names)

@@ -1,6 +1,5 @@
 import datetime
-import time
-from threading import Thread
+from threading import Event, Thread
 from typing import TYPE_CHECKING
 
 import structlog
@@ -8,7 +7,6 @@ import structlog
 if TYPE_CHECKING:
     from ..store import SharedStore
 
-from ..config import PulseWaveConfig
 from ..data import (
     StoreClockPulse,
 )
@@ -20,23 +18,31 @@ class ClockPulseGenerator:
         self,
         store: "SharedStore",
         update_manager: UpdateManager,
-        db_config: PulseWaveConfig,
     ):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.manager", component="ClockPulseGenerator"
+        )
         self.store = store
         self.update_manager = update_manager
-        self.db_config = db_config
-        self.thread = Thread(target=self.consistency_thread, daemon=True)
-        self.thread.start()
+        self._stop = Event()
+        self.thread = Thread(
+            target=self.consistency_thread, name="clock-pulse-generator"
+        )
 
     def consistency_thread(self):
-        while True:
+        while not self._stop.is_set():
             consistancy = self.store.get_consistency()
             consistancy.clock_pulse = StoreClockPulse(
                 date=datetime.datetime.now(datetime.timezone.utc)
             )
-            time.sleep(self.db_config.clock_pulse_interval)
+            self._stop.wait(self.store.config.clock_pulse_interval)
 
     def stop(self):
         self.logger.info("Stopping ClockPulseGenerator")
-        # TODO: Implement proper stopping mechanism
+        self._stop.set()
+        if self.thread.is_alive():
+            self.thread.join()
+
+    def start(self):
+        self.thread.start()
+        self.logger.info("ClockPulseGenerator started")

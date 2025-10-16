@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from meshmon.config.bus import ConfigWatcher
+
 if TYPE_CHECKING:
     from ..store import SharedStore
 
@@ -23,9 +25,24 @@ from .update import RegexPathMatcher, UpdateHandler, UpdateManager
 
 
 class ClockTableHandler(UpdateHandler):
-    def __init__(self, db_config: PulseWaveConfig):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
-        self.db_config = db_config
+    def __init__(self, config_watcher: ConfigWatcher[PulseWaveConfig]):
+        self.config_watcher = config_watcher
+        self._matcher = RegexPathMatcher(
+            [
+                f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{config_watcher.current_config.current_node.node_id}$"
+            ]
+        )
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="ClockTableHandler"
+        )
+
+    def reload(self, config: PulseWaveConfig):
+        self.config_watcher = config
+        self._matcher = RegexPathMatcher(
+            [
+                f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{config.current_node.node_id}$"
+            ]
+        )
 
     def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None:
         self.store = store
@@ -33,7 +50,7 @@ class ClockTableHandler(UpdateHandler):
 
     def handle_update(self) -> None:
         self.logger.debug("Handling datastore update")
-        node_cfg = self.db_config.current_node
+        node_cfg = self.store.config.current_node
         consistency = self.store.get_consistency()
         clock_table = consistency.clock_table
         self.logger.debug("Computing clock table")
@@ -61,29 +78,27 @@ class ClockTableHandler(UpdateHandler):
                     new_clock_entry = StoreClockTableEntry(
                         last_pulse=node_pulse.current_pulse,
                         remote_time=node_pulse.current_time,
-                        pulse_interval=self.db_config.clock_pulse_interval,
+                        pulse_interval=self.store.config.clock_pulse_interval,
                         delta=diff,
                         rtt=hrtt_time * 2,
                     )
                     clock_table.set(node, new_clock_entry)
                     self.update_manager.trigger_event("instant_update")
 
+    def stop(self) -> None: ...
 
-def get_clock_table_handler(
-    db_config: PulseWaveConfig,
-) -> tuple[RegexPathMatcher, ClockTableHandler]:
-    clock_table_handler = ClockTableHandler(db_config)
-    current_node = db_config.current_node
-    matchers = [
-        f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{current_node.node_id}$"
-    ]
-    update_matcher = RegexPathMatcher(matchers)
-    return update_matcher, clock_table_handler
+    def matcher(self) -> RegexPathMatcher:
+        return self._matcher
 
 
 class PulseTableHandler(UpdateHandler):
     def __init__(self):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="PulseTableHandler"
+        )
+        self._matcher = RegexPathMatcher(
+            ["^nodes\\.(\\w|-)+\\.consistency\\.clock_pulse$"]
+        )
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
         self.store = store
@@ -114,24 +129,27 @@ class PulseTableHandler(UpdateHandler):
                         )
                         self.update_manager.trigger_event("instant_update")
 
+    def stop(self) -> None: ...
 
-def get_pulse_table_handler() -> tuple[RegexPathMatcher, PulseTableHandler]:
-    pulse_table_handler = PulseTableHandler()
-    matchers = ["^nodes\\.(\\w|-)+\\.consistency\\.clock_pulse$"]
-    update_matcher = RegexPathMatcher(matchers)
-    return update_matcher, pulse_table_handler
+    def matcher(self) -> RegexPathMatcher:
+        return self._matcher
 
 
 class NodeStatusHandler(UpdateHandler):
     def __init__(self):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="NodeStatusHandler"
+        )
+        self._matcher = RegexPathMatcher(
+            ["^nodes\\.(\\w|-)+\\.consistency\\.clock_table\\.(\\w|-)+$"]
+        )
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
         self.store = store
         self.update_manager = update_manager
 
     def handle_update(self) -> None:
-        current_node_id = self.store.key_mapping.signer.node_id
+        current_node_id = self.store.config.key_mapping.signer.node_id
         consistency = self.store.get_consistency()
         node_status_table = consistency.node_status_table
         clock_table = consistency.clock_table
@@ -143,7 +161,7 @@ class NodeStatusHandler(UpdateHandler):
             pulse_table = node_consistency_table.pulse_table
             if not pulse_table:
                 continue
-            pt_entry = pulse_table.get(self.store.key_mapping.signer.node_id)
+            pt_entry = pulse_table.get(self.store.config.key_mapping.signer.node_id)
             if not pt_entry:
                 node_status_table.set(
                     current_node_id,
@@ -190,14 +208,10 @@ class NodeStatusHandler(UpdateHandler):
 
             self.update_manager.trigger_event("instant_update")
 
+    def stop(self) -> None: ...
 
-def get_node_status_handler() -> tuple[RegexPathMatcher, NodeStatusHandler]:
-    node_status_handler = NodeStatusHandler()
-    matchers = [
-        "^nodes\\.(\\w|-)+\\.consistency\\.clock_table\\.(\\w|-)+$",
-    ]
-    update_matcher = RegexPathMatcher(matchers)
-    return update_matcher, node_status_handler
+    def matcher(self) -> RegexPathMatcher:
+        return self._matcher
 
 
 class ClusterState(Enum):
@@ -211,8 +225,18 @@ class ClusterState(Enum):
 class LeaderElectionHandler(UpdateHandler):
     def __init__(self, secret_container: SecretContainer):
         self.secret_container = secret_container
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers",
+            component="LeaderElectionHandler",
+        )
         self.cluster_state = {}
+        self._matcher = RegexPathMatcher(
+            [
+                "^nodes\\.(\\w|-)+\\.consistency\\.node_status_table\\.(\\w|-)+$",  # node status change
+                "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.leader$",  # leader status change
+                "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+$",  # consistent contexts creation
+            ]
+        )
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
         self.store = store
@@ -240,7 +264,7 @@ class LeaderElectionHandler(UpdateHandler):
             node_statuses = []
             for node in nodes:
                 node_status = node_status_table.get(
-                    self.store.key_mapping.signer.node_id
+                    self.store.config.key_mapping.signer.node_id
                 )
                 if not node_status or node_status.status != StoreNodeStatus.ONLINE:
                     continue
@@ -270,7 +294,7 @@ class LeaderElectionHandler(UpdateHandler):
         cluster_ctx = self.store.get_consistency_context(
             cluster, BaseModel, secret=self.secret_container.get_secret(cluster)
         )
-        current_node_id = self.store.key_mapping.signer.node_id
+        current_node_id = self.store.config.key_mapping.signer.node_id
         online_nodes = self._get_online_nodes(cluster_ctx.nodes())
         consistent = self._is_consistent(online_nodes)
         all_online_nodes = self._get_online_nodes(self.store.nodes)
@@ -351,23 +375,24 @@ class LeaderElectionHandler(UpdateHandler):
         for cluster in self.store.local_consistency_contexts():
             self._process_cluster(cluster)
 
+    def stop(self) -> None: ...
 
-def get_leader_election_handler(
-    secret_container: SecretContainer,
-) -> tuple[RegexPathMatcher, LeaderElectionHandler]:
-    leader_election_handler = LeaderElectionHandler(secret_container)
-    matchers = [
-        "^nodes\\.(\\w|-)+\\.consistency\\.node_status_table\\.(\\w|-)+$",  # node status change
-        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.leader$",  # leader status change
-        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+$",  # consistent contexts creation
-    ]
-    update_matcher = RegexPathMatcher(matchers)
-    return update_matcher, leader_election_handler
+    def matcher(self) -> RegexPathMatcher:
+        return self._matcher
 
 
 class DataUpdateHandler(UpdateHandler):
     def __init__(self):
-        self.logger = structlog.stdlib.get_logger().bind(module="pulsewave.update")
+        self.logger = structlog.stdlib.get_logger().bind(
+            module="meshmon.pulsewave.update.handlers", component="DataUpdateHandler"
+        )
+        self._matcher = RegexPathMatcher(
+            [
+                "^nodes\\.(\\w|-)+\\.values\\.(\\w|-)+$",
+                "^nodes\\.(\\w|-)+\\.contexts\\.(\\w|-)+$",
+                "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.context\\.(\\w|-)+$",
+            ]
+        )
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
         self.store = store
@@ -377,13 +402,7 @@ class DataUpdateHandler(UpdateHandler):
         self.logger.debug("Data event triggered")
         self.update_manager.trigger_event("update")
 
+    def stop(self) -> None: ...
 
-def get_data_update_handler() -> tuple[RegexPathMatcher, DataUpdateHandler]:
-    data_event_handler = DataUpdateHandler()
-    matchers = [
-        "^nodes\\.(\\w|-)+\\.values\\.(\\w|-)+$",
-        "^nodes\\.(\\w|-)+\\.contexts\\.(\\w|-)+$",
-        "^nodes\\.(\\w|-)+\\.consistency\\.consistent_contexts\\.(\\w|-)+\\.context\\.(\\w|-)+$",
-    ]
-    update_matcher = RegexPathMatcher(matchers)
-    return update_matcher, data_event_handler
+    def matcher(self) -> RegexPathMatcher:
+        return self._matcher

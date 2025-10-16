@@ -1,18 +1,23 @@
 import os
 import threading
 from concurrent import futures
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
 import grpc
 import structlog
 from pydantic import ValidationError
 
-from meshmon.config import NetworkConfigLoader
-from meshmon.connection.protocol_handler import PulseWaveProtocol
-from meshmon.connection.update_handler import GrpcUpdateHandler
-from meshmon.pulsewave.crypto import Verifier
-from meshmon.pulsewave.data import SignedBlockData
+from meshmon.config.config import Config
 
+from ..config.bus import ConfigBus, ConfigPreprocessor, ConfigWatcher
+from ..connection.protocol_handler import (
+    ConnectionConfigPreprocessor,
+    PulseWaveProtocol,
+)
+from ..connection.update_handler import GrpcUpdateHandler
+from ..pulsewave.crypto import Signer, Verifier
+from ..pulsewave.data import SignedBlockData
 from .connection import ConnectionManager, RawConnection
 from .grpc_client import GrpcClientManager
 from .grpc_types import Validator
@@ -41,6 +46,32 @@ class GrpcUpdateHandlerContainer:
                 )
             return self.handlers[network_id]
 
+    def remove_handler(self, network_id: str) -> None:
+        with self.lock:
+            if network_id in self.handlers:
+                del self.handlers[network_id]
+
+
+@dataclass
+class ServerConfig:
+    verifiers: dict[tuple[str, str], Verifier]
+    server_signers: dict[str, Signer]
+
+
+class ServerConfigPreprocessor(ConfigPreprocessor[ServerConfig]):
+    def preprocess(self, config: Config | None) -> ServerConfig:
+        server_config = ServerConfig(verifiers={}, server_signers={})
+        if config is None:
+            return server_config
+        for network_id, network in config.networks.items():
+            if not network.key_mapping or not network.key_mapping.verifiers:
+                continue
+
+            for node, verifier in network.key_mapping.verifiers.items():
+                server_config.verifiers[(network_id, node)] = verifier
+            server_config.server_signers[network_id] = network.key_mapping.signer
+        return server_config
+
 
 class MeshMonServicer(MeshMonServiceServicer):
     """gRPC service implementation for MeshMon."""
@@ -49,11 +80,15 @@ class MeshMonServicer(MeshMonServiceServicer):
         self,
         connection_manager: ConnectionManager,
         update_handlers: GrpcUpdateHandlerContainer,
-        config: NetworkConfigLoader,
+        config_watcher: ConfigWatcher[ServerConfig],
+        config_bus: ConfigBus,
     ):
-        self.config = config
+        self.config_bus = config_bus
+        self.config_watcher = config_watcher
+        self.config: ServerConfig = self.config_watcher.current_config
+        self.config_watcher.subscribe(self.reload)
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_server", component="MeshMonServicer"
+            module="meshmon.connection.grpc_server", component="MeshMonServicer"
         )
         self.connection_manager = connection_manager
         self.conn_lock = threading.Lock()
@@ -91,10 +126,11 @@ class MeshMonServicer(MeshMonServiceServicer):
         self, request_iterator: Iterator[ProtocolData], context: grpc.ServicerContext
     ) -> Iterator[ProtocolData]:
         """Handle truly bidirectional streaming for mesh updates."""
-        nonce = os.urandom(256).hex()
-        context.send_initial_metadata((("server_nonce", nonce),))
+        # The returns after the aborts are needed to statically satisfy the type checker
+        server_nonce = os.urandom(256).hex()
+        context.send_initial_metadata((("server_nonce", server_nonce),))
         client_nonce = dict(context.invocation_metadata()).get("client_nonce", "")
-        if not client_nonce:
+        if not client_nonce or isinstance(client_nonce, bytes):
             context.abort(
                 grpc.StatusCode.UNAUTHENTICATED, "Missing client_nonce in metadata"
             )
@@ -127,9 +163,9 @@ class MeshMonServicer(MeshMonServiceServicer):
             )
             return
         try:
-            verifier = self.config.networks[client_validator.network_id].get_verifier(
-                client_validator.node_id
-            )
+            verifier = self.config.verifiers[
+                client_validator.network_id, client_validator.node_id
+            ]
             if not verifier:
                 self.logger.warning(
                     "No verifier found for node during gRPC connection",
@@ -143,8 +179,8 @@ class MeshMonServicer(MeshMonServiceServicer):
                 return
             if (
                 not conn_init_sbd.verify(verifier, "validator", "validator")
-                or client_validator.server_nonce != nonce
-                or client_validator.client_nonce != client_nonce
+                or client_validator.remote_nonce != server_nonce
+                or client_validator.local_nonce != client_nonce
             ):
                 self.logger.warning(
                     "Client failed server challenge",
@@ -156,13 +192,11 @@ class MeshMonServicer(MeshMonServiceServicer):
                     grpc.StatusCode.UNAUTHENTICATED, "Client failed server challenge"
                 )
                 return
-            server_node_id = self.config.networks[client_validator.network_id].node_id
-            signer = self.config.networks[
-                client_validator.network_id
-            ].key_mapping.signer
+            signer = self.config.server_signers[client_validator.network_id]
+            server_node_id = signer.node_id
             server_validator = Validator(
-                server_nonce=nonce,
-                client_nonce=client_validator.client_nonce,
+                remote_nonce=client_nonce,
+                local_nonce=server_nonce,
                 node_id=server_node_id,
                 network_id=client_validator.network_id,
             )
@@ -188,6 +222,18 @@ class MeshMonServicer(MeshMonServiceServicer):
             return
         network_id = client_validator.network_id
         client_node_id = client_validator.node_id
+        watcher = self.config_bus.get_watcher(
+            ConnectionConfigPreprocessor(network_id, client_node_id)
+        )
+        if watcher is None:
+            self.logger.warning(
+                "No config available for node during gRPC connection",
+                node_id=client_node_id,
+                network_id=network_id,
+                peer=context.peer(),
+            )
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, "No config for node")
+            return
         # If we reach here, the connection is authenticated
         with self.conn_lock:
             connection = self.connection_manager.get_connection(
@@ -208,12 +254,11 @@ class MeshMonServicer(MeshMonServiceServicer):
                 )
             handler = self.update_handlers.get_handler(network_id)
             protocol_handler = PulseWaveProtocol(
-                handler,
-                client_validator,
-                server_validator,
-                signer,
-                verifier,
-                conn_init_sbd,
+                handler=handler,
+                remote_nonce=client_nonce,
+                local_nonce=server_nonce,
+                watcher=watcher,
+                mr_sbd=conn_init_sbd,
             )
             raw_conn = RawConnection(protocol_handler)
             connection.add_raw_connection(raw_conn)
@@ -225,7 +270,7 @@ class MeshMonServicer(MeshMonServiceServicer):
                 raw_conn,
                 verifier,
             ),
-            daemon=True,
+            name=f"grpc-server-request-{network_id}-{client_node_id}",
         )
         request_thread.start()
 
@@ -243,7 +288,6 @@ class MeshMonServicer(MeshMonServiceServicer):
                 try:
                     # Wait for responses with timeout to check stop_event periodically
                     response = raw_conn.get_response(0.5)
-
                     if response is None:
                         continue
                     yield ProtocolData(packet_data=response)
@@ -279,17 +323,26 @@ class MeshMonServicer(MeshMonServiceServicer):
                 peer=context.peer(),
             )
 
+    def reload(self, new_config: ServerConfig) -> None:
+        self.logger.info(
+            "Config reload triggered for MeshMonServicer",
+            verifier_count=len(new_config.verifiers),
+            signer_count=len(new_config.server_signers),
+        )
+        self.config = new_config
+        self.logger.debug("MeshMonServicer config updated successfully")
+
 
 class GrpcServer:
     """gRPC server for handling mesh connections."""
 
-    def __init__(self, netconfig: NetworkConfigLoader):
-        self.config = netconfig
+    def __init__(self, config_bus: ConfigBus):
+        self.config_bus = config_bus
         self.logger = structlog.stdlib.get_logger().bind(
-            module="connection.grpc_server", component="server"
+            module="meshmon.connection.grpc_server", component="GrpcServer"
         )
         self.server = None
-        self.connection_manager = ConnectionManager()
+        self.connection_manager = ConnectionManager(config_bus)
         self.update_handlers = GrpcUpdateHandlerContainer(self.connection_manager)
         self._client = None  # Embedded client instance
 
@@ -313,8 +366,11 @@ class GrpcServer:
             )
 
             # Add the servicer
+            watcher = self.config_bus.get_watcher(ServerConfigPreprocessor())
+            if watcher is None:
+                raise RuntimeError("Failed to initialize server")
             servicer = MeshMonServicer(
-                self.connection_manager, self.update_handlers, self.config
+                self.connection_manager, self.update_handlers, watcher, self.config_bus
             )
             add_MeshMonServiceServicer_to_server(servicer, self.server)
 
@@ -337,7 +393,7 @@ class GrpcServer:
                 self._client = GrpcClientManager(
                     self.connection_manager,
                     self.update_handlers,
-                    self.config,
+                    self.config_bus,
                 )
             except Exception as e:
                 self.logger.error("Failed to start embedded gRPC client", error=str(e))

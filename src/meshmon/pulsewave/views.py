@@ -70,9 +70,6 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
         super().__init__(path, context_data, model, signer)
 
     def set(self, key: str, data: T, rep_type: DateEvalType = DateEvalType.NEWER):
-        if self.context_data.allowed_keys and key not in self.context_data.allowed_keys:
-            logger.warning(f"Key {key} not in allowed keys; skipping set operation.")
-            return
         signed_data = SignedBlockData.new(
             self.signer,
             data,
@@ -81,16 +78,18 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
             rep_type=rep_type,
         )
         self.context_data.data[key] = signed_data
+        if key not in self.context_data.allowed_keys:
+            self.context_data.allowed_keys.append(key)
+            self.context_data.resign(self.signer)
         self.update_handler.trigger_update([f"{self.path}.{key}"])
 
-    @property
-    def allowed_keys(self) -> list[str]:
-        return self.context_data.allowed_keys.copy()
-
-    @allowed_keys.setter
-    def allowed_keys(self, keys: list[str]):
-        self.context_data.allowed_keys = keys
-        self.update_handler.trigger_update([f"{self.path}.allowed_keys"])
+    def delete(self, key: str):
+        if key in self.context_data.data:
+            del self.context_data.data[key]
+            if key in self.context_data.allowed_keys:
+                self.context_data.allowed_keys.remove(key)
+                self.context_data.resign(self.signer)
+            self.update_handler.trigger_update([f"{self.path}.{key}"])
 
 
 class StoreConsistencyView:
@@ -260,6 +259,9 @@ class ConsistencyContextView[T: BaseModel]:
             cons_ctx = StoreConsistentContextData.new(
                 self.key_mapping.signer, self.ctx_name, f"{self.path}", self.secret
             )
+            if self.ctx_name not in node_data.consistency.allowed_contexts:
+                node_data.consistency.allowed_contexts.append(self.ctx_name)
+                node_data.consistency.resign(self.key_mapping.signer)
             node_data.consistency.consistent_contexts[self.ctx_name] = cons_ctx
             updated_paths.append(
                 f"nodes.{current_node_id}.consistency.consistent_contexts.{self.ctx_name}"
@@ -379,6 +381,9 @@ class ConsistencyContextView[T: BaseModel]:
             )
             updated_paths.append(self.path)
         cons_ctx.context.data[key] = signed_data
+        if key not in cons_ctx.context.allowed_keys:
+            cons_ctx.context.allowed_keys.append(key)
+            cons_ctx.context.resign(self.key_mapping.signer)
         updated_paths.append(f"{self.path}.{key}")
         self.update_handler.trigger_update(updated_paths)
 

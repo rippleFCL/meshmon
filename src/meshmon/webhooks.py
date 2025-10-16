@@ -1,18 +1,19 @@
 import datetime
 import hashlib
 import threading
+from dataclasses import dataclass
 from enum import Enum
 
 import requests
 from pydantic import BaseModel
 from structlog.stdlib import get_logger
 
-from meshmon.analysis.analysis import AnalysisNodeStatus
-from meshmon.pulsewave.data import StoreNodeStatus
-from meshmon.pulsewave.store import SharedStore
-
-from .config import NetworkConfigLoader
+from .analysis.analysis import AnalysisNodeStatus
+from .config.bus import ConfigBus, ConfigPreprocessor
+from .config.config import Config
 from .distrostore import StoreManager
+from .pulsewave.data import StoreNodeStatus
+from .pulsewave.store import SharedStore
 from .update_handlers import NodeStatusEntry
 
 
@@ -32,26 +33,54 @@ class Webhook(BaseModel):
         return cls(url=webhook, hashed=hashed, name=name)
 
 
-class WebhookHandler:
+@dataclass
+class WebhookConfig:
+    """Configuration for webhook manager"""
+
+    webhooks: dict[str, list[Webhook]]  # network_id -> list of webhooks
+
+
+class WebhookConfigPreprocessor(ConfigPreprocessor[WebhookConfig]):
+    def preprocess(self, config: Config | None) -> WebhookConfig:
+        if config is None:
+            return WebhookConfig(webhooks={})
+
+        webhooks: dict[str, list[Webhook]] = {}
+        for network_id, network in config.networks.items():
+            discord_webhook = network.node_cfg.discord_webhook
+            network_webhooks = []
+            for name, url in (discord_webhook or {}).items():
+                network_webhooks.append(Webhook.from_webhook(name, url))
+            if network_webhooks:
+                webhooks[network_id] = network_webhooks
+
+        return WebhookConfig(webhooks=webhooks)
+
+
+class WebhookManager:
     def __init__(
         self,
         store_manager: StoreManager,
-        config: NetworkConfigLoader,
+        config_bus: ConfigBus,
     ):
+        config_watcher = config_bus.get_watcher(WebhookConfigPreprocessor())
+        if config_watcher is None:
+            raise ValueError("No initial config available for webhook manager")
         self.store_manager = store_manager
-        self.config = config
-        self.logger = get_logger()
+        self.config_watcher = config_watcher
+        self.config = config_watcher.current_config
+        config_watcher.subscribe(self.reload)
+        self.logger = get_logger().bind(
+            module="meshmon.webhooks", component="WebhookManager"
+        )
         self.flag = threading.Event()
-        self.thread = threading.Thread(target=self.webhook_thread, daemon=True)
-        self.thread.start()
+        self.thread = threading.Thread(
+            target=self.webhook_thread, name="webhook-handler"
+        )
         self.session = requests.Session()
 
     def _get_webhook(self, network_id: str) -> list[Webhook]:
-        webhook = self.config.networks[network_id].node_cfg.discord_webhook
-        webhooks = []
-        for name, url in (webhook or {}).items():
-            webhooks.append(Webhook.from_webhook(name, url))
-        return webhooks
+        return self.config.webhooks.get(network_id, [])
 
     def node_status_consistent(self, store: SharedStore) -> bool:
         node_status_ctx = store.get_context("node_status", NodeStatusEntry)
@@ -157,9 +186,39 @@ class WebhookHandler:
             if val:
                 break
 
+    def start(self):
+        self.logger.info("Starting WebhookHandler thread")
+        self.thread.start()
+
     def stop(self):
         self.flag.set()
         self.thread.join()
+
+    def reload(self, new_config: WebhookConfig) -> None:
+        """Handle config reload - update webhook configuration."""
+        self.logger.info(
+            "Config reload triggered for WebhookManager",
+            network_count=len(new_config.webhooks),
+            total_webhooks=sum(len(hooks) for hooks in new_config.webhooks.values()),
+        )
+        self.config = new_config
+        self.logger.debug("WebhookManager config updated successfully")
+        all_webhooks: dict[str, list[tuple[str, str]]] = {}
+        for network_id, hooks in new_config.webhooks.items():
+            for hook in hooks:
+                all_webhooks.setdefault(network_id, []).append((hook.name, hook.hashed))
+
+        for network_id, store in self.store_manager.stores.items():
+            hooks = all_webhooks.get(network_id, [])
+            for consistency_ctx in store.local_consistency_contexts():
+                if consistency_ctx.startswith("discord:"):
+                    _, name, hashed = consistency_ctx.split(":", 2)
+                    if (name, hashed) not in hooks:
+                        self.logger.info(
+                            "Removing stale webhook consistency context",
+                            network_id=network_id,
+                        )
+                        store.delete_consistency_context(consistency_ctx)
 
     def handle_webhook(
         self,

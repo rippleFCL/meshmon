@@ -1,7 +1,10 @@
+from dataclasses import dataclass
+
 from structlog import get_logger
 
-from meshmon.pulsewave.crypto import Signer, Verifier
-
+from ..config.bus import ConfigPreprocessor, ConfigWatcher
+from ..config.config import Config
+from ..pulsewave.crypto import Signer, Verifier
 from ..pulsewave.data import SignedBlockData
 from .connection import ProtocolHandler, RawConnection
 from .grpc_types import Heartbeat, HeartbeatResponse, StoreUpdate, Validator
@@ -9,24 +12,92 @@ from .proto import PacketData
 from .update_handler import GrpcUpdateHandler
 
 
+@dataclass
+class ConnectionConfig:
+    """Config for a specific GrpcClient instance"""
+
+    verifier: Verifier
+    signer: Signer
+    remote_node_id: str
+    local_node_id: str
+    network_id: str
+
+
+class ConnectionConfigPreprocessor(ConfigPreprocessor[ConnectionConfig]):
+    """Preprocessor for a specific client's config based on network_id and peer_node_id"""
+
+    def __init__(self, network_id: str, peer_node_id: str):
+        self.network_id = network_id
+        self.peer_node_id = peer_node_id
+
+    def preprocess(self, config: Config | None) -> ConnectionConfig | None:
+        if config is None:
+            return None
+
+        network = config.networks.get(self.network_id)
+        if network is None:
+            return None
+
+        verifier = network.key_mapping.get_verifier(self.peer_node_id)
+        if verifier is None:
+            return None
+        signer = network.key_mapping.signer
+        return ConnectionConfig(
+            verifier=verifier,
+            signer=signer,
+            remote_node_id=verifier.node_id,
+            local_node_id=signer.node_id,
+            network_id=self.network_id,
+        )
+
+
 class PulseWaveProtocol(ProtocolHandler):
     def __init__(
         self,
         handler: GrpcUpdateHandler,
-        recv_nonce: Validator,
-        send_nonce: Validator,
-        signer: Signer,
-        verifier: Verifier,
+        remote_nonce: str,
+        local_nonce: str,
+        watcher: ConfigWatcher[ConnectionConfig],
         mr_sbd: SignedBlockData,
     ):
-        self.recv_nonce = recv_nonce
-        self.send_nonce = send_nonce
+        self.watcher = watcher
+        self.watcher.subscribe(self.load)
+        self.remote_nonce = remote_nonce
+        self.local_nonce = local_nonce
         self.handler = handler
-        self.signer = signer
-        self.verifier = verifier
         self.mr_sbd = mr_sbd
         self.logger = get_logger().bind(
-            module="connection.protocol_handler", component="pulse_wave_protocol"
+            module="meshmon.connection.protocol_handler", component="PulseWaveProtocol"
+        )
+
+        self.load(self.watcher.current_config)
+
+    def load(self, config: ConnectionConfig):
+        self.logger.info(
+            "Config reload triggered for PulseWaveProtocol",
+            network_id=config.network_id,
+            local_node_id=config.local_node_id,
+            remote_node_id=config.remote_node_id,
+        )
+        self.signer = config.signer
+        self.verifier = config.verifier
+
+        self.send_nonce = Validator(
+            local_nonce=self.local_nonce,
+            remote_nonce=self.remote_nonce,
+            network_id=config.network_id,
+            node_id=config.signer.node_id,
+        )
+
+        self.recv_nonce = Validator(
+            local_nonce=self.remote_nonce,
+            remote_nonce=self.local_nonce,
+            network_id=config.network_id,
+            node_id=config.verifier.node_id,
+        )
+        self.logger.debug(
+            "PulseWaveProtocol config updated successfully",
+            network_id=config.network_id,
         )
 
     def build_packet(

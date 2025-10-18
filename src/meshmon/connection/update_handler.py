@@ -3,6 +3,8 @@ import time
 
 import structlog
 
+# Import metrics
+from meshmon.prom_export import record_heartbeat_latency
 from meshmon.pulsewave.update.events import ExactPathMatcher
 
 from ..dstypes import DSNodeStatus, DSPingData
@@ -85,14 +87,24 @@ class GrpcUpdateHandler(UpdateHandler):
                 "Node is now online",
                 node_id=node_id,
             )
+
+        # Calculate RTT
+        rtt_seconds = (time.time_ns() - (heartbeat_ack.node_time)) / 1_000_000_000
+
         node_ctx.set(
             node_id,
             DSPingData(
                 status=DSNodeStatus.ONLINE,
-                req_time_rtt=(time.time_ns() - (heartbeat_ack.node_time))
-                / 1_000_000_000,  # Convert ns to s
+                req_time_rtt=rtt_seconds,
                 date=datetime.datetime.now(tz=datetime.timezone.utc),
             ),
+        )
+
+        # Record heartbeat latency metric
+        record_heartbeat_latency(
+            network_id=self.network_id,
+            node_id=node_id,
+            latency_seconds=rtt_seconds,
         )
 
     def stop(self) -> None:

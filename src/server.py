@@ -1,10 +1,15 @@
 import os
 from contextlib import asynccontextmanager
+from threading import Event
 
 import structlog
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
+
+# Import Prometheus metrics
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 from starlette.responses import FileResponse
 
@@ -33,6 +38,12 @@ from meshmon.dstypes import (
 )
 from meshmon.lifecycle import LifecycleManager
 from meshmon.monitor import MonitorManager
+from meshmon.prom_export import (
+    update_connection_metrics,
+    update_monitor_metrics,
+    update_node_metrics,
+    update_system_metrics,
+)
 from meshmon.pulsewave.store import (
     StoreData,
 )
@@ -65,7 +76,9 @@ else:
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=False),
         structlog.processors.StackInfoRenderer(),
-        structlog.processors.ExceptionRenderer(),
+        structlog.processors.ExceptionRenderer(
+            structlog.tracebacks.ExceptionDictTransformer()
+        ),
         structlog.processors.JSONRenderer(sort_keys=True),
     ]
 
@@ -76,6 +89,11 @@ structlog.configure_once(
     cache_logger_on_first_use=True,
 )
 logger = structlog.stdlib.get_logger().bind(module="server")
+
+try:
+    1 / 0
+except Exception as e:
+    logger.error("Test exception during startup", exc=e)
 
 # JWT Configuration
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
@@ -120,12 +138,22 @@ lifecycle_manager = LifecycleManager(
 logger.info("Server initialization complete")
 
 
+# Metrics update thread
+metrics_stop_event = Event()
+metrics_thread = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up the server...")
     lifecycle_manager.start()
+
+    logger.info("Metrics updater thread started")
+
     yield
+
     logger.info("Shutting down the server...")
+
     lifecycle_manager.stop()
 
 
@@ -193,6 +221,19 @@ def notification_cluster_view():
 def health():
     """Health check endpoint."""
     return {"status": "ok", "version": VERSION}
+
+
+@api.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint."""
+    update_node_metrics(store_manager)
+    update_monitor_metrics(store_manager)
+    update_connection_metrics(grpc_server.connection_manager)
+    update_system_metrics(store_manager)
+
+    # Generate and return Prometheus metrics
+    metrics_data = generate_latest()
+    return Response(content=metrics_data, media_type=CONTENT_TYPE_LATEST)
 
 
 @api.get("/api/raw/{network_id}", response_model=StoreData)

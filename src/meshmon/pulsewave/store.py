@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from meshmon.config.bus import ConfigWatcher
 
+# Import cleanup functions
+from ..prom_export import cleanup_node_metrics
 from .config import PulseWaveConfig
 from .data import (
     DateEvalType,
@@ -15,7 +17,7 @@ from .data import (
     StoreNodeData,
 )
 from .secrets import SecretContainer
-from .update.events import RateLimitedHandler
+from .update.events import RateLimitedConfigTarget, RateLimitedHandler
 from .update.handlers import (
     ClockTableHandler,
     DataUpdateHandler,
@@ -40,10 +42,17 @@ class SharedStore:
         self,
         config_watcher: ConfigWatcher[PulseWaveConfig],
         update_handler: UpdateHandler,
+        network_id: str | None = None,
     ):
         self.store: StoreData = StoreData()
         self.config_watcher = config_watcher
         self.config = config_watcher.current_config
+        # Store network_id for metric cleanup, fallback to current_node.node_id if not provided
+        self.network_id = (
+            network_id
+            if network_id
+            else config_watcher.current_config.current_node.node_id
+        )
 
         self.logger = structlog.stdlib.get_logger().bind(
             module="meshmon.pulsewave.store", component="SharedStore"
@@ -57,9 +66,17 @@ class SharedStore:
         self.update_manager.add_handler(DataUpdateHandler())
         self.update_manager.add_handler(LeaderElectionHandler(self.secret_store))
 
-        self.update_manager.add_event_handler(update_handler)
         self.update_manager.add_event_handler(
-            RateLimitedHandler(update_handler, self.config_watcher),
+            RateLimitedHandler(
+                update_handler,
+                self.config_watcher,
+                RateLimitedConfigTarget.INSTANT_UPDATE,
+            ),
+        )
+        self.update_manager.add_event_handler(
+            RateLimitedHandler(
+                update_handler, self.config_watcher, RateLimitedConfigTarget.UPDATE
+            ),
         )
 
         self.consistency_controller = ClockPulseGenerator(self, self.update_manager)
@@ -96,7 +113,14 @@ class SharedStore:
                 to_remove.append(node_id)
         for node_id in to_remove:
             self.logger.info(
-                "Removing data for node no longer in config", node_id=node_id
+                "Removing data for node no longer in config",
+                node_id=node_id,
+                network_id=self.network_id,
+            )
+            # Clean up all metrics for this node
+            cleanup_node_metrics(
+                network_id=self.network_id,
+                node_id=node_id,
             )
             del self.store.nodes[node_id]
 

@@ -4,6 +4,9 @@ import structlog
 
 from .config.bus import ConfigBus, ConfigPreprocessor
 from .config.config import Config
+
+# Import cleanup functions
+from .prom_export import cleanup_network_metrics
 from .pulsewave.config import CurrentNode, NodeConfig, PulseWaveConfig
 from .pulsewave.store import SharedStore
 from .update_handlers import (
@@ -56,8 +59,9 @@ class PulseWaveConfigPreprocessor(ConfigPreprocessor[PulseWaveConfig]):
         return PulseWaveConfig(
             current_node=current_node,
             nodes=nodes,
-            update_rate_limit=1,  # Default rate limit
-            clock_pulse_interval=1,  # Default clock pulse interval
+            update_rate_limit=network.cluster.rate_limits.update,  # Default rate limit
+            instant_update_rate_limit=network.cluster.rate_limits.priority_update,  # Default instant update rate limit
+            clock_pulse_interval=network.cluster.clock_pulse_interval,  # Default clock pulse interval
         )
 
 
@@ -105,7 +109,7 @@ class StoreManager:
                 network_id=network_id,
             )
             return
-        new_store = SharedStore(config_watcher, grpc_handler)
+        new_store = SharedStore(config_watcher, grpc_handler, network_id)
         new_store.start()
         new_store.add_handler(MonitorStatusTableHandler(watcher))
         new_store.add_handler(NodeStatusTableHandler())
@@ -139,6 +143,36 @@ class StoreManager:
         for network_id in to_remove:
             self.logger.info("Removing store for network", network_id=network_id)
             store = self.stores[network_id]
+
+            # Get all node IDs and monitor names from the store before stopping
+            try:
+                node_ids = list(store.store.nodes.keys())
+                monitor_names = []
+                # Try to get monitor names from the current config
+                if (
+                    self.config_bus.config
+                    and network_id in self.config_bus.config.networks
+                ):
+                    network_config = self.config_bus.config.networks[network_id]
+                    monitor_names = [
+                        monitor.name for monitor in network_config.monitors
+                    ]
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to get node/monitor lists for cleanup",
+                    network_id=network_id,
+                    error=e,
+                )
+                node_ids = []
+                monitor_names = []
+
+            # Clean up all metrics for this network
+            cleanup_network_metrics(
+                network_id=network_id,
+                node_ids=node_ids if node_ids else None,
+                monitor_names=monitor_names if monitor_names else None,
+            )
+
             store.stop()
             del self.stores[network_id]
 

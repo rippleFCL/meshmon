@@ -43,7 +43,7 @@ class LifecycleManager:
                 config = self.config.load()
                 self.config_bus.new_config(config)
             except Exception as exc:
-                self.logger.error("Error loading initial config", exc=exc)
+                self.logger.error("Error loading initial config", error=exc)
         while not self._stop_event.is_set():
             if self._stop_event.wait(10):
                 break
@@ -56,7 +56,7 @@ class LifecycleManager:
                     self.config_bus.new_config(new_config)
 
             except Exception as exc:
-                self.logger.error("Error in config watcher", exc=exc)
+                self.logger.error("Error in config watcher", error=exc)
 
     def start(self):
         self.heartbeat_controller.start()

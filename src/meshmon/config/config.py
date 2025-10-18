@@ -11,7 +11,12 @@ from structlog.stdlib import get_logger
 from ..git import Repo
 from ..pulsewave.crypto import KeyMapping, Signer, Verifier
 from ..version import SEMVER
-from .structure.network import NetworkMonitor, NetworkNodeInfo, NetworkRootConfig
+from .structure.network import (
+    NetworkClusterConfig,
+    NetworkMonitor,
+    NetworkNodeInfo,
+    NetworkRootConfig,
+)
 from .structure.node_cfg import ConfigTypes, NodeCfg, NodeCfgNetwork
 
 
@@ -23,6 +28,7 @@ class NetworkConfig:
     key_mapping: KeyMapping
     node_id: Annotated[str, StringConstraints(to_lower=True)]
     node_cfg: NodeCfgNetwork
+    cluster: NetworkClusterConfig
 
     def get_verifier(self, node_id: str) -> Verifier | None:
         return self.key_mapping.get_verifier(node_id)
@@ -154,6 +160,7 @@ class NetworkConfigLoader:
             key_mapping=key_mapping,
             node_id=net_cfg.node_id,
             node_cfg=net_cfg,
+            cluster=root.cluster,
         )
 
     def _load_all_network_configs(self) -> dict[str, NetworkConfig]:

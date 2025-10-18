@@ -24,8 +24,19 @@ class NetworkNodeInfo(BaseModel):
     retry: int = 2
 
 
+class NetworkRatelimit(BaseModel):
+    update: float = 5
+    priority_update: float = 0
+
+
+class NetworkClusterConfig(BaseModel):
+    rate_limits: NetworkRatelimit = NetworkRatelimit()
+    clock_pulse_interval: float = 1
+
+
 class NetworkRootConfig(BaseModel):
     node_config: list[NetworkNodeInfo]
     network_id: Annotated[str, StringConstraints(to_lower=True)]
     node_version: list[str] | None = None
     monitors: list[NetworkMonitor] = []
+    cluster: NetworkClusterConfig = NetworkClusterConfig()

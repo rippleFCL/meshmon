@@ -59,9 +59,8 @@ class ConfigWatcher[T: Any = Config]:
                 except Exception as e:
                     self.logger.error(
                         "Subscriber callback failed",
-                        callback=callback_name,
-                        error=str(e),
-                        exc_info=True,
+                        callback_name=callback_name,
+                        error=e,
                     )
         return True
 

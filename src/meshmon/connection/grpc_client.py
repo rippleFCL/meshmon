@@ -189,7 +189,7 @@ class GrpcClientManager:
             return False
         except Exception as e:
             self.logger.error(
-                "Failed to connect to node", node_id=target.node_id, error=str(e)
+                "Failed to connect to node", node_id=target.node_id, error=e
             )
             return False
 
@@ -410,7 +410,12 @@ class GrpcClient:
                 watcher=config_watcher,
                 mr_sbd=server_sbd,
             )
-            self.raw_conn = RawConnection(protocol_handler)
+            self.raw_conn = RawConnection(
+                protocol=protocol_handler,
+                network_id=self.network_id,
+                dest_node_id=self.peer_node_id,
+                initiator="local",
+            )
 
             # Register raw connection with ConnectionManager
             connection = self.connection_manager.get_connection(
@@ -455,7 +460,7 @@ class GrpcClient:
                 self.logger.error(
                     "gRPC stream error",
                     node_id=self.peer_node_id,
-                    error=str(e),
+                    error=e,
                     code=e.code(),  # type: ignore
                 )
                 self.logger.info(
@@ -463,9 +468,7 @@ class GrpcClient:
                     dest_node_id=self.peer_node_id,
                 )
         except Exception as e:
-            self.logger.error(
-                "Client stream error", node_id=self.peer_node_id, error=str(e)
-            )
+            self.logger.error("Client stream error", node_id=self.peer_node_id, error=e)
 
         finally:
             # Ensure the RPC is cancelled to abort the connection cleanly

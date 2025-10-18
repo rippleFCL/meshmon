@@ -313,12 +313,12 @@ class WebhookManager:
                     "Network error while sending webhook for node in network",
                     node_id=node_id,
                     net_id=network_id,
-                    exc=exc,
+                    error=exc,
                 )
             except Exception as exc:
                 self.logger.error(
                     "Unexpected error while sending webhook for node in network",
                     node_id=node_id,
                     net_id=network_id,
-                    exc=exc,
+                    error=exc,
                 )

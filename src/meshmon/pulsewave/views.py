@@ -40,7 +40,7 @@ class StoreCtxView[T: BaseModel]:
         self.signer = signer
 
     def __iter__(self) -> Iterator[tuple[str, T]]:
-        for value in self.context_data.data:
+        for value in list(self.context_data.data):
             data = self.get(value)
             if data is not None:
                 yield value, data
@@ -404,7 +404,7 @@ class ConsistencyContextView[T: BaseModel]:
 
     def nodes(self) -> list[str]:
         nodes = []
-        for node_id in self.store.nodes:
+        for node_id in list(self.store.nodes):
             cons_ctx = self._get_consistency(node_id)
             if not cons_ctx:
                 continue

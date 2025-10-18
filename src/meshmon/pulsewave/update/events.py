@@ -1,4 +1,5 @@
 import time
+from enum import Enum
 from threading import Event, Thread
 from typing import TYPE_CHECKING
 
@@ -14,17 +15,32 @@ if TYPE_CHECKING:
     from ..store import SharedStore
 
 
+class RateLimitedConfigTarget(Enum):
+    UPDATE = "update"
+    INSTANT_UPDATE = "instant_update"
+
+
 class RateLimitedHandler(UpdateHandler):
     def __init__(
-        self, handler: UpdateHandler, config_watcher: "ConfigWatcher[PulseWaveConfig]"
+        self,
+        handler: UpdateHandler,
+        config_watcher: "ConfigWatcher[PulseWaveConfig]",
+        target: RateLimitedConfigTarget,
     ):
         self.config_watcher = config_watcher
-        self.min_interval = self.config_watcher.current_config.update_rate_limit
+        self.target = target
+        if self.target == RateLimitedConfigTarget.UPDATE:
+            self._matcher = ExactPathMatcher("update")
+            self.min_interval = self.config_watcher.current_config.update_rate_limit
+        else:
+            self._matcher = ExactPathMatcher("instant_update")
+            self.min_interval = (
+                self.config_watcher.current_config.instant_update_rate_limit
+            )
         self.config_watcher.subscribe(self.reload)
         self.handler = handler
         self.trigger = Event()
         self.stop_event = Event()
-        self._matcher = ExactPathMatcher("update")
         self.logger = structlog.stdlib.get_logger().bind(
             module="meshmon.pulsewave.update.events", component="RateLimitedHandler"
         )
@@ -35,7 +51,11 @@ class RateLimitedHandler(UpdateHandler):
             old_interval=self.min_interval,
             new_interval=new_config.update_rate_limit,
         )
-        self.min_interval = new_config.update_rate_limit
+        if self.target == RateLimitedConfigTarget.UPDATE:
+            self.min_interval = new_config.update_rate_limit
+        else:
+            self.min_interval = new_config.instant_update_rate_limit
+
         self.logger.debug("RateLimitedHandler config updated successfully")
 
     def _handler_loop(self):
@@ -43,8 +63,8 @@ class RateLimitedHandler(UpdateHandler):
         while self.stop_event.is_set() is False:
             if self.trigger.wait(1):
                 self.trigger.clear()
-                self.handler.handle_update()
                 time.sleep(self.min_interval)
+                self.handler.handle_update()
 
     def stop(self) -> None:
         self.logger.info("Stopping RateLimitedHandler")

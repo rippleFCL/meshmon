@@ -117,7 +117,7 @@ class MeshMonServicer(MeshMonServiceServicer):
 
         except Exception as e:
             self.logger.error(
-                "Request handler error for", node_id=verifier.node_id, error=str(e)
+                "Request handler error for", node_id=verifier.node_id, error=e
             )
         finally:
             raw_conn.close()
@@ -214,7 +214,7 @@ class MeshMonServicer(MeshMonServiceServicer):
                 node_id=client_validator.node_id,
                 network_id=client_validator.network_id,
                 peer=context.peer(),
-                error=str(e),
+                exc=e,
             )
             context.abort(
                 grpc.StatusCode.UNAUTHENTICATED, "Error during authentication"
@@ -260,7 +260,12 @@ class MeshMonServicer(MeshMonServiceServicer):
                 watcher=watcher,
                 mr_sbd=conn_init_sbd,
             )
-            raw_conn = RawConnection(protocol_handler)
+            raw_conn = RawConnection(
+                protocol=protocol_handler,
+                network_id=network_id,
+                dest_node_id=client_node_id,
+                initiator="remote",
+            )
             connection.add_raw_connection(raw_conn)
 
         request_thread = threading.Thread(
@@ -298,7 +303,7 @@ class MeshMonServicer(MeshMonServiceServicer):
                         node_id=client_node_id,
                         network_id=network_id,
                         peer=context.peer(),
-                        error=str(e),
+                        error=e,
                     )
                     break
 
@@ -308,7 +313,7 @@ class MeshMonServicer(MeshMonServiceServicer):
                 node_id=client_node_id,
                 network_id=network_id,
                 peer=context.peer(),
-                error=str(e),
+                error=e,
             )
         finally:
             connection.remove_raw_connection(raw_conn)
@@ -396,12 +401,12 @@ class GrpcServer:
                     self.config_bus,
                 )
             except Exception as e:
-                self.logger.error("Failed to start embedded gRPC client", error=str(e))
+                self.logger.error("Failed to start embedded gRPC client", error=e)
 
             return True
 
         except Exception as e:
-            self.logger.error("Failed to start gRPC server", error=str(e))
+            self.logger.error("Failed to start gRPC server", error=e)
             return False
 
     def stop(self, grace_period: float = 5.0) -> None:

@@ -9,7 +9,12 @@ class MonitorTypes(Enum):
     HTTP = "http"
 
 
-class NetworkMonitor(BaseModel):
+class AllowBlock(BaseModel):
+    allow: list[str] = []
+    block: list[str] = []
+
+
+class NetworkMonitor(AllowBlock, BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     type: MonitorTypes
@@ -18,9 +23,8 @@ class NetworkMonitor(BaseModel):
     retry: int | None = None
 
 
-class NetworkNodeInfo(BaseModel):
+class NetworkNodeInfo(AllowBlock, BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     node_id: Annotated[str, StringConstraints(to_lower=True)]
     url: str
     poll_rate: int | None = None

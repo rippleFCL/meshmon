@@ -30,6 +30,8 @@ class LoadedNetworkNodeInfo:
     url: str
     poll_rate: int
     retry: int
+    allow: list[str]
+    block: list[str]
 
 
 @dataclass
@@ -39,6 +41,8 @@ class LoadedNetworkMonitor:
     host: str
     interval: int
     retry: int
+    allow: list[str]
+    block: list[str]
 
 
 @dataclass
@@ -310,6 +314,8 @@ class NetworkConfigLoader:
                     url=node.url or "",
                     poll_rate=node.poll_rate or root.defaults.nodes.poll_rate,
                     retry=node.retry or root.defaults.nodes.retry,
+                    allow=node.allow,
+                    block=node.block,
                 )
             )
         loaded_monitors = []
@@ -321,6 +327,8 @@ class NetworkConfigLoader:
                     host=monitor.host,
                     interval=monitor.interval or root.defaults.monitors.interval,
                     retry=monitor.retry or root.defaults.monitors.retry,
+                    allow=monitor.allow,
+                    block=monitor.block,
                 )
             )
         self.event_log.clear_event(mid="netconf", network_id=net_cfg.directory)

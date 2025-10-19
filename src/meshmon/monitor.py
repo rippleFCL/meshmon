@@ -312,18 +312,12 @@ class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
             return MonitorConfig(monitors=monitors)
         for net_id, network in config.networks.items():
             # Find local node
-            local_node = None
-            for node in network.node_config:
-                if node.node_id == network.node_id:
-                    local_node = node
-                    break
-            if local_node is None:
-                continue
-            unique: dict[str, LoadedNetworkMonitor] = {
-                m.name: m for m in network.monitors
-            }
-            for m in unique.values():
-                monitors[(net_id, m.name)] = m
+            for monitor in network.monitors:
+                node_id = network.node_id
+                if node_id not in monitor.block and (
+                    not monitor.allow or node_id in monitor.allow
+                ):
+                    monitors[(net_id, monitor.name)] = monitor
         return MonitorConfig(monitors=monitors)
 
 

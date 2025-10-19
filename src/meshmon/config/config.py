@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 from dataclasses import dataclass
@@ -151,6 +152,12 @@ class NetworkConfigLoader:
             "Loaded verifiers for network",
             network=net_cfg.directory,
             count=len(verifiers),
+        )
+
+        drift = math.pi * 3
+        pulse_offset = root.cluster.rate_limits.priority_update / drift
+        root.cluster.clock_pulse_interval += (
+            pulse_offset  # Adjust clock pulse interval based on rate limit
         )
 
         return NetworkConfig(

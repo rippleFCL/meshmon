@@ -27,9 +27,14 @@ from .update import RegexPathMatcher, UpdateHandler, UpdateManager
 class ClockTableHandler(UpdateHandler):
     def __init__(self, config_watcher: ConfigWatcher[PulseWaveConfig]):
         self.config_watcher = config_watcher
+        self.node_cfg = config_watcher.current_config.current_node
+        self.avg_over = config_watcher.current_config.avg_clock_pulses
+        self.config_watcher.subscribe(self.reload)
+        self.avg_delta: dict[str, list[datetime.timedelta]] = {}
+
         self._matcher = RegexPathMatcher(
             [
-                f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{config_watcher.current_config.current_node.node_id}$"
+                f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{self.node_cfg.node_id}$"
             ]
         )
         self.logger = structlog.stdlib.get_logger().bind(
@@ -37,7 +42,9 @@ class ClockTableHandler(UpdateHandler):
         )
 
     def reload(self, config: PulseWaveConfig):
-        self.config_watcher = config
+        self.node_cfg = config.current_node
+        self.avg_over = config.avg_clock_pulses
+        self.avg_delta = {}
         self._matcher = RegexPathMatcher(
             [
                 f"^nodes\\.(\\w|-)+\\.consistency\\.pulse_table\\.{config.current_node.node_id}$"
@@ -73,14 +80,22 @@ class ClockTableHandler(UpdateHandler):
                         - node_pulse.current_pulse
                     )
                     hrtt_time = pulse_elapsed_time / 2  # Half Round Trip Time
-                    arrival_time = node_pulse.current_pulse + hrtt_time
-                    diff = arrival_time - node_pulse.current_time
+                    estimated_arrival_time = node_pulse.current_pulse + hrtt_time
+                    diff = estimated_arrival_time - node_pulse.current_time
+                    if node not in self.avg_delta:
+                        self.avg_delta[node] = []
+                    self.avg_delta[node].append(diff)
+                    if len(self.avg_delta[node]) > self.avg_over:
+                        self.avg_delta[node].pop(0)
+                    avg_delta = sum(self.avg_delta[node], datetime.timedelta(0)) / len(
+                        self.avg_delta[node]
+                    )
                     new_clock_entry = StoreClockTableEntry(
                         last_pulse=node_pulse.current_pulse,
                         remote_time=node_pulse.current_time,
                         pulse_interval=self.store.config.clock_pulse_interval,
-                        delta=diff,
-                        rtt=hrtt_time * 2,
+                        delta=avg_delta,
+                        rtt=pulse_elapsed_time,
                     )
                     clock_table.set(node, new_clock_entry)
                     self.update_manager.trigger_event("instant_update")

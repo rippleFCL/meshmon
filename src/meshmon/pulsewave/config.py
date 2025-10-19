@@ -26,6 +26,7 @@ class PulseWaveConfig:
     update_rate_limit: float
     instant_update_rate_limit: float
     clock_pulse_interval: float
+    avg_clock_pulses: int
 
     def get_verifier(self, node_id: str) -> Verifier | None:
         node_cfg = self.nodes.get(node_id)

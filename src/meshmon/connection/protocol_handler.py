@@ -1,9 +1,17 @@
+import time
 from dataclasses import dataclass
 
 from structlog import get_logger
 
 from ..config.bus import ConfigPreprocessor, ConfigWatcher
 from ..config.config import Config
+
+# Import metrics recording functions
+from ..prom_export import (
+    record_packet_processing_duration,
+    record_packet_received,
+    record_packet_sent,
+)
 from ..pulsewave.crypto import Signer, Verifier
 from ..pulsewave.data import SignedBlockData
 from .connection import ProtocolHandler, RawConnection
@@ -106,26 +114,45 @@ class PulseWaveProtocol(ProtocolHandler):
         verifier = SignedBlockData.new(
             self.signer, self.send_nonce, "validator", "validator"
         )
+        packet = None
+        packet_type = ""
+
         if isinstance(data, StoreUpdate):
-            return PacketData(
+            packet_type = "store_update"
+            packet = PacketData(
                 packet_id="store_update",
                 data=data.model_dump_json(),
                 validator=verifier.model_dump_json(),
             )
-        if isinstance(data, Heartbeat):
-            return PacketData(
+        elif isinstance(data, Heartbeat):
+            packet_type = "heartbeat"
+            packet = PacketData(
                 packet_id="heartbeat",
                 data=data.model_dump_json(),
                 validator=verifier.model_dump_json(),
             )
-        if isinstance(data, HeartbeatResponse):
-            return PacketData(
+        elif isinstance(data, HeartbeatResponse):
+            packet_type = "heartbeat_response"
+            packet = PacketData(
                 packet_id="heartbeat_response",
                 data=data.model_dump_json(),
                 validator=verifier.model_dump_json(),
             )
 
+        # Record metrics for sent packet
+        size_bytes = len(packet.data.encode("utf-8"))
+        record_packet_sent(
+            network_id=self.send_nonce.network_id,
+            dest_node_id=self.verifier.node_id,
+            packet_type=packet_type,
+            size_bytes=size_bytes,
+        )
+
+        return packet
+
     def handle_packet(self, request: PacketData, conn: "RawConnection") -> None:
+        start_time = time.time()
+
         sbd = SignedBlockData.model_validate_json(request.validator)
         validator = Validator.model_validate(sbd.data)
         if sbd.date <= self.mr_sbd.date:
@@ -149,22 +176,41 @@ class PulseWaveProtocol(ProtocolHandler):
             )
             return
         self.mr_sbd = sbd  # Update most recent signed block data
+
+        # Record metrics for received packet
+        size_bytes = len(request.data.encode("utf-8"))
+        record_packet_received(
+            network_id=self.recv_nonce.network_id,
+            source_node_id=self.verifier.node_id,
+            packet_type=request.packet_id,
+            size_bytes=size_bytes,
+        )
+
+        # Process the packet based on type
         if request.packet_id == "store_update":
             try:
                 store_data = StoreUpdate.model_validate_json(request.data)
                 self.handler.handle_incoming_update(store_data)
             except Exception as e:
-                self.logger.error("Failed to handle StoreUpdate", error=str(e))
+                self.logger.error("Failed to handle StoreUpdate", error=e)
         elif request.packet_id == "heartbeat":
             try:
                 heartbeat = Heartbeat.model_validate_json(request.data)
                 response = HeartbeatResponse(node_time=heartbeat.node_time)
                 conn.send_response(response)
             except Exception as e:
-                self.logger.error("Failed to handle Heartbeat", error=str(e))
+                self.logger.error("Failed to handle Heartbeat", error=e)
         elif request.packet_id == "heartbeat_response":
             try:
                 heartbeat_ack = HeartbeatResponse.model_validate_json(request.data)
                 self.handler.handle_heartbeat(heartbeat_ack, self.verifier.node_id)
             except Exception as e:
-                self.logger.error("Failed to handle HeartbeatResponse", error=str(e))
+                self.logger.error("Failed to handle HeartbeatResponse", error=e)
+
+        # Record packet processing duration
+        duration = time.time() - start_time
+        record_packet_processing_duration(
+            network_id=self.recv_nonce.network_id,
+            packet_type=request.packet_id,
+            duration_seconds=duration,
+        )

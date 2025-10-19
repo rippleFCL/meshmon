@@ -10,6 +10,9 @@ from structlog.stdlib import get_logger
 from meshmon.config.config import Config
 from meshmon.config.structure.network import MonitorTypes, NetworkMonitor
 
+# Import metrics
+from meshmon.prom_export import record_monitor_error
+
 from .config.bus import ConfigBus, ConfigPreprocessor, ConfigWatcher
 from .distrostore import (
     StoreManager,
@@ -173,6 +176,14 @@ class HTTPMonitor(MonitorProto):
             count=self.error_count,
             monitor=self._monitor_info.name,
         )
+
+        # Record metric for monitor error
+        record_monitor_error(
+            network_id=self._net_id,
+            monitor_name=self._monitor_info.name,
+            monitor_type=self._monitor_info.type.value,
+        )
+
         current_node = ctx.get(self._monitor_info.name)
         if self.error_count >= self._monitor_info.retry:
             if current_node:
@@ -259,7 +270,7 @@ class Monitor:
             try:
                 self.monitor.run()
             except Exception as exc:
-                self.logger.error("Error in monitor loop", exc=exc)
+                self.logger.error("Error in monitor loop", error=exc)
             val = self.stop_flag.wait(self.monitor.poll_rate)
             if val:
                 break
@@ -345,7 +356,7 @@ class MonitorManager:
                     node_info = DSNodeInfo(version=VERSION)
                     store.set_value("node_info", node_info)
             except Exception as exc:
-                self.logger.error("Error in MonitorManager heartbeat", exc=exc)
+                self.logger.error("Error in MonitorManager heartbeat", error=exc)
             val = self.stop_flag.wait(5)
             if val:
                 break

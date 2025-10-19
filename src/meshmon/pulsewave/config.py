@@ -23,8 +23,9 @@ class CurrentNode:
 class PulseWaveConfig:
     current_node: CurrentNode
     nodes: dict[str, NodeConfig]
-    update_rate_limit: int
-    clock_pulse_interval: int
+    update_rate_limit: float
+    instant_update_rate_limit: float
+    clock_pulse_interval: float
 
     def get_verifier(self, node_id: str) -> Verifier | None:
         node_cfg = self.nodes.get(node_id)

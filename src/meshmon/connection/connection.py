@@ -1,8 +1,18 @@
 import queue
 import threading
-from typing import Protocol
+import time
+from typing import Literal, Protocol
 
 import structlog
+
+# Import metrics
+from meshmon.prom_export import (
+    cleanup_connection_metrics,
+    cleanup_raw_connection_metrics,
+    record_connection_closed,
+    record_connection_established,
+    record_queue_depth,
+)
 
 from ..config.bus import ConfigBus, ConfigPreprocessor
 from ..config.config import Config
@@ -30,36 +40,141 @@ class ProtocolHandler(Protocol):
 
 
 class RawConnection:
-    def __init__(self, protocol: ProtocolHandler):
+    def __init__(
+        self,
+        protocol: ProtocolHandler,
+        network_id: str,
+        dest_node_id: str,
+        initiator: Literal["local", "remote"],
+    ):
         self.stream_writer: queue.Queue[PacketData] = queue.Queue()
+        self.stream_reader: queue.Queue[PacketData] = queue.Queue()
         self.protocol = protocol
         self._closed = threading.Event()
+        self.network_id = network_id
+        self.dest_node_id = dest_node_id
+        self.initiator = initiator
+
+        # Timing metrics for link utilization
+        self.start_time = time.perf_counter_ns()
+        self.total_wait_time = 0.0  # Time spent waiting for data
+        self.total_processing_time = 0.0  # Time spent processing data
+        self.processing_start = time.perf_counter_ns()
+        self.processing_end = time.perf_counter_ns()
+        self.wait_start = time.perf_counter_ns()
+        self.wait_end = time.perf_counter_ns()
+        self.last_scrape = time.perf_counter_ns()
+        self._timing_lock = threading.Lock()
+        self._handler_thread = threading.Thread(target=self.handle_loop)
+        self._handler_thread.start()
+        record_connection_established(
+            network_id=self.network_id,
+            node_id=self.dest_node_id,
+            initiator=self.initiator,
+        )
+
+    def handle_loop(self):
+        while not self._closed.is_set():
+            self.processing_start = time.perf_counter_ns()
+            try:
+                packet = self.stream_reader.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            finally:
+                self.processing_end = time.perf_counter_ns()
+                # Record processing time
+                with self._timing_lock:
+                    if self.last_scrape > self.processing_start:
+                        self.processing_start = self.last_scrape
+                    self.total_processing_time += (
+                        self.processing_end - self.processing_start
+                    )
+
+            if self.protocol:
+                self.protocol.handle_packet(packet, self)
 
     def handle_request(self, request: PacketData):
         if self._closed.is_set():
             return
         if self.protocol:
-            self.protocol.handle_packet(request, self)
+            record_queue_depth(
+                network_id=self.network_id,
+                node_id=self.dest_node_id,
+                depth=self.stream_reader.qsize(),
+                direction="inbound",
+                initiator=self.initiator,
+            )
+            self.stream_reader.put(request)
 
     def send_response(self, response: Heartbeat | HeartbeatResponse | StoreUpdate):
         if self._closed.is_set():
             return
         packet = self.protocol.build_packet(response)
         if packet:
+            # Update queue depth metric
+            record_queue_depth(
+                network_id=self.network_id,
+                node_id=self.dest_node_id,
+                depth=self.stream_writer.qsize(),
+                direction="outbound",
+                initiator=self.initiator,
+            )
             self.stream_writer.put(packet)
 
     def get_response(self, timeout: float | None = None) -> PacketData | None:
+        self.wait_start = time.perf_counter_ns()
         try:
-            return self.stream_writer.get(timeout=timeout)
+            result = self.stream_writer.get(timeout=timeout)
+            self.wait_end = time.perf_counter_ns()
+            return result
         except queue.Empty:
             return None
+        finally:
+            self.wait_end = time.perf_counter_ns()
+            # Still count timeout as wait time
+            with self._timing_lock:
+                if self.last_scrape > self.wait_start:
+                    self.wait_start = self.last_scrape
+                self.total_wait_time += self.wait_end - self.wait_start
 
     def close(self):
-        self._closed.set()
+        if not self._closed.is_set():
+            self._closed.set()
+            record_connection_closed(
+                network_id=self.network_id,
+                node_id=self.dest_node_id,
+                initiator=self.initiator,
+                duration_seconds=(time.perf_counter_ns() - self.start_time)
+                / 1_000_000_000,
+            )
+            # Clean up metrics for this raw connection
+            cleanup_raw_connection_metrics(
+                network_id=self.network_id,
+                node_id=self.dest_node_id,
+                initiator=self.initiator,
+            )
 
     @property
     def is_closed(self):
         return self._closed.is_set()
+
+    def get_timing_stats(self) -> tuple[float, float, float]:
+        """Returns (total_wait_time, total_processing_time) in seconds."""
+        with self._timing_lock:
+            # Update wait time up to now if we're currently idle
+            current_time = time.perf_counter_ns()
+
+            if self.wait_start > self.wait_end:  # Currently waiting
+                self.total_wait_time += current_time - self.wait_start
+            if self.processing_start > self.processing_end:  # Currently processing
+                self.total_processing_time += current_time - self.processing_start
+            elapsed_time = current_time - self.last_scrape
+            self.last_scrape = current_time
+
+            data = (self.total_wait_time, self.total_processing_time, elapsed_time)
+            self.total_wait_time = 0.0
+            self.total_processing_time = 0.0
+            return data
 
 
 class Connection:
@@ -156,6 +271,8 @@ class ConnectionManager:
             if (node_id, network_id) in self.connections:
                 conn = self.connections[(node_id, network_id)]
                 conn.close()
+                # Clean up all connection metrics for this node
+                cleanup_connection_metrics(network_id, node_id)
                 del self.connections[(node_id, network_id)]
 
     def __iter__(self):

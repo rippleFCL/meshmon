@@ -4,7 +4,6 @@ import time
 import structlog
 
 # Import metrics
-from meshmon.event_log import EventLog
 from meshmon.prom_export import record_heartbeat_latency
 from meshmon.pulsewave.update.events import ExactPathMatcher
 
@@ -41,7 +40,6 @@ class GrpcUpdateHandler(UpdateHandler):
         self,
         network_id: str,
         connection_manager: "ConnectionManager",
-        event_log: EventLog,
     ):
         super().__init__()
         self.logger = structlog.stdlib.get_logger().bind(
@@ -52,7 +50,6 @@ class GrpcUpdateHandler(UpdateHandler):
         self._matcher = ExactPathMatcher("instant_update")
         self.network_id = network_id
         self.connection_manager = connection_manager
-        self.event_log = event_log
 
     def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None:
         self.store = store
@@ -90,11 +87,6 @@ class GrpcUpdateHandler(UpdateHandler):
 
         current_status = node_ctx.get(node_id)
         if current_status and current_status.status == DSNodeStatus.OFFLINE:
-            self.event_log.clear_event(
-                mid="node_offline",
-                network_id=self.network_id,
-                uid=node_id,
-            )
             self.logger.info(
                 "Node is now online",
                 node_id=node_id,

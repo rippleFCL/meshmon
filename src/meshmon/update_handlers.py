@@ -27,7 +27,7 @@ class NodeStatusTableHandler(UpdateHandler):
     def __init__(self, event_log: EventLog):
         self._matcher = RegexPathMatcher(
             [
-                "nodes\\.(\\w|-)+\\.contexts.ping_data\\.(\\w|-)+$",
+                "nodes\\.(.)+\\.contexts.ping_data\\.(.)+$",
             ]
         )
         self.event_log = event_log
@@ -62,6 +62,12 @@ class NodeStatusTableHandler(UpdateHandler):
                         ),
                         f"Node {node_id} has not responded to heartbeats.",
                         f"Node {node_id} is offline",
+                    )
+                elif status_data == AnalysisNodeStatus.ONLINE:
+                    self.event_log.clear_event(
+                        mid="node_offline",
+                        network_id=self.store.network_id,
+                        uid=node_id,
                     )
                 self.update_manager.trigger_event("update")
         for node_id, _ in list(status_ctx):
@@ -102,7 +108,7 @@ class MonitorStatusTableHandler(UpdateHandler):
         self.event_log = event_log
         self._matcher = RegexPathMatcher(
             [
-                "nodes\\.(\\w|-)+\\.contexts.monitor_data\\.(\\w|-)+$",
+                "nodes\\.(.)+\\.contexts.monitor_data\\.(.)+$",
             ]
         )
         self.network_config = self.config_watcher.current_config
@@ -143,6 +149,12 @@ class MonitorStatusTableHandler(UpdateHandler):
                         ),
                         f"Monitor {node_id} is not reporting status.",
                         f"Monitor {node_id} is offline",
+                    )
+                elif status_data == AnalysisNodeStatus.ONLINE:
+                    self.event_log.clear_event(
+                        mid="monitor_offline",
+                        network_id=self.store.network_id,
+                        uid=node_id,
                     )
                 self.update_manager.trigger_event("update")
         for node_id, _ in list(status_ctx):

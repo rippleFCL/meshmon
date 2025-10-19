@@ -9,7 +9,6 @@ import structlog
 from pydantic import ValidationError
 
 from meshmon.config.config import Config
-from meshmon.event_log import EventLog
 
 from ..config.bus import ConfigBus, ConfigPreprocessor, ConfigWatcher
 from ..connection.protocol_handler import (
@@ -34,17 +33,16 @@ if TYPE_CHECKING:
 
 
 class GrpcUpdateHandlerContainer:
-    def __init__(self, connection_manager: ConnectionManager, event_log: EventLog):
+    def __init__(self, connection_manager: ConnectionManager):
         self.handlers: dict[str, GrpcUpdateHandler] = {}
         self.lock = threading.Lock()
         self.connection_manager = connection_manager
-        self.event_log = event_log
 
     def get_handler(self, network_id: str) -> GrpcUpdateHandler:
         with self.lock:
             if network_id not in self.handlers:
                 self.handlers[network_id] = GrpcUpdateHandler(
-                    network_id, self.connection_manager, self.event_log
+                    network_id, self.connection_manager
                 )
             return self.handlers[network_id]
 
@@ -347,17 +345,14 @@ class MeshMonServicer(MeshMonServiceServicer):
 class GrpcServer:
     """gRPC server for handling mesh connections."""
 
-    def __init__(self, config_bus: ConfigBus, event_log: EventLog):
+    def __init__(self, config_bus: ConfigBus):
         self.config_bus = config_bus
-        self.event_log = event_log
         self.logger = structlog.stdlib.get_logger().bind(
             module="meshmon.connection.grpc_server", component="GrpcServer"
         )
         self.server = None
         self.connection_manager = ConnectionManager(config_bus)
-        self.update_handlers = GrpcUpdateHandlerContainer(
-            self.connection_manager, self.event_log
-        )
+        self.update_handlers = GrpcUpdateHandlerContainer(self.connection_manager)
         self._client = None  # Embedded client instance
 
     def get_handler(self, network_id: str) -> GrpcUpdateHandler:

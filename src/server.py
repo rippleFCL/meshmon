@@ -108,7 +108,7 @@ logger.info("Initializing configuration bus...")
 config_bus = ConfigBus()
 
 logger.info("Initializing gRPC server...")
-grpc_server = GrpcServer(config_bus, event_log)
+grpc_server = GrpcServer(config_bus)
 
 logger.info("Initializing store manager...")
 store_manager = StoreManager(config_bus, grpc_server, event_log)

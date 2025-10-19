@@ -28,6 +28,7 @@ class ClockTableHandler(UpdateHandler):
         self.config_watcher = config_watcher
         self.node_cfg = config_watcher.current_config.current_node
         self.avg_over = config_watcher.current_config.avg_clock_pulses
+        self.oldest_pulse = datetime.datetime.now(datetime.timezone.utc)
         self.config_watcher.subscribe(self.reload)
         self.avg_delta: dict[str, list[datetime.timedelta]] = {}
 
@@ -68,9 +69,9 @@ class ClockTableHandler(UpdateHandler):
                 if not node_pulse:
                     continue
                 current_node_pulse = clock_table.get(node)
-                if (
-                    not current_node_pulse
-                    or node_pulse.current_pulse != current_node_pulse.last_pulse
+                if not current_node_pulse or (
+                    node_pulse.current_pulse != current_node_pulse.last_pulse
+                    and node_pulse.current_pulse >= self.oldest_pulse
                 ):
                     pulse_elapsed_time = (
                         datetime.datetime.now(datetime.timezone.utc)

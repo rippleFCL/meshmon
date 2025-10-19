@@ -58,22 +58,12 @@ class GrpcUpdateHandler(UpdateHandler):
     def handle_update(self) -> None:
         """Process an incoming update request."""
         msg = self.store.dump()
-        ping_ctx = self.store.get_context("ping_data", DSPingData)
         for node in self.store.nodes:
             if node == self.store.config.key_mapping.signer.node_id:
                 continue
             conn = self.connection_manager.get_connection(node, self.network_id)
             if conn:
                 conn.send_response(StoreUpdate(data=msg))
-                if ping_ctx.get(node) is None:
-                    ping_ctx.set(
-                        node,
-                        DSPingData(
-                            status=DSNodeStatus.UNKNOWN,
-                            req_time_rtt=-1,
-                            date=datetime.datetime.now(datetime.timezone.utc),
-                        ),
-                    )
 
     def handle_incoming_update(self, update: StoreUpdate) -> None:
         """Handle an incoming StoreUpdate message."""

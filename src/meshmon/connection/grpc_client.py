@@ -49,6 +49,10 @@ class ClientTargetsPreprocessor(ConfigPreprocessor[list[ClientTarget]]):
                     continue
                 if not node.url:
                     continue
+                if network.node_id in node.block or (
+                    node.allow and network.node_id in node.allow
+                ):
+                    continue
                 verifier = network.key_mapping.get_verifier(node.node_id)
                 if verifier is None:
                     continue
@@ -226,6 +230,14 @@ class GrpcClientManager:
             old_target_count=len(self.config),
         )
         self.config = new_config
+        outbound_nodes = [node.node_id for node in new_config]
+        for conn in self.connection_manager:
+            if conn.dest_node_id in outbound_nodes:
+                continue
+            for raw_conn in list(conn.connections):
+                if raw_conn.initiator == "local":
+                    conn.remove_raw_connection(raw_conn)
+
         self.logger.debug("GrpcClientManager config updated successfully")
 
 

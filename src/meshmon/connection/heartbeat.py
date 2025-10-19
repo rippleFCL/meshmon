@@ -31,6 +31,10 @@ class HeartbeatConfigPreprocessor(ConfigPreprocessor[HeartbeatConfig]):
             for node in network.node_config:
                 if node.node_id == network.node_id:
                     continue
+                if network.node_id in node.block or (
+                    node.allow and network.node_id in node.allow
+                ):
+                    continue
                 node_configs[(network_id, node.node_id)] = node
 
         return HeartbeatConfig(node_configs=node_configs)
@@ -68,13 +72,37 @@ class HeartbeatController:
             return False
         return time.time() - last_sent > nodes_config.poll_rate
 
+    def filter_config(self, network_id: str) -> list[str]:
+        filtered_configs = [
+            value
+            for net_id, value in self.config.node_configs.keys()
+            if net_id[0] == network_id
+        ]
+        return filtered_configs
+
     def set_ping_status(self):
         for network_id, store in self.store_manager.stores.items():
+            nodes = self.filter_config(network_id)
             node_ctx = store.get_context("ping_data", DSPingData)
+            for node in nodes:
+                if node not in node_ctx:
+                    now = datetime.datetime.now(tz=datetime.timezone.utc)
+                    node_ctx.set(
+                        node,
+                        DSPingData(
+                            status=DSNodeStatus.UNKNOWN, req_time_rtt=-1, date=now
+                        ),
+                    )
             for node_id, ping_data in node_ctx:
                 nodes_config = self.get_node_config(network_id, node_id)
                 if not nodes_config:
+                    uid = (network_id, node_id)
+                    if uid not in self.config.node_configs:
+                        if uid in self.last_sent:
+                            del self.last_sent[uid]
+                        node_ctx.delete(node_id)
                     continue
+
                 now = datetime.datetime.now(tz=datetime.timezone.utc)
                 if (
                     (
@@ -118,19 +146,9 @@ class HeartbeatController:
             new_node_count=len(new_config.node_configs),
             old_node_count=len(self.config.node_configs),
         )
+        nodes = len(self.config.node_configs)
         self.config = new_config
-        # Clean up last_sent entries for nodes that no longer exist
-        removed_count = 0
-        for network_id, node_id in list(self.last_sent.keys()):
-            if (network_id, node_id) not in new_config.node_configs:
-                del self.last_sent[(network_id, node_id)]
-                removed_count += 1
-        for network_id, store in self.store_manager.stores.items():
-            node_ctx = store.get_context("ping_data", DSPingData)
-            for node_id, ping_data in list(node_ctx):
-                if (network_id, node_id) not in new_config.node_configs:
-                    node_ctx.delete(node_id)
-                    removed_count += 1
+        removed_count = nodes - len(self.config.node_configs)
 
         self.logger.debug(
             "HeartbeatController config updated successfully",

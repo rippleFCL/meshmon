@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from meshmon.event_log import EventLog
+
 from .config.bus import ConfigBus, ConfigPreprocessor
 from .config.config import Config
 
@@ -71,7 +73,9 @@ class StoreManager:
         self,
         config_bus: ConfigBus,
         grpc_server: "GrpcServer",
+        event_log: EventLog,
     ):
+        self.event_log = event_log
         watcher = config_bus.get_watcher(StoreManagerConfigPreprocessor())
         if watcher is None:
             raise ValueError("No initial config available for store manager")
@@ -112,8 +116,8 @@ class StoreManager:
             return
         new_store = SharedStore(config_watcher, grpc_handler, network_id)
         new_store.start()
-        new_store.add_handler(MonitorStatusTableHandler(watcher))
-        new_store.add_handler(NodeStatusTableHandler())
+        new_store.add_handler(MonitorStatusTableHandler(watcher, self.event_log))
+        new_store.add_handler(NodeStatusTableHandler(self.event_log))
 
         self.stores[network_id] = new_store
 
@@ -176,6 +180,15 @@ class StoreManager:
 
             store.stop()
             del self.stores[network_id]
+
+            self.event_log.clear_event(
+                mid="node_offline",
+                network_id=network_id,
+            )
+            self.event_log.clear_event(
+                mid="monitor_offline",
+                network_id=network_id,
+            )
 
         self.logger.info(
             "StoreManager config updated successfully",

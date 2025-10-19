@@ -1,7 +1,7 @@
 import datetime
 from enum import Enum
 
-from ..config.config import NetworkConfig, NetworkMonitor
+from ..config.config import LoadedNetworkMonitor, NetworkConfig
 from ..dstypes import DSNodeStatus, DSPingData
 from ..pulsewave.store import SharedStore
 
@@ -62,9 +62,9 @@ def get_all_monitors(config: NetworkConfig) -> list[str]:
 
 def get_monitor_config(config: NetworkConfig):
     """Get a dictionary of monitor configurations from the network configuration."""
-    monitor_dict: dict[str, dict[str, NetworkMonitor]] = {}
+    monitor_dict: dict[str, dict[str, LoadedNetworkMonitor]] = {}
     for node in config.node_config:
-        local_monitor_dict: dict[str, NetworkMonitor] = {}
+        local_monitor_dict: dict[str, LoadedNetworkMonitor] = {}
         for monitor in config.monitors:
             local_monitor_dict[monitor.name] = monitor
         monitor_dict[node.node_id] = local_monitor_dict

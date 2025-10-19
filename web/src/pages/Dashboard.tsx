@@ -8,6 +8,7 @@ import { useRefresh } from '../contexts/RefreshContext'
 import StatsCard from '../components/dashboard/StatsCard'
 import NetworkItem from '../components/dashboard/NetworkItem'
 import NodeInfoRow from '../components/dashboard/NodeInfoRow'
+import { useEventsIndicator } from '@/hooks/useEventsIndicator'
 
 interface DashboardStats {
     totalNetworks: number
@@ -20,6 +21,7 @@ export default function Dashboard() {
 
     const { isDark } = useTheme()
     const { registerRefreshCallback } = useRefresh()
+    const { count: eventsCount, severity: eventsSeverity, topTitles } = useEventsIndicator(10000)
     const [stats, setStats] = useState<DashboardStats>({
         totalNetworks: 0,
         totalNodes: 0,
@@ -143,7 +145,31 @@ export default function Dashboard() {
                 <StatsCard icon={<Network className="h-6 w-6" />} value={stats.totalNetworks} label="Networks" />
                 <StatsCard icon={<Server className="h-6 w-6" />} value={stats.totalNodes} label="Active Nodes" iconBgClass={isDark ? 'bg-blue-900' : 'bg-blue-100'} iconColorClass={isDark ? 'text-blue-400' : 'text-blue-600'} />
                 <StatsCard icon={<Activity className="h-6 w-6" />} value={`${stats.avgLatency}ms`} label="Avg Latency" iconBgClass={isDark ? 'bg-green-900' : 'bg-green-100'} iconColorClass={isDark ? 'text-green-400' : 'text-green-600'} />
-                <StatsCard icon={<AlertTriangle className="h-6 w-6" />} value={stats.alertCount} label="Alerts" iconBgClass={isDark ? 'bg-red-900' : 'bg-red-100'} iconColorClass={isDark ? 'text-red-400' : 'text-red-600'} />
+                <div title={eventsCount > 0 ? topTitles.join('\n') : 'No alerts'}>
+                    <StatsCard
+                        icon={<AlertTriangle className="h-6 w-6" />}
+                        value={eventsCount}
+                        label="Alerts"
+                        iconBgClass={
+                            eventsCount === 0
+                                ? (isDark ? 'bg-gray-700' : 'bg-gray-200')
+                                : eventsSeverity === 'error'
+                                    ? (isDark ? 'bg-red-900' : 'bg-red-100')
+                                    : eventsSeverity === 'warning'
+                                        ? (isDark ? 'bg-yellow-900' : 'bg-yellow-100')
+                                        : (isDark ? 'bg-green-900' : 'bg-green-100')
+                        }
+                        iconColorClass={
+                            eventsCount === 0
+                                ? (isDark ? 'text-gray-200' : 'text-gray-700')
+                                : eventsSeverity === 'error'
+                                    ? (isDark ? 'text-red-400' : 'text-red-600')
+                                    : eventsSeverity === 'warning'
+                                        ? (isDark ? 'text-yellow-400' : 'text-yellow-600')
+                                        : (isDark ? 'text-green-400' : 'text-green-600')
+                        }
+                    />
+                </div>
             </div>
 
             {/* Networks Section - full width, auto height */}

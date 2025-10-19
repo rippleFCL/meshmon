@@ -3,12 +3,14 @@ import { Link, useLocation } from 'react-router-dom'
 import { RefreshCw, Wifi, WifiOff, Sun, Moon, LayoutDashboard, GitBranch, Bell, Database, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
+import { useEventsIndicator } from '@/hooks/useEventsIndicator'
 
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Network Graph', href: '/graph', icon: GitBranch },
     { name: 'Notification Clusters', href: '/notification-cluster', icon: Bell },
     { name: 'Cluster', href: '/cluster', icon: Database },
+    { name: 'Events', href: '/events', icon: Bell },
 ]
 
 export default function Sidebar() {
@@ -29,6 +31,7 @@ export default function Sidebar() {
     }, [isCollapsed])
     const { isDark, toggleTheme } = useTheme()
     const { triggerRefresh, isRefreshing } = useRefresh()
+    const { count: eventsCount, severity: eventsSeverity } = useEventsIndicator(10000)
     const location = useLocation()
 
     const handleRefresh = () => {
@@ -88,7 +91,23 @@ export default function Sidebar() {
                                 ? isDark ? 'text-blue-400' : 'text-primary-500'
                                 : isDark ? 'text-gray-400' : 'text-gray-400'
                                 }`} />
-                            {!isCollapsed && <span className="truncate">{item.name}</span>}
+                            {!isCollapsed && (
+                                <span className="truncate flex items-center gap-2">
+                                    {item.name}
+                                    {item.name === 'Events' && eventsCount > 0 && (
+                                        <span
+                                            className={`text-[10px] px-1.5 py-0.5 rounded-full ${eventsSeverity === 'error'
+                                                    ? (isDark ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700')
+                                                    : eventsSeverity === 'warning'
+                                                        ? (isDark ? 'bg-yellow-800 text-yellow-200' : 'bg-yellow-100 text-yellow-700')
+                                                        : (isDark ? 'bg-blue-800 text-blue-200' : 'bg-blue-100 text-blue-700')
+                                                }`}
+                                        >
+                                            {eventsCount}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
                         </Link>
                     )
                 })}

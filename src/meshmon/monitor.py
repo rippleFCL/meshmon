@@ -7,8 +7,8 @@ from typing import Protocol
 import requests
 from structlog.stdlib import get_logger
 
-from meshmon.config.config import Config
-from meshmon.config.structure.network import MonitorTypes, NetworkMonitor
+from meshmon.config.config import Config, LoadedNetworkMonitor
+from meshmon.config.structure.network import MonitorTypes
 
 # Import metrics
 from meshmon.prom_export import record_monitor_error
@@ -39,17 +39,17 @@ class MonitorProto(Protocol):
     def poll_rate(self) -> int: ...
 
     @property
-    def monitor_info(self) -> NetworkMonitor: ...
+    def monitor_info(self) -> LoadedNetworkMonitor: ...
 
 
-class HTTPMonitorConfigPreprocessor(ConfigPreprocessor[NetworkMonitor]):
+class HTTPMonitorConfigPreprocessor(ConfigPreprocessor[LoadedNetworkMonitor]):
     """Preprocessor for a specific HTTP monitor's config"""
 
     def __init__(self, network_id: str, monitor_name: str):
         self.network_id = network_id
         self.monitor_name = monitor_name
 
-    def preprocess(self, config: Config | None) -> NetworkMonitor | None:
+    def preprocess(self, config: Config | None) -> LoadedNetworkMonitor | None:
         if config is None:
             return None
 
@@ -71,7 +71,7 @@ class HTTPMonitor(MonitorProto):
         store_manager: StoreManager,
         net_id: str,
         monitor_name: str,
-        config_watcher: ConfigWatcher[NetworkMonitor],
+        config_watcher: ConfigWatcher[LoadedNetworkMonitor],
     ):
         self.store = store_manager
         self._net_id = net_id
@@ -88,7 +88,7 @@ class HTTPMonitor(MonitorProto):
         )
         self.session = requests.Session()
 
-    def reload(self, new_config: NetworkMonitor) -> None:
+    def reload(self, new_config: LoadedNetworkMonitor) -> None:
         """Handle config reload - update monitor configuration."""
         self.logger.debug(
             "Config reload triggered for HTTPMonitor",
@@ -106,7 +106,7 @@ class HTTPMonitor(MonitorProto):
         )
 
     @property
-    def monitor_info(self) -> NetworkMonitor:
+    def monitor_info(self) -> LoadedNetworkMonitor:
         return self._monitor_info
 
     @property
@@ -296,18 +296,18 @@ class Monitor:
         return self.monitor.net_id
 
     @property
-    def mon_config(self) -> NetworkMonitor:
+    def mon_config(self) -> LoadedNetworkMonitor:
         return self.monitor.monitor_info
 
 
 @dataclass
 class MonitorConfig:
-    monitors: dict[tuple[str, str], NetworkMonitor]
+    monitors: dict[tuple[str, str], LoadedNetworkMonitor]
 
 
 class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
     def preprocess(self, config: Config | None) -> MonitorConfig:
-        monitors: dict[tuple[str, str], NetworkMonitor] = {}
+        monitors: dict[tuple[str, str], LoadedNetworkMonitor] = {}
         if config is None:
             return MonitorConfig(monitors=monitors)
         for net_id, network in config.networks.items():
@@ -319,7 +319,9 @@ class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
                     break
             if local_node is None:
                 continue
-            unique: dict[str, NetworkMonitor] = {m.name: m for m in network.monitors}
+            unique: dict[str, LoadedNetworkMonitor] = {
+                m.name: m for m in network.monitors
+            }
             for m in unique.values():
                 monitors[(net_id, m.name)] = m
         return MonitorConfig(monitors=monitors)
@@ -362,7 +364,7 @@ class MonitorManager:
                 break
 
     def _create_monitors(
-        self, desired_monitors: dict[tuple[str, str], NetworkMonitor]
+        self, desired_monitors: dict[tuple[str, str], LoadedNetworkMonitor]
     ) -> None:
         """Create and start monitors from the desired monitor config."""
         for key, m_info in desired_monitors.items():
@@ -417,9 +419,9 @@ class MonitorManager:
         for key in current_keys & desired_keys:
             # If config changed, we will recreate
             mon = self.monitors[key]
-            m_info_new: NetworkMonitor = desired_monitors[key]
+            m_info_new: LoadedNetworkMonitor = desired_monitors[key]
             if isinstance(mon.monitor, HTTPMonitor):
-                m_info_old: NetworkMonitor = mon.mon_config
+                m_info_old: LoadedNetworkMonitor = mon.mon_config
                 if m_info_old != m_info_new:
                     to_remove.append(key)
             else:

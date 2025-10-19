@@ -6,8 +6,7 @@ from dataclasses import dataclass
 import structlog
 
 from ..config.bus import ConfigBus, ConfigPreprocessor
-from ..config.config import Config
-from ..config.structure.network import NetworkNodeInfo
+from ..config.config import Config, LoadedNetworkNodeInfo
 from ..distrostore import StoreManager
 from ..dstypes import DSNodeStatus, DSPingData
 from .connection import ConnectionManager
@@ -19,7 +18,7 @@ class HeartbeatConfig:
     """Configuration for heartbeat controller"""
 
     node_configs: dict[
-        tuple[str, str], NetworkNodeInfo
+        tuple[str, str], LoadedNetworkNodeInfo
     ]  # (network_id, node_id) -> NetworkNodeInfo
 
 

@@ -3,12 +3,14 @@ import { LayoutDashboard, GitBranch, Bell, Database, RefreshCw, Wifi, WifiOff, S
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
 import { useState } from 'react'
+import { useEventsIndicator } from '@/hooks/useEventsIndicator'
 
 const nav = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Graph', href: '/graph', icon: GitBranch },
     { name: 'Notifications', href: '/notification-cluster', icon: Bell },
     { name: 'Cluster', href: '/cluster', icon: Database },
+    { name: 'Events', href: '/events', icon: Bell },
 ]
 
 export default function MobileTopBar() {
@@ -16,6 +18,7 @@ export default function MobileTopBar() {
     const { triggerRefresh, isRefreshing } = useRefresh()
     const [isConnected] = useState(true)
     const location = useLocation()
+    const { count: eventsCount, severity: eventsSeverity } = useEventsIndicator(10000)
 
     return (
         <div className={`${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b`}>
@@ -44,7 +47,21 @@ export default function MobileTopBar() {
                             className={`flex-1 min-w-0 px-3 py-2 flex items-center justify-center text-sm ${active ? (isDark ? 'bg-blue-900 text-blue-300' : 'bg-primary-100 text-primary-700') : (isDark ? 'text-gray-300' : 'text-gray-700')}`}
                         >
                             <item.icon className="h-4 w-4 mr-1" />
-                            <span className="truncate">{item.name}</span>
+                            <span className="truncate flex items-center gap-1">
+                                {item.name}
+                                {item.name === 'Events' && eventsCount > 0 && (
+                                    <span
+                                        className={`text-[10px] px-1 py-0.5 rounded-full ${eventsSeverity === 'error'
+                                                ? (isDark ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700')
+                                                : eventsSeverity === 'warning'
+                                                    ? (isDark ? 'bg-yellow-800 text-yellow-200' : 'bg-yellow-100 text-yellow-700')
+                                                    : (isDark ? 'bg-blue-800 text-blue-200' : 'bg-blue-100 text-blue-700')
+                                            }`}
+                                    >
+                                        {eventsCount}
+                                    </span>
+                                )}
+                            </span>
                         </Link>
                     )
                 })}

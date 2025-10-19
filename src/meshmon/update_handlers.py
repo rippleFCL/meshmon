@@ -4,13 +4,14 @@ import structlog
 from pydantic import BaseModel
 
 from meshmon.config.bus import ConfigPreprocessor, ConfigWatcher
+from meshmon.event_log import EventLog, EventType
 
 from .analysis.analysis import (
     AnalysisNodeStatus,
     get_monitor_status,
     get_node_ping_status,
 )
-from .config.config import Config, NetworkConfig
+from .config.config import Config, EventID, NetworkConfig
 from .pulsewave.store import SharedStore
 from .pulsewave.update.update import RegexPathMatcher, UpdateHandler, UpdateManager
 
@@ -23,12 +24,13 @@ class NodeStatusEntry(BaseModel):
 class NodeStatusTableHandler(UpdateHandler):
     """Handles node status updates."""
 
-    def __init__(self):
+    def __init__(self, event_log: EventLog):
         self._matcher = RegexPathMatcher(
             [
                 "nodes\\.(\\w|-)+\\.contexts.ping_data\\.(\\w|-)+$",
             ]
         )
+        self.event_log = event_log
 
     def bind(self, store: "SharedStore", update_manager: "UpdateManager") -> None:
         self.store = store
@@ -49,10 +51,27 @@ class NodeStatusTableHandler(UpdateHandler):
                         last_updated=datetime.datetime.now(datetime.timezone.utc),
                     ),
                 )
+                if status_data == AnalysisNodeStatus.OFFLINE:
+                    self.event_log.log_event(
+                        EventType.WARNING,
+                        EventID(
+                            mid="node_offline",
+                            src="NodeStatusTableHandler",
+                            network_id=self.store.network_id,
+                            uid=node_id,
+                        ),
+                        f"Node {node_id} has not responded to heartbeats.",
+                        f"Node {node_id} is offline",
+                    )
                 self.update_manager.trigger_event("update")
         for node_id, _ in list(status_ctx):
             if node_id not in status:
                 status_ctx.delete(node_id)
+                self.event_log.clear_event(
+                    mid="node_offline",
+                    network_id=self.store.network_id,
+                    uid=node_id,
+                )
                 self.update_manager.trigger_event("update")
 
     def stop(self) -> None:
@@ -76,8 +95,11 @@ class MonitorStatusTablePreprocessor(ConfigPreprocessor[NetworkConfig]):
 class MonitorStatusTableHandler(UpdateHandler):
     """Handles monitor status updates."""
 
-    def __init__(self, config_watcher: ConfigWatcher[NetworkConfig]):
+    def __init__(
+        self, config_watcher: ConfigWatcher[NetworkConfig], event_log: EventLog
+    ):
         self.config_watcher = config_watcher
+        self.event_log = event_log
         self._matcher = RegexPathMatcher(
             [
                 "nodes\\.(\\w|-)+\\.contexts.monitor_data\\.(\\w|-)+$",
@@ -110,10 +132,27 @@ class MonitorStatusTableHandler(UpdateHandler):
                         last_updated=datetime.datetime.now(datetime.timezone.utc),
                     ),
                 )
+                if status_data == AnalysisNodeStatus.OFFLINE:
+                    self.event_log.log_event(
+                        EventType.WARNING,
+                        EventID(
+                            mid="monitor_offline",
+                            src="MonitorStatusTableHandler",
+                            network_id=self.store.network_id,
+                            uid=node_id,
+                        ),
+                        f"Monitor {node_id} is not reporting status.",
+                        f"Monitor {node_id} is offline",
+                    )
                 self.update_manager.trigger_event("update")
         for node_id, _ in list(status_ctx):
             if node_id not in status:
                 status_ctx.delete(node_id)
+                self.event_log.clear_event(
+                    mid="monitor_offline",
+                    network_id=self.store.network_id,
+                    uid=node_id,
+                )
                 self.update_manager.trigger_event("update")
 
     def stop(self) -> None:

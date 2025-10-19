@@ -22,8 +22,10 @@ from meshmon.pulsewave.data import StoreLeaderStatus, StoreNodeStatus
 
 from ..distrostore import StoreManager
 from ..dstypes import DSNodeInfo, DSNodeStatus, DSPingData
+from ..event_log import EventLog, EventType
 from ..pulsewave.store import SharedStore
 from ..update_handlers import NodeStatusEntry
+from .structure.events import ApiEvent, ApiEventType, EventApi
 from .structure.status import (
     ConnectionInfo,
     ConnectionNodeInfo,
@@ -67,6 +69,26 @@ LEADER_STATUS_MAPPING = {
     StoreLeaderStatus.WAITING_FOR_CONSENSUS: NotificationClusterStatusEnum.WAITING_FOR_CONSENSUS,
     StoreLeaderStatus.NOT_PARTICIPATING: NotificationClusterStatusEnum.NOT_PARTICIPATING,
 }
+
+EVENT_TYPE_MAPPING = {
+    EventType.INFO: ApiEventType.INFO,
+    EventType.WARNING: ApiEventType.WARNING,
+    EventType.ERROR: ApiEventType.ERROR,
+}
+
+
+def generate_event_api(event_log: EventLog) -> EventApi:
+    api = EventApi()
+    for eid, event in event_log.events.items():
+        api.events.append(
+            ApiEvent(
+                event_type=EVENT_TYPE_MAPPING.get(event.event_type, ApiEventType.INFO),
+                message=event.message,
+                title=event.title,
+                date=event.date,
+            )
+        )
+    return api
 
 
 def get_node_infos(store: SharedStore) -> dict[str, NodeInfo]:

@@ -38,25 +38,22 @@ class LifecycleManager:
 
     def watcher(self):
         self.logger.info("Starting lifecycle manager watcher thread")
-        if not self.config_bus.loaded:
-            try:
-                config = self.config.load()
-                self.config_bus.new_config(config)
-            except Exception as exc:
-                self.logger.error("Error loading initial config", error=exc)
         while not self._stop_event.is_set():
-            if self._stop_event.wait(10):
-                break
             try:
                 if self.config.needs_reload():
                     new_config = self.config.load()
-                    self.logger.info(
-                        "Configuration change detected, reloading components"
-                    )
-                    self.config_bus.new_config(new_config)
+                    if new_config:
+                        self.logger.info(
+                            "Configuration change detected, reloading components"
+                        )
+                        self.config_bus.new_config(new_config)
+                    else:
+                        self.logger.error("Failed to load new configuration")
 
             except Exception as exc:
-                self.logger.error("Error in config watcher", error=exc)
+                self.logger.error("Error in config watcher", exc_info=exc)
+            if self._stop_event.wait(10):
+                break
 
     def start(self):
         self.heartbeat_controller.start()

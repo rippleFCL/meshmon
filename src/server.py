@@ -16,9 +16,11 @@ from starlette.responses import FileResponse
 from meshmon.api.processor import (
     generate_api,
     generate_cluster_api,
+    generate_event_api,
     generate_notification_cluster_info,
 )
 from meshmon.api.structure.cluster_info import ClusterInfoApi
+from meshmon.api.structure.events import EventApi
 from meshmon.api.structure.notification_cluster import NotificationClusterApi
 from meshmon.api.structure.status import (
     MeshMonApi,
@@ -36,6 +38,7 @@ from meshmon.dstypes import (
     DSNodeStatus,
     DSPingData,
 )
+from meshmon.event_log import EventLog
 from meshmon.lifecycle import LifecycleManager
 from meshmon.monitor import MonitorManager
 from meshmon.prom_export import (
@@ -90,28 +93,25 @@ structlog.configure_once(
 )
 logger = structlog.stdlib.get_logger().bind(module="server")
 
-try:
-    1 / 0
-except Exception as e:
-    logger.error("Test exception during startup", exc=e)
-
 # JWT Configuration
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "nodeconf.yml")
 
 
 logger.info("Starting server initialization with config file", config=CONFIG_FILE_NAME)
 
+event_log = EventLog()
+
 logger.info("Initializing configuration loader...")
-config_loader = NetworkConfigLoader(file_name=CONFIG_FILE_NAME)
+config_loader = NetworkConfigLoader(event_log, file_name=CONFIG_FILE_NAME)
 
 logger.info("Initializing configuration bus...")
 config_bus = ConfigBus()
 
 logger.info("Initializing gRPC server...")
-grpc_server = GrpcServer(config_bus)
+grpc_server = GrpcServer(config_bus, event_log)
 
 logger.info("Initializing store manager...")
-store_manager = StoreManager(config_bus, grpc_server)
+store_manager = StoreManager(config_bus, grpc_server, event_log)
 
 logger.info("Initializing Heartbeat controller...")
 heartbeat_controller = HeartbeatController(
@@ -195,7 +195,6 @@ class ViewNetwork(BaseModel):
 def view():
     """Get network view data. Requires JWT authentication."""
     if config_bus.config:
-        logger.debug("View request for networks")
         networks = generate_api(store_manager, config_bus.config)
         return networks
     return MeshMonApi()
@@ -204,7 +203,6 @@ def view():
 @api.get("/api/cluster", response_model=ClusterInfoApi)
 def cluster_view():
     """Get cluster view data. Requires JWT authentication."""
-    logger.debug("Cluster view request for networks")
     networks = generate_cluster_api(store_manager)
     return networks
 
@@ -212,9 +210,15 @@ def cluster_view():
 @api.get("/api/notification_cluster", response_model=NotificationClusterApi)
 def notification_cluster_view():
     """Get notification cluster view data. Requires JWT authentication."""
-    logger.debug("Notification cluster view request for networks")
     networks = generate_notification_cluster_info(store_manager)
     return networks
+
+
+@api.get("/api/events", response_model=EventApi)
+def events_view():
+    """Get events view data. Requires JWT authentication."""
+    events = generate_event_api(event_log)
+    return events
 
 
 @api.get("/api/health")

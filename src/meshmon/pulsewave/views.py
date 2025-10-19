@@ -80,16 +80,17 @@ class MutableStoreCtxView[T: BaseModel](StoreCtxView[T]):
         self.context_data.data[key] = signed_data
         if key not in self.context_data.allowed_keys:
             self.context_data.allowed_keys.append(key)
-            self.context_data.resign(self.signer)
+            self.context_data.resign(self.signer, self.path)
         self.update_handler.trigger_update([f"{self.path}.{key}"])
 
     def delete(self, key: str):
         if key in self.context_data.data:
             del self.context_data.data[key]
+            updated_paths = [f"{self.path}.{key}"]
             if key in self.context_data.allowed_keys:
                 self.context_data.allowed_keys.remove(key)
-                self.context_data.resign(self.signer)
-            self.update_handler.trigger_update([f"{self.path}.{key}"])
+                updated_paths.extend(self.context_data.resign(self.signer, self.path))
+            self.update_handler.trigger_update(updated_paths)
 
 
 class StoreConsistencyView:
@@ -261,7 +262,7 @@ class ConsistencyContextView[T: BaseModel]:
             )
             if self.ctx_name not in node_data.consistency.allowed_contexts:
                 node_data.consistency.allowed_contexts.append(self.ctx_name)
-                node_data.consistency.resign(self.key_mapping.signer)
+                node_data.consistency.resign(self.key_mapping.signer, self.path)
             node_data.consistency.consistent_contexts[self.ctx_name] = cons_ctx
             updated_paths.append(
                 f"nodes.{current_node_id}.consistency.consistent_contexts.{self.ctx_name}"
@@ -316,6 +317,7 @@ class ConsistencyContextView[T: BaseModel]:
             path=f"{self.path}.leader",
             block_id="leader",
         )
+        self.update_handler.trigger_update([f"{self.path}.leader"])
 
     def get_leader_status(self, node_id: str) -> StoreLeaderEntry | None:
         consistency_ctx = self._get_consistency(node_id)
@@ -383,7 +385,7 @@ class ConsistencyContextView[T: BaseModel]:
         cons_ctx.context.data[key] = signed_data
         if key not in cons_ctx.context.allowed_keys:
             cons_ctx.context.allowed_keys.append(key)
-            cons_ctx.context.resign(self.key_mapping.signer)
+            cons_ctx.context.resign(self.key_mapping.signer, self.path)
         updated_paths.append(f"{self.path}.{key}")
         self.update_handler.trigger_update(updated_paths)
 

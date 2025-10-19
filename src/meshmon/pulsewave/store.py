@@ -89,6 +89,7 @@ class SharedStore:
         self.update_manager.add_handler(handler)
 
     def new_config(self, config: PulseWaveConfig):
+        updated_keys = []
         self.logger.info(
             "Config reload triggered for SharedStore",
             network_id=config.current_node.node_id,
@@ -122,6 +123,9 @@ class SharedStore:
                 network_id=self.network_id,
                 node_id=node_id,
             )
+            store = self.store.nodes.get(node_id)
+            if store:
+                updated_keys.extend(store.all_paths(f"nodes.{node_id}"))
             del self.store.nodes[node_id]
 
         all_nodes = list(config.nodes.keys())
@@ -129,22 +133,47 @@ class SharedStore:
         if store_data is None:
             store_data = StoreNodeData.new()
             self.store.nodes[config.current_node.node_id] = store_data
+            updated_keys.extend(
+                store_data.all_paths(f"nodes.{config.current_node.node_id}")
+            )
         consistency_data = store_data.consistency
         if consistency_data is None:
             consistency_data = StoreConsistencyData.new(config.key_mapping.signer)
             store_data.consistency = consistency_data
+            updated_keys.extend(
+                consistency_data.all_paths(
+                    f"nodes.{config.current_node.node_id}.consistency"
+                )
+            )
+
         clock_table = consistency_data.clock_table
         clock_table.allowed_keys = all_nodes
-        clock_table.resign(config.key_mapping.signer)
+        updated_keys.extend(
+            clock_table.resign(
+                config.key_mapping.signer,
+                f"nodes.{config.current_node.node_id}.consistency.clock_table",
+            )
+        )
         pulse_table = consistency_data.pulse_table
         pulse_table.allowed_keys = all_nodes
-        pulse_table.resign(config.key_mapping.signer)
+        updated_keys.extend(
+            pulse_table.resign(
+                config.key_mapping.signer,
+                f"nodes.{config.current_node.node_id}.consistency.pulse_table",
+            )
+        )
         node_status_table = consistency_data.node_status_table
         node_status_table.allowed_keys = all_nodes
-        node_status_table.resign(config.key_mapping.signer)
+        updated_keys.extend(
+            node_status_table.resign(
+                config.key_mapping.signer,
+                f"nodes.{config.current_node.node_id}.consistency.node_status_table",
+            )
+        )
 
         self.update_manager.trigger_event("config_reload")
         self.update_manager.trigger_event("update")
+        self.update_manager.trigger_update(updated_keys)
         self.logger.debug(
             "SharedStore config updated successfully",
             network_id=config.current_node.node_id,
@@ -286,6 +315,7 @@ class SharedStore:
         )
 
     def delete_consistency_context(self, context_name: str):
+        updated_paths = []
         if context_name in self.secret_store:
             self.secret_store.delete_secret(context_name)
         consistency = self._get_consistency()
@@ -294,10 +324,13 @@ class SharedStore:
             node_id = self.config.key_mapping.signer.node_id
             if context_name in consistency.allowed_contexts:
                 consistency.allowed_contexts.remove(context_name)
-                consistency.resign(self.config.key_mapping.signer)
-            self.update_manager.trigger_update(
-                [f"nodes.{node_id}.consistency.consistent_contexts.{context_name}"]
-            )
+                updated_paths.extend(
+                    consistency.resign(
+                        self.config.key_mapping.signer,
+                        f"nodes.{node_id}.consistency.consistent_contexts.{context_name}",
+                    )
+                )
+            self.update_manager.trigger_update(updated_paths)
         else:
             self.logger.warning(
                 "Consistency context not found to delete", context_name=context_name

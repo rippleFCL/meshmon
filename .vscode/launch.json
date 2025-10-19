@@ -29,7 +29,7 @@
                 "warning"
             ],
             "env": {
-                "LOG_LEVEL": "INFO",
+                "LOG_LEVEL": "DEBUG",
                 "ENV": "dev"
             },
             "jinja": true,

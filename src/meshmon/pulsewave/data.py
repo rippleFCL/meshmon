@@ -96,7 +96,7 @@ class StoreContextData(BaseModel):
     allowed_keys: list[str]
     sig: str
 
-    def resign(self, signer: Signer) -> None:
+    def resign(self, signer: Signer, path: str) -> list[str]:
         date = datetime.datetime.now(datetime.timezone.utc)
         sig_str = json.dumps(
             {
@@ -108,12 +108,15 @@ class StoreContextData(BaseModel):
         sig = base64.b64encode(signer.sign(sig_str)).decode()
         self.date = date
         self.sig = sig
+        updated_keys = [path]
         for key in list(self.data.keys()):  # we usually resign when allowed keys change
             if key not in self.allowed_keys and key in self.data:
                 logger.info(
                     f"Removing disallowed key {key} from context {self.context_name}"
                 )
+                updated_keys.append(key)
                 del self.data[key]
+        return updated_keys
 
     @classmethod
     def new(
@@ -490,7 +493,7 @@ class StoreConsistencyData(BaseModel):
     date: datetime.datetime
     sig: str
 
-    def resign(self, signer: Signer):
+    def resign(self, signer: Signer, path: str) -> list[str]:
         date = datetime.datetime.now(datetime.timezone.utc)
         sig_data = json.dumps(
             {
@@ -500,6 +503,7 @@ class StoreConsistencyData(BaseModel):
         ).encode()
         self.sig = base64.b64encode(signer.sign(sig_data)).decode()
         self.date = date
+        updated_keys = [path]
         for context in list(self.consistent_contexts.values()):
             if (
                 context not in self.allowed_contexts
@@ -509,7 +513,8 @@ class StoreConsistencyData(BaseModel):
                     f"Removing disallowed consistent context {context.ctx_name}"
                 )
                 del self.consistent_contexts[context.ctx_name]
-        logger.debug("Resigning StoreConsistencyData")
+                updated_keys.append(f"{path}.consistent_contexts.{context.ctx_name}")
+        return updated_keys
 
     @classmethod
     def new(cls, signer: Signer) -> "StoreConsistencyData":
@@ -811,7 +816,6 @@ class StoreNodeData(BaseModel):
                     self.consistency.update(
                         f"{path}.consistency", node_data.consistency, verifier
                     )
-                    or updated_paths
                 )
         return updated_paths
 

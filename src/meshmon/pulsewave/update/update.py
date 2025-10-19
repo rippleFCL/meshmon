@@ -51,10 +51,10 @@ class UpdateHandler(Protocol):
 
 class RegexPathMatcher:
     def __init__(self, pattern: list[str]):
-        self.pattern = re.compile("|".join(pattern))
+        self.pattern = [re.compile(pattern) for pattern in pattern]
 
     def matches(self, name: str) -> bool:
-        return bool(self.pattern.match(name))
+        return any(p.match(name) for p in self.pattern)
 
 
 class ExactPathMatcher:
@@ -86,7 +86,8 @@ class UpdateController:
             handlers = []
             if event in self.handler_cache:
                 for handler in self.handler_cache[event]:
-                    handler.handle_update()
+                    if handler not in execute_handlers:
+                        execute_handlers.append(handler)
 
             for handler in self.handlers:
                 matcher = handler.matcher()

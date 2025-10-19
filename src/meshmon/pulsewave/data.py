@@ -941,3 +941,9 @@ class StoreData(BaseModel):
                     diff_data.nodes[node_id] = diff
 
         return diff_data
+
+    def all_paths(self) -> list[str]:
+        paths = []
+        for node_id, node_data in self.nodes.items():
+            paths.extend(node_data.all_paths(f"nodes.{node_id}"))
+        return paths

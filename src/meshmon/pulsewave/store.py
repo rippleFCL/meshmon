@@ -339,7 +339,7 @@ class SharedStore:
     def local_consistency_contexts(self) -> Iterator[str]:
         node_data = self._get_node()
         if node_data and node_data.consistency:
-            for context_name in node_data.consistency.consistent_contexts:
+            for context_name in list(node_data.consistency.consistent_contexts):
                 yield context_name
 
     def all_consistency_contexts(self) -> Iterator[NodeConsistencyContextView]:

@@ -26,12 +26,13 @@ class NetworkNodeInfo(BaseModel):
 
 class NetworkRatelimit(BaseModel):
     update: float = 5
-    priority_update: float = 0
+    priority_update: float = 0.25
 
 
 class NetworkClusterConfig(BaseModel):
     rate_limits: NetworkRatelimit = NetworkRatelimit()
-    clock_pulse_interval: float = 1
+    clock_pulse_interval: float = 5
+    avg_clock_pulses: int = 30
 
 
 class NetworkRootConfig(BaseModel):

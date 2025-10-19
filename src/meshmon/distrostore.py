@@ -62,6 +62,7 @@ class PulseWaveConfigPreprocessor(ConfigPreprocessor[PulseWaveConfig]):
             update_rate_limit=network.cluster.rate_limits.update,  # Default rate limit
             instant_update_rate_limit=network.cluster.rate_limits.priority_update,  # Default instant update rate limit
             clock_pulse_interval=network.cluster.clock_pulse_interval,  # Default clock pulse interval
+            avg_clock_pulses=network.cluster.avg_clock_pulses,  # Default average clock pulses
         )
 
 

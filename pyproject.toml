@@ -27,6 +27,8 @@ ruff = "^0.12.12"
 pre-commit = "^4.3.0"
 pytest = "^8.4.2"
 pytest-asyncio = "^1.2.0"
+mkdocs = "^1.6.1"
+mkdocs-material = "^9.5.34"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

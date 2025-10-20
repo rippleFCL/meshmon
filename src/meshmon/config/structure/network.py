@@ -35,29 +35,27 @@ class NetworkRatelimit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     update: float = 5
-    priority_update: float = 0.25
+    priority_update: float = 1
 
 
 class NetworkClusterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rate_limits: NetworkRatelimit = NetworkRatelimit()
-    clock_pulse_interval: float = 5
+    clock_pulse_interval: float = 10
     avg_clock_pulses: int = 30
 
 
 class NetworkMonitorDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    interval: int = 30
-    retry: int = 2
+    interval: int = 120
+    retry: int = 3
 
 
 class NetworkNodeDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    poll_rate: int = 10
-    retry: int = 6
+    poll_rate: int = 120
+    retry: int = 3
 
 
 class NetworkDefaults(BaseModel):

@@ -1,0 +1,11 @@
+[build]
+  publish = "site"
+  command = "pip install poetry && python -m poetry install && python -m poetry run mkdocs build"
+
+[build.environment]
+  PYTHON_VERSION = "3.13"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 404

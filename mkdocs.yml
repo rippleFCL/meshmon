@@ -1,0 +1,35 @@
+site_name: MeshMon
+site_description: Distributed peer-to-peer monitoring system with cryptographic security
+site_url: http://localhost:8000
+repo_url: https://github.com/rippleFCL/meshmon
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.instant
+    - navigation.instant.preview
+    - content.code.copy
+  palette:
+    - scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+  - tables
+  - pymdownx.highlight:
+      use_pygments: true
+plugins:
+  - search

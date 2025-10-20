@@ -1,6 +1,6 @@
-# Quick start
+# Quick Start
 
-this guide assumes that you have 3 machines that will be referenced as so `node-1`, `node-2`, and `node-3`
+This guide assumes that you have 3 machines that will be referenced as `node-1`, `node-2`, and `node-3`.
 
 
 ### Create Project Structure
@@ -14,21 +14,21 @@ mkdir -p meshmon/config/networks/local
 In `meshmon/config/nodeconf.yml` on each machine add the node config
 
 On machine `node-1`
-```yml
+```yaml
 networks:
   - directory: local
     node_id: node-1
 ```
 
 On machine `node-2`
-```yml
+```yaml
 networks:
   - directory: local
     node_id: node-2
 ```
 
 On machine `node-3`
-```yml
+```yaml
 networks:
   - directory: local
     node_id: node-3
@@ -38,7 +38,7 @@ networks:
 ### Network Configuration
 In `meshmon/config/networks/local/config.yml` on each machine add:
 
-```yml
+```yaml
 network_id: local-network
 node_config:
   - node_id: node-1
@@ -52,7 +52,7 @@ node_config:
 ### Docker Compose
 In `meshmon/docker-compose.yml` on each machine add:
 
-```yml
+```yaml
 services:
   node:
     image: ghcr.io/ripplefcl/meshmon:latest
@@ -93,13 +93,13 @@ pubkeys/
 ```
 
 !!! note ""
-    The pubkey filenames must exactly match the node_id values with a .pub suffix.
+    The pubkey filenames must exactly match the `node_id` values with a `.pub` suffix.
 
 ### Done
-Theres no need to restart the container as it will hot reload the new config.
+There's no need to restart the container as it will hot reload the new config.
 
 
-## Further reading
-Congrats you now have a multi-node Meshmon cluster!
+## Further Reading
+Congrats you now have a multi-node MeshMon cluster!
 
-For adding monitors see [this](configuration/network.md#monitors)
+For adding monitors see [Monitor Configuration](configuration/network.md#monitors).

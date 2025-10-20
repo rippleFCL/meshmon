@@ -11,7 +11,7 @@ The fields live under `networks[]`
 | directory       | string             | —       | Directory under `config/networks/` used to locate `config.yml` and keys.                                                             |
 | node_id         | string (lowercase) | —       | Your node's ID inside this network. Must appear in the network's `node_config` or the network is skipped.                            |
 | config_type     | enum:  `git`       | `local` | Where to load config/keys from. `local`: uses `config/networks/<directory>/`.  `git`: clones/updates `git_repo` into that directory. |
-| git_repo        | string             | null    | Git URL used when `config_type=git`. On pull failure, repo will be recloned on next load.                                            |
+| git_repo        | string             | null    | Git URL used when `config_type=git`. On pull failure, repo will be removed then cloned on next load.                                 |
 | discord_webhook | map[name→url]      | null    | If set, MeshMon posts node/monitor status transitions to these webhooks once the cluster is consistent.                              |
 
 

@@ -11,7 +11,7 @@ Configuration is split into two layers:
 
 ## Options
 
-### 1) Local (per-node filesystem)
+### 1. Local (per-node filesystem)
 
 - Set `config_type: local` in `nodeconf.yml` (default).
 - MeshMon ensures `config/networks/<directory>/` exists and will write a minimal `config.yml` if missing.
@@ -26,7 +26,7 @@ Cons:
 
 - Manual sync across nodes (risk of drift).
 
-### 2) Git (centralized repository)
+### 2. Git (centralized repository)
 
 - Set `config_type: git` and provide `git_repo` in `nodeconf.yml`.
 - MeshMon clones/updates the repo into `config/networks/<directory>/`.
@@ -43,7 +43,7 @@ Cons:
 
 - Operational dependency on the Git host.
 
-## Keys and verification
+## Keys and Verification
 
 - MeshMon must have a verifier for every peer in `node_config[]`. Place files as `config/networks/<directory>/pubkeys/<node_id>.pub`.
 - This node’s public key is saved automatically:
@@ -53,7 +53,7 @@ Cons:
 
 If a verifier is missing for any `node_id`, the network will fail to validate and won’t be loaded.
 
-## Reloads and lifecycle
+## Reloads and Lifecycle
 
 MeshMon hot reloads on config changes.
 
@@ -61,7 +61,7 @@ MeshMon hot reloads on config changes.
 - Git changes: MeshMon periodically checks for updates and pulls the repo. On pull failure, the local clone is removed; it will be cloned on next load.
 - Node membership: `node_id` must be present in the network’s `node_config` or the network is skipped.
 
-## Suggested workflows
+## Suggested Workflows
 
 - Local testing: start with `local`, auto-scaffold a minimal `config.yml`, and manually copy pubkeys.
 - Staging/production: switch to `git` with a dedicated config repo. PRs add nodes and their pubkeys, adjust monitors and cluster timings, and use tags for controlled rollouts.

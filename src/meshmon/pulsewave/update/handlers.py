@@ -33,7 +33,7 @@ class ClockTableHandler(UpdateHandler):
         self.avg_delta: dict[str, list[datetime.timedelta]] = {}
 
         self._matcher = RegexPathMatcher(
-            [f"^nodes\\.(.)+\\.consistency\\.pulse_table\\.{self.node_cfg.node_id}$"]
+            [f"^nodes\\..+\\.consistency\\.pulse_table\\.{self.node_cfg.node_id}$"]
         )
         self.logger = structlog.stdlib.get_logger().bind(
             module="meshmon.pulsewave.update.handlers", component="ClockTableHandler"
@@ -45,7 +45,7 @@ class ClockTableHandler(UpdateHandler):
         self.avg_delta = {}
         self._matcher = RegexPathMatcher(
             [
-                f"^nodes\\.(.)+\\.consistency\\.pulse_table\\.{config.current_node.node_id}$"
+                f"^nodes\\..+\\.consistency\\.pulse_table\\.{config.current_node.node_id}$"
             ]
         )
 
@@ -109,7 +109,7 @@ class PulseTableHandler(UpdateHandler):
         self.logger = structlog.stdlib.get_logger().bind(
             module="meshmon.pulsewave.update.handlers", component="PulseTableHandler"
         )
-        self._matcher = RegexPathMatcher(["^nodes\\.(.)+\\.consistency\\.clock_pulse$"])
+        self._matcher = RegexPathMatcher(["^nodes\\..+\\.consistency\\.clock_pulse$"])
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
         self.store = store
@@ -152,7 +152,7 @@ class NodeStatusHandler(UpdateHandler):
             module="meshmon.pulsewave.update.handlers", component="NodeStatusHandler"
         )
         self._matcher = RegexPathMatcher(
-            ["^nodes\\.(.)+\\.consistency\\.clock_table\\.(.)+$"]
+            ["^nodes\\..+\\.consistency\\.clock_table\\..+$"]
         )
 
     def bind(self, store: "SharedStore", update_manager: UpdateManager) -> None:
@@ -234,9 +234,9 @@ class LeaderElectionHandler(UpdateHandler):
         )
         self._matcher = RegexPathMatcher(
             [
-                "^nodes\\.(.)+\\.consistency\\.node_status_table\\.(.)+$",  # node status change
-                "^nodes\\.(.)+\\.consistency\\.consistent_contexts\\.(.)+\\.leader$",  # leader status change
-                "^nodes\\.(.)+\\.consistency\\.consistent_contexts\\.(.)+$",  # consistent contexts creation
+                "^nodes\\..+\\.consistency\\.node_status_table\\..+$",  # node status change
+                "^nodes\\..+\\.consistency\\.consistent_contexts\\..+\\.leader$",  # leader status change
+                "^nodes\\..+\\.consistency\\.consistent_contexts\\..+$",  # consistent contexts creation
             ]
         )
 
@@ -394,9 +394,9 @@ class DataUpdateHandler(UpdateHandler):
         )
         self._matcher = RegexPathMatcher(
             [
-                "^nodes\\.(.)+\\.values\\.(.)+$",
-                "^nodes\\.(.)+\\.contexts\\.(.)+$",
-                "^nodes\\.(.)+\\.consistency\\.consistent_contexts\\.(.)+\\.context\\.(.)+$",
+                "^nodes\\..+\\.values\\..+$",
+                "^nodes\\..+\\.contexts\\..+$",
+                "^nodes\\..+\\.consistency\\.consistent_contexts\\..+\\.context\\..+$",
             ]
         )
 

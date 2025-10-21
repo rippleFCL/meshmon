@@ -27,8 +27,8 @@ class NodeStatusTableHandler(UpdateHandler):
     def __init__(self, event_log: EventLog):
         self._matcher = RegexPathMatcher(
             [
-                "nodes\\.(.)+\\.contexts.ping_data\\.(.)+$",
-                "nodes\\.(.)+\\.contexts.ping_data$",
+                "nodes\\..+\\.contexts.ping_data\\..+$",
+                "nodes\\..+\\.contexts.ping_data$",
             ]
         )
         self.event_log = event_log
@@ -109,8 +109,8 @@ class MonitorStatusTableHandler(UpdateHandler):
         self.event_log = event_log
         self._matcher = RegexPathMatcher(
             [
-                "nodes\\.(.)+\\.contexts.monitor_data\\.(.)+$",
-                "nodes\\.(.)+\\.contexts.monitor_data$",
+                "nodes\\..+\\.contexts.monitor_data\\..+$",
+                "nodes\\..+\\.contexts.monitor_data$",
             ]
         )
         self.network_config = self.config_watcher.current_config

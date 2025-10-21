@@ -9,6 +9,22 @@ Configuration is split into two layers:
 - Node config (`config/nodeconf.yml`): which networks this node joins and per-node options (e.g., `discord_webhook`).
 - Network config (`config/networks/<directory>/config.yml`): the network’s topology, defaults, monitors, and cluster timings.
 
+## Network config file structure
+
+A configuration for each network
+
+Network configurations are stored in `config/networks`. Each network's configuration exists within a subdirectory (named per `networks[].directory`). Each subdirectory must have the following structure:
+
+```
+config.yml         # Network configuration (YAML)
+pubkeys/           # Public keys for peers in this network
+    <node_id>.pub  # One file per peer; filename must match node_id
+```
+
+- `config.yml` — See full field reference: [Network Configuration](./network.md)
+
+- `pubkeys/` — Contains a `<node_id>.pub` file for each peer listed in `node_config[]`. A network will not load unless a verifier exists for every peer.
+
 ## Options
 
 ### 1. Local (per-node filesystem)
@@ -26,17 +42,24 @@ Cons:
 
 - Manual sync across nodes (risk of drift).
 
-### 2. Git (centralized repository)
+### 2. Git (centralised repository)
 
 - Set `config_type: git` and provide `git_repo` in `nodeconf.yml`.
-- MeshMon clones/updates the repo into `config/networks/<directory>/`.
+- MeshMon clones/updates the repository into `config/networks/<directory>/`.
+- Only one network configuration can exist per repository.
 - On failure to pull, the local clone is removed; it will be cloned on next load.
-- Your node’s public key is saved to `.public_keys/<directory>/` (outside the repo), keeping it out of Git by default.
+
+
+!!! note "Public Keys"
+    For git configs, your node’s public key is written to `config/.public_keys/<directory>/` (not in the repository). Share it with repo maintainers to add under `pubkeys/` in the repository.
+
+!!! danger "Private Keys"
+    Do not commit private keys (`config/.private_keys/`).
 
 Pros:
 
 - Versioned, auditable source of truth.
-- Easy rollouts and rollbacks (tags/branches).
+- Easy rollouts.
 - Multi-node sync via Git instead of manual copies.
 
 Cons:

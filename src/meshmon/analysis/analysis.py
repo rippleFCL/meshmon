@@ -2,7 +2,7 @@ import datetime
 from enum import Enum
 
 from ..config.config import LoadedNetworkMonitor, NetworkConfig
-from ..dstypes import DSNodeStatus, DSPingData
+from ..dstypes import DSMonitorData, DSNodeStatus, DSPingData
 from ..pulsewave.store import SharedStore
 
 
@@ -53,14 +53,6 @@ def get_node_ping_status(store: SharedStore) -> dict[str, "AnalysisNodeStatus"]:
     return node_statuses
 
 
-def get_all_monitors(config: NetworkConfig) -> list[str]:
-    """Get a list of all monitor IDs from the network configuration."""
-    monitor_ids = set()
-    for monitor in config.monitors:
-        monitor_ids.add(monitor.name)
-    return list(monitor_ids)
-
-
 def get_monitor_config(config: NetworkConfig):
     """Get a dictionary of monitor configurations from the network configuration."""
     monitor_dict: dict[str, dict[str, LoadedNetworkMonitor]] = {}
@@ -76,23 +68,18 @@ def get_monitor_status(
     store: SharedStore, config: NetworkConfig
 ) -> dict[str, "AnalysisNodeStatus"]:
     """Get the status of all monitors in the store."""
-    monitor_config = get_monitor_config(config)
     monitor_statuses: list[dict[str, AnalysisNodeStatus]] = []
     for node in config.node_config:
-        monitor_ctx = store.get_context("monitor_data", DSPingData, node.node_id)
+        monitor_ctx = store.get_context("monitor_data", DSMonitorData, node.node_id)
         if monitor_ctx is None:
             continue
         node_monitors: dict[str, AnalysisNodeStatus] = {}
         for monitor_id, monitor_data in monitor_ctx:
-            mon_config = monitor_config.get(node.node_id, {}).get(monitor_id)
-            if mon_config is None:
-                node_monitors[monitor_id] = AnalysisNodeStatus.UNKNOWN
-                continue
             now = datetime.datetime.now(datetime.timezone.utc)
             if (
                 now - monitor_data.date
                 < datetime.timedelta(
-                    seconds=mon_config.interval * (mon_config.retry + 1)
+                    seconds=monitor_data.interval * (monitor_data.retry + 1)
                 )
                 and monitor_data.status == DSNodeStatus.ONLINE
             ):

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, StringConstraints
 
 
 class ConfigTypes(Enum):
@@ -10,8 +10,6 @@ class ConfigTypes(Enum):
 
 
 class NodeCfgNetwork(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     directory: str
     node_id: Annotated[str, StringConstraints(to_lower=True)]
     config_type: ConfigTypes = ConfigTypes.LOCAL
@@ -20,5 +18,4 @@ class NodeCfgNetwork(BaseModel):
 
 
 class NodeCfg(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     networks: list[NodeCfgNetwork]

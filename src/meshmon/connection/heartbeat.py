@@ -113,7 +113,9 @@ class HeartbeatController:
                     node_ctx.set(
                         node_id,
                         DSPingData(
-                            status=DSNodeStatus.OFFLINE, req_time_rtt=-1, date=now
+                            status=DSNodeStatus.OFFLINE,
+                            req_time_rtt=-1,
+                            date=now,
                         ),
                     )
 

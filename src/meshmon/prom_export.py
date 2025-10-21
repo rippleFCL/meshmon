@@ -298,12 +298,12 @@ def update_monitor_metrics(store_manager: "StoreManager") -> None:
     This function reads the current monitor statuses from all stores and
     updates the corresponding Prometheus metrics.
     """
-    from meshmon.dstypes import DSPingData
+    from meshmon.dstypes import DSMonitorData
 
     try:
         for network_id, store in store_manager.stores.items():
             # Get monitor data
-            monitor_ctx = store.get_context("monitor_data", DSPingData)
+            monitor_ctx = store.get_context("monitor_data", DSMonitorData)
 
             # Iterate through all monitors
             monitor_count = 0

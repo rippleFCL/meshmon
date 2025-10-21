@@ -21,7 +21,7 @@ from meshmon.config.config import Config, NetworkConfig
 from meshmon.pulsewave.data import StoreLeaderStatus, StoreNodeStatus
 
 from ..distrostore import StoreManager
-from ..dstypes import DSNodeInfo, DSNodeStatus, DSPingData
+from ..dstypes import DSMonitorData, DSNodeInfo, DSNodeStatus, DSPingData
 from ..event_log import EventLog, EventType
 from ..pulsewave.store import SharedStore
 from ..update_handlers import NodeStatusEntry
@@ -202,7 +202,7 @@ def get_monitor_infos(store: SharedStore, network: NetworkConfig) -> list[Monito
 def get_monitor_connection_infos(store: SharedStore) -> list[MonitorConnectionInfo]:
     monitors: dict[tuple[str, str], MonitorConnectionInfo] = {}
     for node_id in store.nodes:
-        monitor_ctx = store.get_context("monitor_data", DSPingData, node_id)
+        monitor_ctx = store.get_context("monitor_data", DSMonitorData)
         if monitor_ctx is None:
             continue
         for monitor_id, monitor_data in monitor_ctx:

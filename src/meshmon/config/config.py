@@ -25,13 +25,27 @@ from .structure.node_cfg import ConfigTypes, NodeCfg, NodeCfgNetwork
 
 
 @dataclass
+class LoadedNetworkRebroadcastConfig:
+    src_network_id: str
+    name: str
+    dest_name: str
+
+
+@dataclass
+class LoadedNetworkRebroadcastNetworkConfig:
+    prefix: str
+    monitors: list[LoadedNetworkRebroadcastConfig]
+
+
+@dataclass
 class LoadedNetworkNodeInfo:
     node_id: str
-    url: str
+    url: str | None
     poll_rate: int
     retry: int
     allow: list[str]
     block: list[str]
+    rebroadcast: dict[str, LoadedNetworkRebroadcastNetworkConfig]
 
 
 @dataclass
@@ -310,7 +324,9 @@ class NetworkConfigLoader:
         self.event_log.clear_event(mid="netconf-url", network_id=net_cfg.directory)
         for node in root.node_config:
             node_url = node.url
-            if not (node_url.startswith("grpc://") or node_url.startswith("grpcs://")):
+            if node_url and not (
+                node_url.startswith("grpc://") or node_url.startswith("grpcs://")
+            ):
                 self.logger.warning(
                     "Invalid Url for node",
                     network_id=root.network_id,
@@ -330,6 +346,23 @@ class NetworkConfigLoader:
                 )
                 node_url = ""
 
+            loaded_rebroadcast: dict[str, LoadedNetworkRebroadcastNetworkConfig] = {}
+            for rebroadcast in node.rebroadcast:
+                net_rebroadcasts = LoadedNetworkRebroadcastNetworkConfig(
+                    prefix=rebroadcast.prefix, monitors=[]
+                )
+                if rebroadcast.monitors:
+                    for rebroadcast_monitor in rebroadcast.monitors:
+                        net_rebroadcasts.monitors.append(
+                            LoadedNetworkRebroadcastConfig(
+                                src_network_id=rebroadcast.src_net,
+                                name=rebroadcast_monitor.name,
+                                dest_name=rebroadcast_monitor.dest_name
+                                or rebroadcast_monitor.name,
+                            )
+                        )
+
+                loaded_rebroadcast[rebroadcast.src_net] = net_rebroadcasts
             loaded_node_cfg.append(
                 LoadedNetworkNodeInfo(
                     node_id=node.node_id,
@@ -338,6 +371,7 @@ class NetworkConfigLoader:
                     retry=node.retry or root.defaults.nodes.retry,
                     allow=node.allow,
                     block=node.block,
+                    rebroadcast=loaded_rebroadcast,
                 )
             )
         loaded_monitors = []

@@ -7,7 +7,7 @@ from .config.config import NetworkConfigLoader
 from .connection.grpc_server import GrpcServer
 from .connection.heartbeat import HeartbeatController
 from .distrostore import StoreManager
-from .monitor import MonitorManager
+from .monitor.manager import MonitorManager
 from .webhooks import WebhookManager
 
 

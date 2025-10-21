@@ -16,6 +16,11 @@ class DSPingData(BaseModel):
     date: datetime.datetime
 
 
+class DSMonitorData(DSPingData):
+    interval: int
+    retry: int
+
+
 class DSNodeInfo(BaseModel):
     version: str
 

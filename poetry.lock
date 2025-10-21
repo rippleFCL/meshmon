@@ -610,6 +610,18 @@ files = [
 ]
 
 [[package]]
+name = "icmplib"
+version = "3.0.4"
+description = "Easily forge ICMP packets and make your own ping and traceroute."
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "icmplib-3.0.4-py3-none-any.whl", hash = "sha256:336b75c6c23c5ce99ddec33f718fab09661f6ad698e35b6f1fc7cc0ecf809398"},
+    {file = "icmplib-3.0.4.tar.gz", hash = "sha256:57868f2cdb011418c0e1d5586b16d1fabd206569fe9652654c27b6b2d6a316de"},
+]
+
+[[package]]
 name = "identify"
 version = "2.6.14"
 description = "File identification library for Python"
@@ -1636,4 +1648,4 @@ watchmedo = ["PyYAML (>=3.10)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "5ce59a369617e2db1c48e38e1a11341aea1d558d28f7af3cc5ed2a64ac322932"
+content-hash = "bb3528bfd7f67ba55fd96573a0263b26131f095b17c71d727b8a9531c5220012"

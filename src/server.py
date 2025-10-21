@@ -40,7 +40,7 @@ from meshmon.dstypes import (
 )
 from meshmon.event_log import EventLog
 from meshmon.lifecycle import LifecycleManager
-from meshmon.monitor import MonitorManager
+from meshmon.monitor.manager import MonitorManager
 from meshmon.prom_export import (
     update_connection_metrics,
     update_monitor_metrics,

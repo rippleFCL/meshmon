@@ -182,7 +182,7 @@ class WebhookManager:
                 webhooks = self._get_webhook(network_id)
                 for webhook in webhooks:
                     self._notify_for_network(network_id, webhook)
-            val = self.flag.wait(5)
+            val = self.flag.wait(30)
             if val:
                 break
 

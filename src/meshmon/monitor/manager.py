@@ -157,11 +157,15 @@ class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
                 monitor_names = {monitor.name for monitor in net_config.monitors}
                 for reb in rebs.monitors:
                     if reb.name in monitor_names:
+                        if reb.dest_name is None:
+                            dest_name = f"{rebs.prefix}{reb.name}"
+                        else:
+                            dest_name = reb.dest_name
                         rebroadcasts.add(
                             RebroadcastKey(
                                 src_network_id,
                                 net_id,
-                                f"{rebs.prefix}{reb.dest_name}",
+                                dest_name,
                                 reb.name,
                             )
                         )

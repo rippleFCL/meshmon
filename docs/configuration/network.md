@@ -29,16 +29,17 @@ Defines all peers and how your node interacts with them.
 
 Section: `node_config[]`
 
-| Field       | Type               | Default                  | What it does                                                                                        |
-| ----------- | ------------------ | ------------------------ | --------------------------------------------------------------------------------------------------- |
-| `node_id`   | string (lowercase) | —                        | Peer ID. Your local `node_id` (from nodeconf.yml) must appear here or the network is skipped.       |
-| `url`       | string             | —                        | Address to dial via gRPC. Accepts raw `host:port`                                                   |
-| `poll_rate` | int                | defaults.nodes.poll_rate | Heartbeat interval (seconds) for this peer.                                                         |
-| `retry`     | int                | defaults.nodes.retry     | Missed-heartbeat tolerance. Effective timeout ≈ poll_rate * retry.                                  |
-| `allow`     | list[string]       | []                       | Whitelist: only listed nodes will attempt to connect to this peer (evaluated by the dialling node). |
-| `block`     | list[string]       | []                       | Blacklist: listed nodes will not connect to this peer (evaluated by the dialling node).             |
+| Field         | Type                                                       | Default                  | What it does                                                                                                        |
+| ------------- | ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `node_id`     | string (lowercase)                                         | —                        | Peer ID. Your local `node_id` (from nodeconf.yml) must appear here or the network is skipped.                       |
+| `url`         | string (optional)                                          | -                        | gRPC URL peers use to dial this node. Prefer `grpc://` or `grpcs://`. If omitted/empty, peers won’t dial this node. |
+| `poll_rate`   | int                                                        | defaults.nodes.poll_rate | Heartbeat interval (seconds) for this peer.                                                                         |
+| `retry`       | int                                                        | defaults.nodes.retry     | Missed-heartbeat tolerance. Effective timeout ≈ `poll_rate * retry`.                                                |
+| `allow`       | list[string]                                               | []                       | Whitelist: only listed nodes will attempt to connect to this peer (evaluated by the dialling node).                 |
+| `block`       | list[string]                                               | []                       | Blacklist: listed nodes will not connect to this peer (evaluated by the dialling node).                             |
+| `rebroadcast` | [Rebroadcast Config](#rebroadcasting-monitors-rebroadcast) | []                       | Rebroadcast selected monitors from another network into this network, optionally prefixing or renaming them.        |
 
-Example:
+Example (basic):
 ```yaml
 node_config:
   - node_id: node
@@ -53,9 +54,56 @@ node_config:
       - node
 ```
 
+Example (with optional url and rebroadcast):
+```yaml
+node_config:
+  - node_id: edge-node
+    # No inbound gRPC on this node
+    url: null
+    rebroadcast:
+      - src_net: public-net
+        prefix: public-
+        monitors:
+          - name: homepage
+          - name: api
+            dest_name: public-api
+```
+
+### Rebroadcasting monitors (rebroadcast)
+
+Rebroadcast lets a node import selected monitor results from another network and expose them under this network’s namespace. This is useful for aggregating or cross-publishing public checks.
+
+Section: `node_config[].rebroadcast[]`
+
+| Field        | Type                         | Default | What it does                                                                 |
+| ------------ | ---------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `src_net`    | string                       | —       | The source network ID to pull monitor results from.                          |
+| `prefix`     | string                       | ""      | Prefix applied to rebroadcasted monitor names if `dest_name` isn’t provided. |
+| `monitors[]` | list[RebroadcastMonitorItem] | []      | List of monitors to rebroadcast from `src_net`. See item shape below.        |
+
+`RebroadcastMonitorItem` shape (`monitors[]` entries):
+
+| Field       | Type              | Default | What it does                                                                          |
+| ----------- | ----------------- | ------- | ------------------------------------------------------------------------------------- |
+| `name`      | string            | —       | Source monitor name on `src_net`.                                                     |
+| `dest_name` | string (optional) | —       | Destination name in this network. If omitted, uses the concatenation `prefix + name`. |
+
+Examples:
+
+```yaml
+rebroadcast:
+  - src_net: public-net
+    prefix: public-
+    monitors:
+      - name: homepage
+      - name: google
+      - name: api
+        dest_name: my-api # Won't become `public-my-api`
+```
+
 ## Monitors
 
-Configure external HTTP checks that each node runs locally. Use `interval` and `retry` to balance sensitivity vs. noise, and `allow`/`block` to target which nodes run a given monitor.
+Configure external HTTP or ping checks that each node runs locally. Use `interval` and `retry` to balance sensitivity vs. noise, and `allow`/`block` to target which nodes run a given monitor.
 
 Section: `monitors[]`
 
@@ -63,7 +111,7 @@ Section: `monitors[]`
 | ---------- | -------------------- | -------------------------- | -------------------------------------------- |
 | `name`     | string               | —                          | Unique monitor name.                         |
 | `type`     | enum: `ping`\|`http` | —                          | Monitor implementation.                      |
-| `host`     | string               | —                          | Target URL the monitor checks.               |
+| `host`     | string               | —                          | Target host/URL the monitor checks.          |
 | `interval` | int                  | defaults.monitors.interval | Seconds between checks.                      |
 | `retry`    | int                  | defaults.monitors.retry    | Consecutive failures before marking OFFLINE. |
 | `allow`    | list[string]         | []                         | Only these nodes run the monitor locally.    |
@@ -75,7 +123,14 @@ monitors:
   - name: example.com
     type: http
     host: http://example.com
+  - name: cloudflare
+    type: ping
+    host: 1.1.1.1
 ```
+
+Notes:
+- Ping monitor prefers ICMP (via icmplib) and falls back to TCP connect if ICMP isn’t available. Host parsing supports full URLs (http/https), host:port, or bare host. Default ports: 80 or 443 for https.
+- If RTT exceeds `interval`, the sample is discarded (treated as a failure). Consecutive failures up to `retry` will mark the monitor OFFLINE via the manager’s invalidation.
 
 ## Cluster
 
@@ -156,6 +211,14 @@ node_config:
     url: node3:42069
     block:
       - node
+  - node_id: aggregator
+    url: null
+    rebroadcast:
+      - src_net: public
+        prefix: public-
+        monitors:
+          - name: google
+          - name: github
 
 defaults:
   nodes:

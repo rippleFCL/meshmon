@@ -28,7 +28,7 @@ from .structure.node_cfg import ConfigTypes, NodeCfg, NodeCfgNetwork
 class LoadedNetworkRebroadcastConfig:
     src_network_id: str
     name: str
-    dest_name: str
+    dest_name: str | None
 
 
 @dataclass

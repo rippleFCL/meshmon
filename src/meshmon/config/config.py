@@ -307,7 +307,29 @@ class NetworkConfigLoader:
             pulse_offset  # Adjust clock pulse interval based on rate limit
         )
         loaded_node_cfg = []
+        self.event_log.clear_event(mid="netconf-url", network_id=net_cfg.directory)
         for node in root.node_config:
+            node_url = node.url
+            if not (node_url.startswith("grpc://") or node_url.startswith("grpcs://")):
+                self.logger.warning(
+                    "Invalid Url for node",
+                    network_id=root.network_id,
+                    node_id=node.node_id,
+                    url=node.url,
+                )
+                self.event_log.log_event(
+                    EventType.WARNING,
+                    EventID(
+                        mid="netconf-url",
+                        src="NetworkConfigLoader",
+                        network_id=net_cfg.directory,
+                        uid=node.node_id,
+                    ),
+                    f"Invalid URL scheme detected for node `{node.node_id}` in network `{net_cfg.directory}`: `{node.url}`",
+                    "Invalid Node URL",
+                )
+                node_url = ""
+
             loaded_node_cfg.append(
                 LoadedNetworkNodeInfo(
                     node_id=node.node_id,

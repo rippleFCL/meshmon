@@ -36,6 +36,7 @@ class ClientTarget:
     node_id: str
     self_node_id: str
     address: str
+    secure: bool
 
 
 class ClientTargetsPreprocessor(ConfigPreprocessor[list[ClientTarget]]):
@@ -59,10 +60,12 @@ class ClientTargetsPreprocessor(ConfigPreprocessor[list[ClientTarget]]):
                 address = node.url
                 if address.startswith("grpc://"):
                     address = address[7:]
-                elif address.startswith("http://"):
-                    address = address[7:]
-                elif address.startswith("https://"):
+                    secure = False
+                elif address.startswith("grpcs://"):
                     address = address[8:]
+                    secure = True
+                else:
+                    continue
                 client_targets.append(
                     ClientTarget(
                         verifier=verifier,
@@ -71,6 +74,7 @@ class ClientTargetsPreprocessor(ConfigPreprocessor[list[ClientTarget]]):
                         node_id=node.node_id,
                         self_node_id=network.node_id,
                         address=address,
+                        secure=secure,
                     )
                 )
         return client_targets
@@ -138,18 +142,27 @@ class GrpcClientManager:
             existing = self.stream_threads.get(key)
             if existing and existing.is_alive():
                 return True
-            # Setup channel and stub
-            channel = grpc.insecure_channel(
-                target.address,
-                options=[
-                    ("grpc.keepalive_time_ms", 10000),
-                    ("grpc.keepalive_timeout_ms", 5000),
-                    ("grpc.keepalive_permit_without_calls", True),
-                    ("grpc.http2.max_pings_without_data", 0),
-                    ("grpc.http2.min_time_between_pings_ms", 10000),
-                    ("grpc.http2.min_ping_interval_without_data_ms", 300000),
-                ],
-            )
+            # Setup channel and stu
+            options = [
+                ("grpc.keepalive_time_ms", 10000),
+                ("grpc.keepalive_timeout_ms", 5000),
+                ("grpc.keepalive_permit_without_calls", True),
+                ("grpc.http2.max_pings_without_data", 0),
+                ("grpc.http2.min_time_between_pings_ms", 10000),
+                ("grpc.http2.min_ping_interval_without_data_ms", 300000),
+            ]
+            if not target.secure:
+                channel = grpc.insecure_channel(
+                    target.address,
+                    options=options,
+                )
+            else:
+                creds = grpc.ssl_channel_credentials()
+                channel = grpc.secure_channel(
+                    target.address,
+                    creds,
+                    options=options,
+                )
             stub = MeshMonServiceStub(channel)
 
             # Build per-peer client and start streaming thread

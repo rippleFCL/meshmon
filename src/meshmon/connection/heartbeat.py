@@ -35,8 +35,6 @@ class HeartbeatConfigPreprocessor(ConfigPreprocessor[HeartbeatConfig]):
                     node.allow and network.node_id in node.allow
                 ):
                     continue
-                if not node.url:
-                    continue
                 node_configs[(network_id, node.node_id)] = node
 
         return HeartbeatConfig(node_configs=node_configs)
@@ -84,25 +82,24 @@ class HeartbeatController:
 
     def set_ping_status(self):
         for network_id, store in self.store_manager.stores.items():
-            nodes = self.filter_config(network_id)
             node_ctx = store.get_context("ping_data", DSPingData)
-            for node in nodes:
-                if node not in node_ctx:
+            alive_connections = [conn.dest_node_id for conn in self.connection_manager]
+            for node_id in alive_connections:
+                if node_id not in node_ctx:
                     now = datetime.datetime.now(tz=datetime.timezone.utc)
                     node_ctx.set(
-                        node,
+                        node_id,
                         DSPingData(
                             status=DSNodeStatus.UNKNOWN, req_time_rtt=-1, date=now
                         ),
                     )
             for node_id, ping_data in node_ctx:
                 nodes_config = self.get_node_config(network_id, node_id)
-                if not nodes_config:
+                if not nodes_config or node_id not in alive_connections:
                     uid = (network_id, node_id)
-                    if uid not in self.config.node_configs:
-                        if uid in self.last_sent:
-                            del self.last_sent[uid]
-                        node_ctx.delete(node_id)
+                    if uid in self.last_sent:
+                        del self.last_sent[uid]
+                    node_ctx.delete(node_id)
                     continue
 
                 now = datetime.datetime.now(tz=datetime.timezone.utc)

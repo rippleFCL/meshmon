@@ -333,7 +333,7 @@ class NetworkConfigLoader:
             loaded_node_cfg.append(
                 LoadedNetworkNodeInfo(
                     node_id=node.node_id,
-                    url=node.url or "",
+                    url=node_url,
                     poll_rate=node.poll_rate or root.defaults.nodes.poll_rate,
                     retry=node.retry or root.defaults.nodes.retry,
                     allow=node.allow,

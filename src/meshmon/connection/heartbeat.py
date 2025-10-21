@@ -35,6 +35,8 @@ class HeartbeatConfigPreprocessor(ConfigPreprocessor[HeartbeatConfig]):
                     node.allow and network.node_id in node.allow
                 ):
                     continue
+                if not node.url:
+                    continue
                 node_configs[(network_id, node.node_id)] = node
 
         return HeartbeatConfig(node_configs=node_configs)
@@ -76,7 +78,7 @@ class HeartbeatController:
         filtered_configs = [
             value
             for net_id, value in self.config.node_configs.keys()
-            if net_id[0] == network_id
+            if net_id == network_id
         ]
         return filtered_configs
 

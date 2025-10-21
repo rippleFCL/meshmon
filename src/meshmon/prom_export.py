@@ -250,7 +250,7 @@ def update_node_metrics(store_manager: "StoreManager") -> None:
     try:
         for network_id, store in store_manager.stores.items():
             # Get node status data
-            node_ctx = store.get_context("node_data", DSPingData)
+            node_ctx = store.get_context("ping_data", DSPingData)
 
             for node_id in store.config.nodes.keys():
                 try:

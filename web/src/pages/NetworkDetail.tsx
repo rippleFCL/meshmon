@@ -107,7 +107,7 @@ export default function NetworkDetail() {
             <div className="space-y-6">
                 <div className="flex items-center space-x-4">
                     <button
-                        onClick={() => navigate('/networks')}
+                        onClick={() => navigate('/')}
                         className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
                     >
                         <ArrowLeft className={`h-5 w-5 ${isDark ? 'text-gray-300' : 'text-gray-700'}`} />
@@ -126,7 +126,7 @@ export default function NetworkDetail() {
             <div className="space-y-6">
                 <div className="flex items-center space-x-4">
                     <button
-                        onClick={() => navigate('/networks')}
+                        onClick={() => navigate('/')}
                         className={`p-2 rounded-lg transition-colors duration-200 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
                             }`}
                     >
@@ -223,7 +223,7 @@ export default function NetworkDetail() {
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                     <button
-                        onClick={() => navigate('/networks')}
+                        onClick={() => navigate('/')}
                         className={`p-2 rounded-lg transition-colors duration-200 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
                             }`}
                     >

@@ -48,11 +48,6 @@ jobs:
       id: meta
       with:
         images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=match,pattern=(v\d.\d.\d)
-          type=match,pattern=(v\d.\d)
-          type=match,pattern=(v\d)
-          type=ref,event=pr
 
     - name: Build and push image
       uses: docker/build-push-action@v6
@@ -65,6 +60,21 @@ jobs:
         cache-from: type=registry,ref=ghcr.io/ripplefcl/meshmon:buildcache
         cache-to: type=registry,ref=ghcr.io/ripplefcl/meshmon:buildcache,mode=max
         provenance: false
+
+    - name: get version
+      id: ev
+      run: echo "::set-output name=version::$(python3 server/version.py)"
+
+    - name: Create a Sentry.io release
+      uses: getsentry/action-release@v3
+      continue-on-error: true
+      env:
+        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        SENTRY_ORG: beryjuio
+        SENTRY_PROJECT: meshmon
+        SENTRY_URL: https://sentry.beryju.io
+      with:
+        release: meshmon@${{ steps.ev.outputs.version }}
 
   release:
     if: github.event_name == 'push'

@@ -131,6 +131,9 @@ class MeshMonServicer(MeshMonServiceServicer):
         context.send_initial_metadata((("server_nonce", server_nonce),))
         client_nonce = dict(context.invocation_metadata()).get("client_nonce", "")
         if not client_nonce or isinstance(client_nonce, bytes):
+            self.logger.warning(
+                "Missing or invalid client_nonce in metadata", peer=context.peer()
+            )
             context.abort(
                 grpc.StatusCode.UNAUTHENTICATED, "Missing client_nonce in metadata"
             )

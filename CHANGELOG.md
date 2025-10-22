@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.6] - 2025-10-22
+### :bug: Bug Fixes
+- [`fd51729`](https://github.com/rippleFCL/meshmon/commit/fd517298d301f54adc9c7500893117369d13ef93) - metadata issues with proxies *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`05d0a0e`](https://github.com/rippleFCL/meshmon/commit/05d0a0e006604029d55497e67d7a7007aeab7b76) - bump version *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta.5] - 2025-10-22
 ### :bug: Bug Fixes
 - [`4915b25`](https://github.com/rippleFCL/meshmon/commit/4915b250a07f0c475f3fe11e70268be5a111bde8) - grpc_server must log connection errors missing metadata *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -331,3 +339,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v4.0.0-beta.3]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.2...v4.0.0-beta.3
 [v4.0.0-beta.4]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.3...v4.0.0-beta.4
 [v4.0.0-beta.5]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.4...v4.0.0-beta.5
+[v4.0.0-beta.6]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.5...v4.0.0-beta.6

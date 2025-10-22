@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.2] - 2025-10-22
+### :sparkles: New Features
+- [`77e04b3`](https://github.com/rippleFCL/meshmon/commit/77e04b38cdf9abe44027bde8e7484c845e3ed3f4) - added sentry to server *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta] - 2025-10-22
 ### :boom: BREAKING CHANGES
 - due to [`4a0d6a7`](https://github.com/rippleFCL/meshmon/commit/4a0d6a7f5a202df4f1601ede1a34cbe76c26f0b0) - switched to bidirectional gRPC transport *(commit by [@rippleFCL](https://github.com/rippleFCL))*:
@@ -296,3 +301,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v3.1.0]: https://github.com/rippleFCL/meshmon/compare/v3.0.5...v3.1.0
 [v3.1.1]: https://github.com/rippleFCL/meshmon/compare/v3.1.0...v3.1.1
 [v4.0.0-beta]: https://github.com/rippleFCL/meshmon/compare/v3.1.1...v4.0.0-beta
+[v4.0.0-beta.2]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta...v4.0.0-beta.2

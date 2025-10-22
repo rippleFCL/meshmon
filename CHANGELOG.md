@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.3] - 2025-10-22
+### :bug: Bug Fixes
+- [`3374431`](https://github.com/rippleFCL/meshmon/commit/33744314ddcbc19b28c96186beccfb2d0a0d8393) - node status for current node should always be 'online' *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`ed5f030`](https://github.com/rippleFCL/meshmon/commit/ed5f0300b2ac897b0397b753210135b6a898012e) - **web**: stop redundant requests to api endpoint *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`da13359`](https://github.com/rippleFCL/meshmon/commit/da13359227f26cf97a079ab1442df75fe7c10c76) - bump to v4.0.0-beta.3 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta.2] - 2025-10-22
 ### :sparkles: New Features
 - [`77e04b3`](https://github.com/rippleFCL/meshmon/commit/77e04b38cdf9abe44027bde8e7484c845e3ed3f4) - added sentry to server *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -302,3 +311,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v3.1.1]: https://github.com/rippleFCL/meshmon/compare/v3.1.0...v3.1.1
 [v4.0.0-beta]: https://github.com/rippleFCL/meshmon/compare/v3.1.1...v4.0.0-beta
 [v4.0.0-beta.2]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta...v4.0.0-beta.2
+[v4.0.0-beta.3]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.2...v4.0.0-beta.3

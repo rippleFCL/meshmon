@@ -128,9 +128,16 @@ class MeshMonServicer(MeshMonServiceServicer):
         """Handle truly bidirectional streaming for mesh updates."""
         # The returns after the aborts are needed to statically satisfy the type checker
         server_nonce = os.urandom(256).hex()
-        context.send_initial_metadata((("server_nonce", server_nonce),))
-        client_nonce = dict(context.invocation_metadata()).get("client_nonce", "")
-        if not client_nonce or isinstance(client_nonce, bytes):
+        # Use hyphenated metadata names; underscores may be dropped by proxies
+        context.send_initial_metadata((("server-nonce", server_nonce),))
+        meta = dict(context.invocation_metadata())
+        client_nonce = meta.get("client-nonce", meta.get("client_nonce", ""))
+        if isinstance(client_nonce, bytes):
+            try:
+                client_nonce = client_nonce.decode("ascii", errors="ignore")
+            except Exception:
+                client_nonce = ""
+        if not client_nonce:
             self.logger.warning(
                 "Missing or invalid client_nonce in metadata", peer=context.peer()
             )

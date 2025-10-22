@@ -328,7 +328,7 @@ class GrpcClient:
             client_nonce = os.urandom(256).hex()
             self._client_nonce = client_nonce
             response_iterator = self.stub.StreamUpdates(
-                self.request_generator(), metadata=(("client_nonce", client_nonce),)
+                self.request_generator(), metadata=(("client-nonce", client_nonce),)
             )
             # Track the underlying call to allow client-side abort/cancel
             try:
@@ -353,10 +353,15 @@ class GrpcClient:
                 md = dict(response_iterator.initial_metadata())
             except Exception:
                 md = {}
-            server_nonce = md.get("server_nonce")
+            server_nonce = md.get("server-nonce", md.get("server_nonce"))
+            if isinstance(server_nonce, bytes):
+                try:
+                    server_nonce = server_nonce.decode("ascii", errors="ignore")
+                except Exception:
+                    server_nonce = None  # type: ignore[assignment]
             if not server_nonce:
                 self.logger.warning(
-                    "Missing server_nonce in initial metadata",
+                    "Missing server-nonce in initial metadata",
                     dest_node_id=self.peer_node_id,
                 )
                 self.stop_stream()

@@ -38,6 +38,15 @@ http {
 
     location / {
       grpc_pass grpc://meshmon_grpc;
+
+      grpc_set_header TE trailers;
+      grpc_set_header Host $host;
+
+      # MeshMon uses server-nonce/client-nonce for mutual auth during handshake:
+      # - client-nonce is sent by the client; NGINX forwards it automatically.
+      # - server-nonce is sent by the upstream; add pass_header so clients see it.
+      grpc_pass_header server-nonce;
+
       # Optional headers/limits
       grpc_read_timeout  300s;
       grpc_send_timeout  300s;

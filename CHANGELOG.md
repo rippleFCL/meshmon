@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.5] - 2025-10-22
+### :bug: Bug Fixes
+- [`4915b25`](https://github.com/rippleFCL/meshmon/commit/4915b250a07f0c475f3fe11e70268be5a111bde8) - grpc_server must log connection errors missing metadata *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`8d2f41b`](https://github.com/rippleFCL/meshmon/commit/8d2f41b2614af04ec0aa31b18de787c0f6db44ba) - stop rebroadcasts on start *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`09162df`](https://github.com/rippleFCL/meshmon/commit/09162df713f77c6963067c295658d6989a6fedb6) - bump to 4.0.0-beta.5 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta.4] - 2025-10-22
 ### :bug: Bug Fixes
 - [`58641cb`](https://github.com/rippleFCL/meshmon/commit/58641cb4683218e79f4f5327804d01f5f45bb228) - monitor connection info wasnt scoped to node_ids *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -321,3 +330,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v4.0.0-beta.2]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta...v4.0.0-beta.2
 [v4.0.0-beta.3]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.2...v4.0.0-beta.3
 [v4.0.0-beta.4]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.3...v4.0.0-beta.4
+[v4.0.0-beta.5]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.4...v4.0.0-beta.5

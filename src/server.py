@@ -53,6 +53,18 @@ from meshmon.pulsewave.store import (
 from meshmon.version import VERSION
 from meshmon.webhooks import WebhookManager
 
+if os.environ.get("ENABLE_TELEMETRY", "false").lower() == "true":
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn="https://2f5bc876fa8551d78bfc1d5fa3e4b6f2@sentry.beryju.io/8",
+        # Don't add data like request headers and IP for users,
+        # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+        send_default_pii=False,
+        release=f"meshmon@{VERSION}",
+    )
+
+
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 environment = os.environ.get("ENV", "prod").lower()

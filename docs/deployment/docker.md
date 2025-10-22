@@ -69,6 +69,7 @@ The container sets sensible defaults via environment variables:
 
 - `UVICORN_HOST` (default `0.0.0.0`) — listen address
 - `UVICORN_PORT` (default `8000`) — listen port
+- `ENABLE_TELEMETRY` (default `false`) enables sentry crash reporting
 
 To override port, you may also pass `--port` via the command (see Advanced usage below).
 

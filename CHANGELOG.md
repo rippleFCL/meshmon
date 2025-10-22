@@ -4,6 +4,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta] - 2025-10-22
+### :boom: BREAKING CHANGES
+- due to [`4a0d6a7`](https://github.com/rippleFCL/meshmon/commit/4a0d6a7f5a202df4f1601ede1a34cbe76c26f0b0) - switched to bidirectional gRPC transport *(commit by [@rippleFCL](https://github.com/rippleFCL))*:
+
+  switched to bidirectional gRPC transport
+
+
+### :sparkles: New Features
+- [`1b4d3ec`](https://github.com/rippleFCL/meshmon/commit/1b4d3ec5827488304de63081e73ace3c8cb03de6) - added screenshots to readme *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`7d25e70`](https://github.com/rippleFCL/meshmon/commit/7d25e701755eb5809d111d04d03951b1377a48da) - added non meshmon monitors *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`c9b085e`](https://github.com/rippleFCL/meshmon/commit/c9b085ecc0fa9ac237ccb4850186313e06794efb) - added monitors to webui *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`82101b5`](https://github.com/rippleFCL/meshmon/commit/82101b5fcd1a7c92863ae191a85101704c5e8091) - improved config keys *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`9799874`](https://github.com/rippleFCL/meshmon/commit/97998742cac6c759b9de32dc532bd98fcb9a9356) - bidirection connections and better visulisations for networks *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`b287e93`](https://github.com/rippleFCL/meshmon/commit/b287e93dc929fe56f9dfa22debe9ea0c53c56156) - added focus mode *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`c0db22b`](https://github.com/rippleFCL/meshmon/commit/c0db22b2d1027659f3f965560be5befe57a5dae5) - added line animations in graph view *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`04eef5b`](https://github.com/rippleFCL/meshmon/commit/04eef5b4dcbf871c0931c0b43608399bce22d325) - sync edges with nodes during animations *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`be3111f`](https://github.com/rippleFCL/meshmon/commit/be3111fdc8826f9b7ce035304085ec490a62864a) - graph prefranses percist *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`a5fb5d5`](https://github.com/rippleFCL/meshmon/commit/a5fb5d583ade6207319d1ee93a35b3a854fb2df4) - handle opacity changes on hover *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`acd16ce`](https://github.com/rippleFCL/meshmon/commit/acd16ce10bb9733634065238174417f86e51af60) - Structured Logs, better HTTP session management and sorted imports *(PR [#13](https://github.com/rippleFCL/meshmon/pull/13) by [@BeryJu](https://github.com/BeryJu))*
+- [`24eb998`](https://github.com/rippleFCL/meshmon/commit/24eb9980e962a711a9e28c1d04da8867bc5f7915) - unified backend update controller *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`40c881e`](https://github.com/rippleFCL/meshmon/commit/40c881e8fe553e2c2f7fa5b4a83e9ac06bcde8bf) - improved datastore reload and update efficiancy *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`6fbe4e2`](https://github.com/rippleFCL/meshmon/commit/6fbe4e2bb5bec117f39016e25f0e58efcd95c1df) - better database, faster consistancy and propergation times. *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`66a407d`](https://github.com/rippleFCL/meshmon/commit/66a407d3ac50b5989f01421bf2f758557b948245) - added tests *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`4a0d6a7`](https://github.com/rippleFCL/meshmon/commit/4a0d6a7f5a202df4f1601ede1a34cbe76c26f0b0) - switched to bidirectional gRPC transport *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`8778e12`](https://github.com/rippleFCL/meshmon/commit/8778e1278338353f2bb0496f02d835ba7ec1e8ee) - intergrate grpc transport with meshmon backend *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`3710646`](https://github.com/rippleFCL/meshmon/commit/3710646096da3c56b90517dc770cb5e219e557e4) - intergrate node ping with grpc heartbeats *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`5ed52c5`](https://github.com/rippleFCL/meshmon/commit/5ed52c53610668a90d423ce2855a290d80e79f88) - WebhookManager now uses consistency contexts for consistency : *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`8b5ede0`](https://github.com/rippleFCL/meshmon/commit/8b5ede03981588b0dc2458beb84178e6cae3714b) - ui now intergrates with updated api *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`1e2999d`](https://github.com/rippleFCL/meshmon/commit/1e2999d8abbae5c98bbce24fcff6b292c7d80222) - added mock data *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`9b882d4`](https://github.com/rippleFCL/meshmon/commit/9b882d4b34f6549fc10f507003c591074748b9d5) - added notification clusters and main cluster in ui *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`ba588b2`](https://github.com/rippleFCL/meshmon/commit/ba588b2ed32da1df737ea066b982df07af5d7f34) - added mutual auth to grpc backend *(PR [#14](https://github.com/rippleFCL/meshmon/pull/14) by [@rippleFCL](https://github.com/rippleFCL))*
+- [`bea90ea`](https://github.com/rippleFCL/meshmon/commit/bea90eaf7e12a30d255db1a5ca74e5f6af3b04aa) - hot reloading mechanics via the config bus *(PR [#15](https://github.com/rippleFCL/meshmon/pull/15) by [@rippleFCL](https://github.com/rippleFCL))*
+- [`cf52c61`](https://github.com/rippleFCL/meshmon/commit/cf52c61a3dc5b612dbb64c9375fd2755d761cfd3) - added prom metrics *(PR [#16](https://github.com/rippleFCL/meshmon/pull/16) by [@rippleFCL](https://github.com/rippleFCL))*
+- [`9ce485b`](https://github.com/rippleFCL/meshmon/commit/9ce485b059fbd40b62e34f11efe1589013468230) - significatly improved clock table computation *(PR [#17](https://github.com/rippleFCL/meshmon/pull/17) by [@rippleFCL](https://github.com/rippleFCL))*
+- [`e061c0d`](https://github.com/rippleFCL/meshmon/commit/e061c0d5205bb684a4edf5dee74c4c093cfe96d4) - added the event log *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`a562708`](https://github.com/rippleFCL/meshmon/commit/a562708bba2b97d50893e00fd201f48c5fc2ac3b) - monitor allow/block lists *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`2368300`](https://github.com/rippleFCL/meshmon/commit/2368300e11112fc1970ec5100378e4da525e5b67) - custom network topologies *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`257d05d`](https://github.com/rippleFCL/meshmon/commit/257d05dc69a2ccbe2d74b0cf4b673969eefadc3a) - added secure grpc *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`2e0a388`](https://github.com/rippleFCL/meshmon/commit/2e0a38846404a8fadc8b89f9c9f75d44155b70d8) - ping and rebroadcast monitors *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :bug: Bug Fixes
+- [`7966892`](https://github.com/rippleFCL/meshmon/commit/79668928a43a732bbf3ed65044bfc6a2eeb1185d) - monitor data may have old data due to config changes *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`f5e6fd2`](https://github.com/rippleFCL/meshmon/commit/f5e6fd2c89ce98cf534c6c4733ee0a28f7f69469) - room reset in focus mode when changing animation *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`1c2b345`](https://github.com/rippleFCL/meshmon/commit/1c2b345bf45547a07978f806bb315abfae37f3db) - unidirectional edges are dotted *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`3d664f2`](https://github.com/rippleFCL/meshmon/commit/3d664f284d60f5477d800d3adf935492293cc5cd) - animation persisted in focus mode *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`4c66d29`](https://github.com/rippleFCL/meshmon/commit/4c66d29bc783cec7e7714df77e3880a3b50150e3) - focus mode zoom and ring spacing *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`391afbb`](https://github.com/rippleFCL/meshmon/commit/391afbbad3ca2462e4b8b00ce7b8c25be497eeeb) - missing job deps *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`60fc90e`](https://github.com/rippleFCL/meshmon/commit/60fc90ede372a44bd26adcc3fbb8486539240b1f) - i may be stupid *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`c18c9ac`](https://github.com/rippleFCL/meshmon/commit/c18c9ac765a6dddce569edda948de7f612ac4795) - force layout spacing *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`36d1dc3`](https://github.com/rippleFCL/meshmon/commit/36d1dc3b5c7b30c8400966146c9533a1690d6b9b) - leader election algorithm not triggering *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`09d4773`](https://github.com/rippleFCL/meshmon/commit/09d4773f01fced5115515462bd4d1331a45859f8) - leader ellections again *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`72a908a`](https://github.com/rippleFCL/meshmon/commit/72a908a1d1ff9671e171ca612740cccbfb8fcfbf) - node and monitor statuses in event log *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`b11de12`](https://github.com/rippleFCL/meshmon/commit/b11de12a3741194ea49550580a0ee9d20804cc21) - high rtt on node reload *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`ec1ea7e`](https://github.com/rippleFCL/meshmon/commit/ec1ea7e66c096fedb08cf9198ca1f9d4c4a631ee) - node_status wasnt populated correctly for unconnectable nodes *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`1140c36`](https://github.com/rippleFCL/meshmon/commit/1140c368d5c2d83b7ab86b96d590df00a2231ccb) - ping_data cleanup on connection removal *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`defc535`](https://github.com/rippleFCL/meshmon/commit/defc53584683933ae0586535b948a1c11e9283aa) - improved regex matching for update_handlers *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`87c3c4f`](https://github.com/rippleFCL/meshmon/commit/87c3c4fc65c6fabed8baa8b9d7e5a2b7bb89b8ca) - **web**: navigation issues on network detail page *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :recycle: Refactors
+- [`9c313cb`](https://github.com/rippleFCL/meshmon/commit/9c313cb8289a4f5500c32980e161a12f5d34a2d8) - backendDB *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :white_check_mark: Tests
+- [`15ebfa7`](https://github.com/rippleFCL/meshmon/commit/15ebfa721bd8d922b250dd068c5e112af025d06a) - fixed tests *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`9b64d42`](https://github.com/rippleFCL/meshmon/commit/9b64d42e584b038550264fc86ca16631faa2653e) - fix tests lint issues *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`676118c`](https://github.com/rippleFCL/meshmon/commit/676118c749e6a609547f236321fc88fa81fae778) - relock *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`db29959`](https://github.com/rippleFCL/meshmon/commit/db2995931c106929af7f86c5e77219d72f58bf83) - bump version to 4.0.0 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v3.1.1] - 2025-09-24
 ### :bug: Bug Fixes
 - [`d809d6e`](https://github.com/rippleFCL/meshmon/commit/d809d6e5c781ed8aecad86bbc6aaea225360dbfc) - check for updates in nodeconf.yml *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -225,3 +295,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v3.0.5]: https://github.com/rippleFCL/meshmon/compare/v3.0.4...v3.0.5
 [v3.1.0]: https://github.com/rippleFCL/meshmon/compare/v3.0.5...v3.1.0
 [v3.1.1]: https://github.com/rippleFCL/meshmon/compare/v3.1.0...v3.1.1
+[v4.0.0-beta]: https://github.com/rippleFCL/meshmon/compare/v3.1.1...v4.0.0-beta

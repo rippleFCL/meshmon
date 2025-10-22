@@ -202,7 +202,7 @@ def get_monitor_infos(store: SharedStore, network: NetworkConfig) -> list[Monito
 def get_monitor_connection_infos(store: SharedStore) -> list[MonitorConnectionInfo]:
     monitors: dict[tuple[str, str], MonitorConnectionInfo] = {}
     for node_id in store.nodes:
-        monitor_ctx = store.get_context("monitor_data", DSMonitorData)
+        monitor_ctx = store.get_context("monitor_data", DSMonitorData, node_id)
         if monitor_ctx is None:
             continue
         for monitor_id, monitor_data in monitor_ctx:

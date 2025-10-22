@@ -397,8 +397,13 @@ class MonitorManager:
             monitor.stop()
         for monitor in self.monitors.values():
             monitor.join()
+        for monitor_key, monitor in self.rebroadcast.items():
+            self.logger.debug("Stopping monitor", key=monitor_key)
+            monitor.stop()
+        for monitor in self.rebroadcast.values():
+            monitor.join()
+        self.rebroadcast.clear()
         self.monitors.clear()
-
         self.logger.info("All monitors stopped")
 
     def stop_manager(self):

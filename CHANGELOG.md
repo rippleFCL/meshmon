@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.4] - 2025-10-22
+### :bug: Bug Fixes
+- [`58641cb`](https://github.com/rippleFCL/meshmon/commit/58641cb4683218e79f4f5327804d01f5f45bb228) - monitor connection info wasnt scoped to node_ids *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`c827f34`](https://github.com/rippleFCL/meshmon/commit/c827f34991b7b5664a6d87c6df62daf96cf30c38) - bump version to v4.0.0-beta.4 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta.3] - 2025-10-22
 ### :bug: Bug Fixes
 - [`3374431`](https://github.com/rippleFCL/meshmon/commit/33744314ddcbc19b28c96186beccfb2d0a0d8393) - node status for current node should always be 'online' *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -312,3 +320,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v4.0.0-beta]: https://github.com/rippleFCL/meshmon/compare/v3.1.1...v4.0.0-beta
 [v4.0.0-beta.2]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta...v4.0.0-beta.2
 [v4.0.0-beta.3]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.2...v4.0.0-beta.3
+[v4.0.0-beta.4]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.3...v4.0.0-beta.4

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { meshmonApi } from '../api'
+import { viewStore } from '@/api/viewStore'
 import { useRefresh } from '../contexts/RefreshContext'
 import { NetworkInfoNew } from '../types'
 import { useTheme } from '../contexts/ThemeContext'
@@ -31,44 +31,30 @@ export default function NetworkDetail() {
 
     const fetchData = useCallback(async (isInitialLoad = false) => {
         try {
-            if (isInitialLoad) {
-                setLoading(true)
-            } else {
-                setRefreshing(true)
-            }
-
-            const response = await meshmonApi.getViewData()
-            if (networkId && response.data.networks[networkId]) {
-                setNetwork(response.data.networks[networkId])
-                setError(null)
-            } else {
-                setError(`Network "${networkId}" not found`)
-            }
-        } catch (err) {
-            setError('Failed to fetch network data')
-            console.error('Error fetching data:', err)
+            if (isInitialLoad) setLoading(true)
+            else setRefreshing(true)
+            await viewStore.refresh()
         } finally {
-            if (isInitialLoad) {
-                setLoading(false)
-            } else {
-                setRefreshing(false)
-            }
+            if (isInitialLoad) setLoading(false)
+            else setRefreshing(false)
         }
-    }, [networkId])
+    }, [])
 
     useEffect(() => {
-        const handleRefresh = () => fetchData(false)
-
-        fetchData(true) // Initial load
-        const cleanup = registerRefreshCallback(handleRefresh) // Register refresh callback
-
-        const interval = setInterval(() => fetchData(false), 10000) // Background refresh every 10 seconds
-
-        return () => {
-            clearInterval(interval)
-            cleanup()
-        }
-    }, [fetchData, registerRefreshCallback])
+        const unsub = viewStore.subscribe((s) => {
+            if (networkId && s.data?.networks[networkId]) {
+                setNetwork(s.data.networks[networkId])
+                setError(null)
+            } else if (!s.loading) {
+                setError(`Network "${networkId}" not found`)
+            }
+            setLoading(s.loading && !s.data)
+            setRefreshing(s.loading && !!s.data)
+        }, 10000)
+        void fetchData(true)
+        const cleanup = registerRefreshCallback(() => { void viewStore.refresh() })
+        return () => { unsub(); cleanup() }
+    }, [fetchData, registerRefreshCallback, networkId])
 
     const toggleNode = (nodeId: string) => {
         const newExpanded = new Set(expandedNodes)

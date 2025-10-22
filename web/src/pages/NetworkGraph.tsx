@@ -13,7 +13,7 @@ import ReactFlow, {
     ReactFlowInstance,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { meshmonApi } from '../api'
+import { viewStore } from '@/api/viewStore'
 import { MeshMonApi } from '../types'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
@@ -119,25 +119,21 @@ export default function NetworkGraph() {
     // (Moved hover effect below processed graph data and adjacency maps)
 
     const fetchData = useCallback(async () => {
-        try {
-            logPerf('fetchData:start')
-            setLoading(true)
-            setError(null)
-            const response = await meshmonApi.getViewData()
-            setNetworkData(response.data)
-        } catch (err) {
-            setError('Failed to load network data')
-            console.error('Error fetching network data:', err)
-        } finally {
-            logPerf('fetchData:end')
-            setLoading(false)
-        }
+        logPerf('fetchData:start')
+        await viewStore.refresh()
+        logPerf('fetchData:end')
     }, [])
 
     useEffect(() => {
         logPerf('effect:mount+registerRefresh')
-        fetchData()
-        registerRefreshCallback(fetchData)
+        const unsub = viewStore.subscribe((s) => {
+            setLoading(s.loading && !s.data)
+            setError(s.error)
+            if (s.data) setNetworkData(s.data)
+        }, 10000)
+        void fetchData()
+        const cleanup = registerRefreshCallback(() => { void viewStore.refresh() })
+        return () => { unsub(); cleanup() }
         // Settings are initialized from localStorage in state initializers
     }, [fetchData, registerRefreshCallback])
 

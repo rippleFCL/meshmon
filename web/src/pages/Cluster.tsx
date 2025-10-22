@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
-import { clusterApi } from '../api/cluster'
+import { clusterStore } from '@/api/clusterStore'
 import type { ClusterInfoApi, ClusterInfo, ClusterNodeStatusEnum } from '../types/cluster'
 
 function badgeClass(status: ClusterNodeStatusEnum, isDark: boolean): string {
@@ -51,24 +51,15 @@ export default function ClusterPage() {
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-        const load = async (initial = false) => {
-            try {
-                if (initial) setLoading(true); else setRefreshing(true)
-                const res = await clusterApi.getCluster()
-                setData(res.data)
-                setError(null)
-            } catch (e) {
-                console.error(e)
-                setError('Failed to fetch cluster info')
-            } finally {
-                if (initial) setLoading(false); else setRefreshing(false)
-            }
-        }
-        const doRefresh = () => load(false)
-        load(true)
-        const cleanup = registerRefreshCallback(doRefresh)
-        const interval = setInterval(() => load(false), 10000)
-        return () => { clearInterval(interval); cleanup() }
+        const unsub = clusterStore.subscribe((s) => {
+            setLoading(s.loading && !s.data)
+            setRefreshing(s.loading && !!s.data)
+            setError(s.error)
+            if (s.data) setData(s.data)
+        }, 10000)
+        void clusterStore.refresh()
+        const cleanup = registerRefreshCallback(() => { void clusterStore.refresh() })
+        return () => { unsub(); cleanup() }
     }, [registerRefreshCallback])
 
     const networkKeys = useMemo(() => Object.keys(data?.networks || {}), [data])

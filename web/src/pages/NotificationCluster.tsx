@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, BellRing, CheckCircle2, Clock3, Users } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
-import { notificationApi } from '../api/notificationCluster'
+import { notificationClusterStore } from '@/api/notificationClusterStore'
 import type { NotificationClusterApi, NotificationClusterStatusEnum } from '../types/notificationCluster'
 
 export default function NotificationClusterPage() {
@@ -14,27 +14,15 @@ export default function NotificationClusterPage() {
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-        const load = async (initial = false) => {
-            try {
-                if (initial) setLoading(true)
-                else setRefreshing(true)
-                const res = await notificationApi.getCluster()
-                setData(res.data)
-                setError(null)
-            } catch (e) {
-                console.error(e)
-                setError('Failed to fetch notification cluster')
-            } finally {
-                if (initial) setLoading(false)
-                else setRefreshing(false)
-            }
-        }
-
-        const doRefresh = () => load(false)
-        load(true)
-        const cleanup = registerRefreshCallback(doRefresh)
-        const interval = setInterval(() => load(false), 10000)
-        return () => { clearInterval(interval); cleanup() }
+        const unsub = notificationClusterStore.subscribe((s) => {
+            setLoading(s.loading && !s.data)
+            setRefreshing(s.loading && !!s.data)
+            setError(s.error)
+            if (s.data) setData(s.data)
+        }, 10000)
+        void notificationClusterStore.refresh()
+        const cleanup = registerRefreshCallback(() => { void notificationClusterStore.refresh() })
+        return () => { unsub(); cleanup() }
     }, [registerRefreshCallback])
 
     const statusColor = (s: NotificationClusterStatusEnum) => {

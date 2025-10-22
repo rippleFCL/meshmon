@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { } from 'react-router-dom'
 import { Network, Server, Activity, AlertTriangle } from 'lucide-react'
-import { meshmonApi } from '../api'
+import { viewStore } from '@/api/viewStore'
 import { MeshMonApi } from '../types'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
@@ -34,73 +34,47 @@ export default function Dashboard() {
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-        const fetchData = async (isInitialLoad = false) => {
-            try {
-                if (isInitialLoad) {
-                    setLoading(true)
-                } else {
-                    setRefreshing(true)
+        const computeFromData = (data: MeshMonApi) => {
+
+            // Calculate stats from the new data structure
+            const networks = Object.keys(data.networks)
+            let totalNodes = 0
+            let totalLatency = 0
+            let latencyCount = 0
+            let alertCount = 0
+
+            networks.forEach(networkId => {
+                const network = data.networks[networkId]
+                const nodeIds = Object.keys(network.nodes)
+                totalNodes += nodeIds.length
+                alertCount += nodeIds.filter(id => network.nodes[id].status === 'offline').length
+
+                // Average latency from node-to-node connections (both directions)
+                for (const c of network.connections) {
+                    if (c.src_node.conn_type === 'up') { totalLatency += c.src_node.rtt; latencyCount++ }
+                    if (c.dest_node.conn_type === 'up') { totalLatency += c.dest_node.rtt; latencyCount++ }
                 }
+            })
 
-                const response = await meshmonApi.getViewData()
-                const data = response.data
-                setViewData(data)
+            setStats({
+                totalNetworks: networks.length,
+                totalNodes,
+                avgLatency: latencyCount > 0 ? Math.round(totalLatency / latencyCount) : 0,
+                alertCount
+            })
+        }
 
-                // Calculate stats from the new data structure
-                const networks = Object.keys(data.networks)
-                let totalNodes = 0
-                let totalLatency = 0
-                let latencyCount = 0
-                let alertCount = 0
-
-                networks.forEach(networkId => {
-                    const network = data.networks[networkId]
-                    const nodeIds = Object.keys(network.nodes)
-                    totalNodes += nodeIds.length
-                    alertCount += nodeIds.filter(id => network.nodes[id].status === 'offline').length
-
-                    // Average latency from node-to-node connections (both directions)
-                    for (const c of network.connections) {
-                        if (c.src_node.conn_type === 'up') { totalLatency += c.src_node.rtt; latencyCount++ }
-                        if (c.dest_node.conn_type === 'up') { totalLatency += c.dest_node.rtt; latencyCount++ }
-                    }
-                })
-
-                setStats({
-                    totalNetworks: networks.length,
-                    totalNodes,
-                    avgLatency: latencyCount > 0 ? Math.round(totalLatency / latencyCount) : 0,
-                    alertCount
-                })
-
-                setError(null)
-            } catch (err) {
-                setError('Failed to fetch network data')
-                console.error('Failed to fetch data:', err)
-            } finally {
-                if (isInitialLoad) {
-                    setLoading(false)
-                } else {
-                    setRefreshing(false)
-                }
+        const unsub = viewStore.subscribe((s) => {
+            setLoading(s.loading && !s.data)
+            setRefreshing(s.loading && !!s.data)
+            if (s.data) {
+                setViewData(s.data)
+                computeFromData(s.data)
             }
-        }
-
-        const handleRefresh = () => fetchData(false)
-
-        // Initial load
-        fetchData(true)
-
-        // Register refresh callback and get cleanup function
-        const cleanup = registerRefreshCallback(handleRefresh)
-
-        // Refresh data every 10 seconds (background updates)
-        const interval = setInterval(() => fetchData(false), 10000)
-
-        return () => {
-            clearInterval(interval)
-            cleanup()
-        }
+            setError(s.error)
+        }, 10000)
+        const cleanup = registerRefreshCallback(() => { void viewStore.refresh() })
+        return () => { unsub(); cleanup() }
     }, [registerRefreshCallback])
 
     if (loading) {

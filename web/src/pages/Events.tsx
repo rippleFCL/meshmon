@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Info, AlertCircle } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useRefresh } from '../contexts/RefreshContext'
-import { eventsApi } from '../api/events'
+import { eventsStore } from '@/api/eventsStore'
 import type { EventApi, ApiEvent, ApiEventType } from '../types/events'
 
 function badgeClasses(t: ApiEventType): string {
@@ -32,27 +32,15 @@ export default function EventsPage() {
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-        const load = async (initial = false) => {
-            try {
-                if (initial) setLoading(true)
-                else setRefreshing(true)
-                const res = await eventsApi.getEvents()
-                setData(res.data)
-                setError(null)
-            } catch (e) {
-                console.error(e)
-                setError('Failed to fetch events')
-            } finally {
-                if (initial) setLoading(false)
-                else setRefreshing(false)
-            }
-        }
-
-        const doRefresh = () => load(false)
-        load(true)
-        const cleanup = registerRefreshCallback(doRefresh)
-        const interval = setInterval(() => load(false), 5000)
-        return () => { clearInterval(interval); cleanup() }
+        const unsub = eventsStore.subscribe((s) => {
+            setData(s.data)
+            setLoading(s.loading)
+            setError(s.error)
+            // We treat any non-initial refresh as refreshing when loading and not first mount.
+            setRefreshing(s.loading && !!s.data)
+        }, 5000)
+        const cleanup = registerRefreshCallback(() => { void eventsStore.refresh() })
+        return () => { unsub(); cleanup() }
     }, [registerRefreshCallback])
 
     const events = useMemo(() => {

@@ -48,8 +48,7 @@ def get_node_ping_status(store: SharedStore) -> dict[str, "AnalysisNodeStatus"]:
             node_statuses[node_id] = AnalysisNodeStatus.OFFLINE
         else:
             node_statuses[node_id] = AnalysisNodeStatus.UNKNOWN
-    if store.config.current_node.node_id not in node_statuses:
-        node_statuses[store.config.current_node.node_id] = AnalysisNodeStatus.ONLINE
+    node_statuses[store.config.current_node.node_id] = AnalysisNodeStatus.ONLINE
     return node_statuses
 
 

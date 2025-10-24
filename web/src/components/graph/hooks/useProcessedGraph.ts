@@ -79,6 +79,7 @@ export function useProcessedGraph(
         type: 'meshNode',
         position: { x: 0, y: 0 },
         data: {
+          nodeId: entityId,
           label: entityId,
           status: m.status,
           avgRtt: m.inCount > 0 ? (m.inSum / m.inCount) : 0,
@@ -102,6 +103,7 @@ export function useProcessedGraph(
         type: 'monitorNode',
         position: { x: 0, y: 0 },
         data: {
+          nodeId: entityId,
           label: monitorNameMap[entityId] ?? entityId,
           status: m.status,
           avgRtt: 0,

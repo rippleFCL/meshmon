@@ -18,19 +18,37 @@ class NetworkMonitor(AllowBlock, BaseModel):
     type: MonitorTypes
     name: str
     host: str
+    group: str = "default"
     interval: int | None = None
     retry: int | None = None
 
 
-class NetworkRebroadcastConfig(BaseModel):
+class NetworkRebroadcastMonitorConfig(BaseModel):
     name: str
-    dest_name: str | None = None
+    group: str | None = None
+
+
+class NetworkRebGroupRewrite(BaseModel):
+    src_group: str
+    dest_group: str
+
+
+class NetworkRebMonRewrite(BaseModel):
+    src_monitor: str
+    dest_monitor: str
+    src_group: str | None = None
+    dest_group: str | None = None
 
 
 class NetworkRebroadcastNetworkConfig(BaseModel):
+    apply_to: list[str]
     src_net: str
-    prefix: str = ""
-    monitors: list[NetworkRebroadcastConfig] = []
+    group_prefix: str = ""
+    monitor_prefix: str = ""
+    group_rewrites: list[NetworkRebGroupRewrite] = []
+    monitor_rewrites: list[NetworkRebMonRewrite] = []
+    groups: list[str] = []
+    monitors: list[NetworkRebroadcastMonitorConfig] = []
 
 
 class NetworkNodeInfo(AllowBlock, BaseModel):
@@ -38,7 +56,6 @@ class NetworkNodeInfo(AllowBlock, BaseModel):
     url: str | None = None
     poll_rate: int | None = None
     retry: int | None = None
-    rebroadcast: list[NetworkRebroadcastNetworkConfig] = []
 
 
 class NetworkRatelimit(BaseModel):
@@ -74,3 +91,4 @@ class NetworkRootConfig(BaseModel):
     monitors: list[NetworkMonitor] = []
     cluster: NetworkClusterConfig = NetworkClusterConfig()
     defaults: NetworkDefaults = NetworkDefaults()
+    rebroadcasts: list[NetworkRebroadcastNetworkConfig] = []

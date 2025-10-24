@@ -2,6 +2,7 @@ import math
 import os
 import shutil
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
 
@@ -19,6 +20,7 @@ from .structure.network import (
     MonitorTypes,
     NetworkClusterConfig,
     NetworkNodeInfo,
+    NetworkRebroadcastNetworkConfig,
     NetworkRootConfig,
 )
 from .structure.node_cfg import ConfigTypes, NodeCfg, NodeCfgNetwork
@@ -32,12 +34,6 @@ class LoadedNetworkRebroadcastConfig:
 
 
 @dataclass
-class LoadedNetworkRebroadcastNetworkConfig:
-    prefix: str
-    monitors: list[LoadedNetworkRebroadcastConfig]
-
-
-@dataclass
 class LoadedNetworkNodeInfo:
     node_id: str
     url: str | None
@@ -45,7 +41,7 @@ class LoadedNetworkNodeInfo:
     retry: int
     allow: list[str]
     block: list[str]
-    rebroadcast: dict[str, LoadedNetworkRebroadcastNetworkConfig]
+    rebroadcast: dict[str, NetworkRebroadcastNetworkConfig]
 
 
 @dataclass
@@ -57,6 +53,10 @@ class LoadedNetworkMonitor:
     retry: int
     allow: list[str]
     block: list[str]
+    group: str
+
+    def get_uid(self) -> str:
+        return sha256(f"{self.group}:{self.name}".encode()).hexdigest()
 
 
 @dataclass
@@ -346,23 +346,10 @@ class NetworkConfigLoader:
                 )
                 node_url = ""
 
-            loaded_rebroadcast: dict[str, LoadedNetworkRebroadcastNetworkConfig] = {}
-            for rebroadcast in node.rebroadcast:
-                net_rebroadcasts = LoadedNetworkRebroadcastNetworkConfig(
-                    prefix=rebroadcast.prefix, monitors=[]
-                )
-                if rebroadcast.monitors:
-                    for rebroadcast_monitor in rebroadcast.monitors:
-                        net_rebroadcasts.monitors.append(
-                            LoadedNetworkRebroadcastConfig(
-                                src_network_id=rebroadcast.src_net,
-                                name=rebroadcast_monitor.name,
-                                dest_name=rebroadcast_monitor.dest_name
-                                or rebroadcast_monitor.name,
-                            )
-                        )
-
-                loaded_rebroadcast[rebroadcast.src_net] = net_rebroadcasts
+            loaded_rebroadcast: dict[str, NetworkRebroadcastNetworkConfig] = {}
+            for rebroadcast in root.rebroadcasts:
+                if node.node_id in rebroadcast.apply_to:
+                    loaded_rebroadcast[rebroadcast.src_net] = rebroadcast
             loaded_node_cfg.append(
                 LoadedNetworkNodeInfo(
                     node_id=node.node_id,
@@ -385,6 +372,7 @@ class NetworkConfigLoader:
                     retry=monitor.retry or root.defaults.monitors.retry,
                     allow=monitor.allow,
                     block=monitor.block,
+                    group=monitor.group,
                 )
             )
         self.event_log.clear_event(mid="netconf", network_id=net_cfg.directory)

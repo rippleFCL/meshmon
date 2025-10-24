@@ -12,7 +12,7 @@ from ..config.bus import ConfigBus, ConfigPreprocessor
 from ..distrostore import (
     StoreManager,
 )
-from ..dstypes import DSMonitorData, DSNodeInfo, DSNodeStatus
+from ..dstypes import DSMonitorData, DSNodeInfo, DSObjectStatus
 from ..version import VERSION
 from .monitors import (
     DirectMonitorConfigPreprocessor,
@@ -47,42 +47,36 @@ class Monitor:
     def setup(self):
         store = self.store.get_store(self.network_id)
         ctx = store.get_context("monitor_data", DSMonitorData)
-        ctx.set(
-            self.monitor.ctx_name,
-            DSMonitorData(
-                status=DSNodeStatus.UNKNOWN,
-                req_time_rtt=-1,
-                date=datetime.datetime.now(datetime.timezone.utc),
-                interval=self.monitor.interval,
-                retry=self.monitor.retry,
-            ),
-        )
+        data = self.monitor.get_initial()
+        ctx.set(data.get_uid(), data)
 
     def shutdown(self) -> None:
         store = self.store.get_store(self.network_id)
         ctx = store.get_context("monitor_data", DSMonitorData)
-        ctx.delete(self.monitor.ctx_name)
+        ctx.delete(self.monitor.uid)
 
     def invalidate_old_ping(self):
         store = self.store.get_store(self.network_id)
         ctx = store.get_context("monitor_data", DSMonitorData)
-        ping_data = ctx.get(self.monitor.ctx_name)
+        ping_data = ctx.get(self.monitor.uid)
         if ping_data is None:
             return
         now = datetime.datetime.now(datetime.timezone.utc)
         if (
             (now - ping_data.date).total_seconds()
             > ping_data.interval * ping_data.retry
-            and ping_data.status != DSNodeStatus.OFFLINE
+            and ping_data.status != DSObjectStatus.OFFLINE
         ):
             ctx.set(
-                self.monitor.ctx_name,
+                self.monitor.uid,
                 DSMonitorData(
-                    status=DSNodeStatus.OFFLINE,
+                    status=DSObjectStatus.OFFLINE,
                     req_time_rtt=-1,
                     date=now,
                     interval=ping_data.interval,
                     retry=ping_data.retry,
+                    name=ping_data.name,
+                    group=ping_data.group,
                 ),
             )
 
@@ -95,7 +89,7 @@ class Monitor:
             try:
                 self.invalidate_old_ping()
                 if ping_data := self.monitor.run():
-                    ctx.set(self.monitor.ctx_name, ping_data)
+                    ctx.set(ping_data.get_uid(), ping_data)
             except Exception as exc:
                 self.logger.error("Error in monitor loop", error=exc)
             val = self.stop_flag.wait(self.monitor.interval)
@@ -121,9 +115,10 @@ class Monitor:
 
 @dataclass(frozen=True)
 class RebroadcastKey:
-    src_network_id: str
     dest_network_id: str
     dest_name: str
+    dest_group: str
+    src_network_id: str
     src_monitor_name: str
 
     def __hash__(self) -> int:
@@ -149,36 +144,73 @@ class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
         cfg: Config, node_cfg: LoadedNetworkNodeInfo, net_id: str
     ) -> set[RebroadcastKey]:
         rebroadcasts: set[RebroadcastKey] = set()
-        for src_network_id, rebs in node_cfg.rebroadcast.items():
-            net_config = cfg.networks.get(src_network_id)
-            if not net_config:
+
+        # Iterate through all rebroadcast configurations for this node
+        for src_network_id, rebroadcast_config in node_cfg.rebroadcast.items():
+            # Get the source network to access its monitors
+            if src_network_id not in cfg.networks:
                 continue
-            if rebs.monitors:
-                monitor_names = {monitor.name for monitor in net_config.monitors}
-                for reb in rebs.monitors:
-                    if reb.name in monitor_names:
-                        if reb.dest_name is None:
-                            dest_name = f"{rebs.prefix}{reb.name}"
-                        else:
-                            dest_name = reb.dest_name
-                        rebroadcasts.add(
-                            RebroadcastKey(
-                                src_network_id,
-                                net_id,
-                                dest_name,
-                                reb.name,
-                            )
-                        )
-            else:
-                for monitor in net_config.monitors:
-                    rebroadcasts.add(
-                        RebroadcastKey(
-                            src_network_id,
-                            net_id,
-                            f"{rebs.prefix}{monitor.name}",
-                            monitor.name,
-                        )
-                    )
+
+            src_network = cfg.networks[src_network_id]
+
+            # Process monitors that should be rebroadcast
+            for src_monitor in src_network.monitors:
+                # Check if this monitor should be rebroadcast based on groups
+                if (
+                    rebroadcast_config.groups
+                    and src_monitor.group not in rebroadcast_config.groups
+                ):
+                    continue
+
+                # Check if this monitor is explicitly listed in monitors
+                monitor_match = None
+                for reb_mon in rebroadcast_config.monitors:
+                    if reb_mon.name == src_monitor.name and (
+                        reb_mon.group is None or reb_mon.group == src_monitor.group
+                    ):
+                        monitor_match = reb_mon
+                        break
+
+                # If monitors list is not empty and this monitor is not in it, skip
+                if rebroadcast_config.monitors and monitor_match is None:
+                    continue
+
+                # Determine destination name and group
+                dest_name = src_monitor.name
+                dest_group = src_monitor.group
+
+                # Apply prefixes
+                if rebroadcast_config.monitor_prefix:
+                    dest_name = f"{rebroadcast_config.monitor_prefix}{dest_name}"
+                if rebroadcast_config.group_prefix:
+                    dest_group = f"{rebroadcast_config.group_prefix}{dest_group}"
+
+                # Apply group rewrites
+                for group_rewrite in rebroadcast_config.group_rewrites:
+                    if src_monitor.group == group_rewrite.src_group:
+                        dest_group = group_rewrite.dest_group
+                        break
+
+                # Apply monitor rewrites
+                for mon_rewrite in rebroadcast_config.monitor_rewrites:
+                    if src_monitor.name == mon_rewrite.src_monitor and (
+                        mon_rewrite.src_group is None
+                        or src_monitor.group == mon_rewrite.src_group
+                    ):
+                        dest_name = mon_rewrite.dest_monitor
+                        if mon_rewrite.dest_group is not None:
+                            dest_group = mon_rewrite.dest_group
+                        break
+
+                # Create the rebroadcast key
+                rebroadcast_key = RebroadcastKey(
+                    dest_network_id=net_id,
+                    dest_name=dest_name,
+                    dest_group=dest_group,
+                    src_network_id=src_network_id,
+                    src_monitor_name=src_monitor.get_uid(),
+                )
+                rebroadcasts.add(rebroadcast_key)
 
         return rebroadcasts
 
@@ -194,7 +226,7 @@ class MonitorConfigPreprocessor(ConfigPreprocessor[MonitorConfig]):
                 if node_id not in monitor.block and (
                     not monitor.allow or node_id in monitor.allow
                 ):
-                    monitors[(net_id, monitor.name)] = monitor
+                    monitors[(net_id, monitor.get_uid())] = monitor
             for node_config in network.node_config:
                 if node_config.node_id == network.node_id:
                     rebroadcast.update(
@@ -307,7 +339,7 @@ class MonitorManager:
                 self.logger.debug("Creating Rebroadcast monitor", key=key)
                 remote_store: SharedStore = self.store_manager.get_store(src_network_id)
                 monitor = RebroadcastMonitor(
-                    full_monitor_name, dest_name, remote_store, monitor_watcher
+                    dest_name, key.dest_group, remote_store, monitor_watcher
                 )
                 monitor_wrapper = Monitor(
                     monitor, full_monitor_name, net_id, self.store_manager

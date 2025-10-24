@@ -8,7 +8,7 @@ import structlog
 from ..config.bus import ConfigBus, ConfigPreprocessor
 from ..config.config import Config, LoadedNetworkNodeInfo
 from ..distrostore import StoreManager
-from ..dstypes import DSNodeStatus, DSPingData
+from ..dstypes import DSObjectStatus, DSPingData
 from .connection import ConnectionManager
 from .grpc_types import Heartbeat
 
@@ -90,7 +90,7 @@ class HeartbeatController:
                     node_ctx.set(
                         node_id,
                         DSPingData(
-                            status=DSNodeStatus.UNKNOWN, req_time_rtt=-1, date=now
+                            status=DSObjectStatus.UNKNOWN, req_time_rtt=-1, date=now
                         ),
                     )
             for node_id, ping_data in node_ctx:
@@ -108,12 +108,12 @@ class HeartbeatController:
                         datetime.datetime.now(tz=datetime.timezone.utc) - ping_data.date
                     ).total_seconds()
                     > nodes_config.poll_rate * nodes_config.retry
-                    and ping_data.status != DSNodeStatus.OFFLINE
+                    and ping_data.status != DSObjectStatus.OFFLINE
                 ):
                     node_ctx.set(
                         node_id,
                         DSPingData(
-                            status=DSNodeStatus.OFFLINE,
+                            status=DSObjectStatus.OFFLINE,
                             req_time_rtt=-1,
                             date=now,
                         ),

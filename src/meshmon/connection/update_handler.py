@@ -7,7 +7,7 @@ import structlog
 from meshmon.prom_export import record_heartbeat_latency
 from meshmon.pulsewave.update.events import ExactPathMatcher
 
-from ..dstypes import DSNodeStatus, DSPingData
+from ..dstypes import DSObjectStatus, DSPingData
 from ..pulsewave.crypto import KeyMapping
 from ..pulsewave.data import StoreData
 from ..pulsewave.store import SharedStore
@@ -76,7 +76,7 @@ class GrpcUpdateHandler(UpdateHandler):
         node_ctx = self.store.get_context("ping_data", DSPingData)
 
         current_status = node_ctx.get(node_id)
-        if current_status and current_status.status == DSNodeStatus.OFFLINE:
+        if current_status and current_status.status == DSObjectStatus.OFFLINE:
             self.logger.info(
                 "Node is now online",
                 node_id=node_id,
@@ -88,7 +88,7 @@ class GrpcUpdateHandler(UpdateHandler):
         node_ctx.set(
             node_id,
             DSPingData(
-                status=DSNodeStatus.ONLINE,
+                status=DSObjectStatus.ONLINE,
                 req_time_rtt=rtt_seconds,
                 date=datetime.datetime.now(tz=datetime.timezone.utc),
             ),

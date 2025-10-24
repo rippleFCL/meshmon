@@ -2,7 +2,6 @@ import datetime
 
 from meshmon.analysis.analysis import (
     AnalysisNodeStatus,
-    get_monitor_status,
     get_node_ping_status,
 )
 from meshmon.api.structure.cluster_info import (
@@ -17,14 +16,20 @@ from meshmon.api.structure.notification_cluster import (
     NotificationClusters,
     NotificationClusterStatusEnum,
 )
-from meshmon.config.config import Config, NetworkConfig
+from meshmon.config.config import Config
 from meshmon.pulsewave.data import StoreLeaderStatus, StoreNodeStatus
 
 from ..distrostore import StoreManager
-from ..dstypes import DSMonitorData, DSNodeInfo, DSNodeStatus, DSPingData
+from ..dstypes import (
+    DSMonitorData,
+    DSMonitorStatus,
+    DSNodeInfo,
+    DSNodeStatus,
+    DSObjectStatus,
+    DSPingData,
+)
 from ..event_log import EventLog, EventType
 from ..pulsewave.store import SharedStore
-from ..update_handlers import NodeStatusEntry
 from .structure.events import ApiEvent, ApiEventType, EventApi
 from .structure.status import (
     ConnectionInfo,
@@ -40,27 +45,27 @@ from .structure.status import (
 )
 
 NODE_STATUS_MAPPING = {
-    AnalysisNodeStatus.ONLINE: NodeStatusEnum.ONLINE,
-    AnalysisNodeStatus.OFFLINE: NodeStatusEnum.OFFLINE,
-    AnalysisNodeStatus.UNKNOWN: NodeStatusEnum.UNKNOWN,
+    DSObjectStatus.ONLINE: NodeStatusEnum.ONLINE,
+    DSObjectStatus.OFFLINE: NodeStatusEnum.OFFLINE,
+    DSObjectStatus.UNKNOWN: NodeStatusEnum.UNKNOWN,
 }
 
 MONITOR_STATUS_MAPPING = {
-    AnalysisNodeStatus.ONLINE: MonitorStatusEnum.UP,
-    AnalysisNodeStatus.OFFLINE: MonitorStatusEnum.DOWN,
-    AnalysisNodeStatus.UNKNOWN: MonitorStatusEnum.UNKNOWN,
+    DSObjectStatus.ONLINE: MonitorStatusEnum.UP,
+    DSObjectStatus.OFFLINE: MonitorStatusEnum.DOWN,
+    DSObjectStatus.UNKNOWN: MonitorStatusEnum.UNKNOWN,
 }
 
 CONNECTION_TYPE_MAPPING = {
-    DSNodeStatus.ONLINE: ConnectionType.UP,
-    DSNodeStatus.OFFLINE: ConnectionType.DOWN,
-    DSNodeStatus.UNKNOWN: ConnectionType.UNKNOWN,
+    DSObjectStatus.ONLINE: ConnectionType.UP,
+    DSObjectStatus.OFFLINE: ConnectionType.DOWN,
+    DSObjectStatus.UNKNOWN: ConnectionType.UNKNOWN,
 }
 
 PING_TO_MONITOR_STATUS = {
-    DSNodeStatus.ONLINE: MonitorStatusEnum.UP,
-    DSNodeStatus.OFFLINE: MonitorStatusEnum.DOWN,
-    DSNodeStatus.UNKNOWN: MonitorStatusEnum.UNKNOWN,
+    DSObjectStatus.ONLINE: MonitorStatusEnum.UP,
+    DSObjectStatus.OFFLINE: MonitorStatusEnum.DOWN,
+    DSObjectStatus.UNKNOWN: MonitorStatusEnum.UNKNOWN,
 }
 
 LEADER_STATUS_MAPPING = {
@@ -93,7 +98,7 @@ def generate_event_api(event_log: EventLog) -> EventApi:
 
 def get_node_infos(store: SharedStore) -> dict[str, NodeInfo]:
     nodes: dict[str, NodeInfo] = {}
-    status = store.get_context("node_status", NodeStatusEntry)
+    status = store.get_context("node_status", DSNodeStatus)
     for node_id, entry in status:
         # uptime=...  # Placeholder for actual uptime
         value = store.get_value("node_info", DSNodeInfo, node_id)
@@ -130,14 +135,14 @@ def get_connection_infos(store: SharedStore) -> list[ConnectionInfo]:
             src_ping_data = ping_ctx.get(node_id)
             if not src_ping_data:
                 src_ping_data = DSPingData(
-                    status=DSNodeStatus.UNKNOWN,
+                    status=DSObjectStatus.UNKNOWN,
                     req_time_rtt=-1,
                     date=datetime.datetime.now(datetime.timezone.utc),
                 )
 
             if current_node_statuses.get(current_node_id) == AnalysisNodeStatus.OFFLINE:
                 src_ping_data = DSPingData(
-                    status=DSNodeStatus.OFFLINE,
+                    status=DSObjectStatus.OFFLINE,
                     req_time_rtt=-1,
                     date=datetime.datetime.now(datetime.timezone.utc),
                 )
@@ -147,13 +152,13 @@ def get_connection_infos(store: SharedStore) -> list[ConnectionInfo]:
             )
             if not dest_ping_data:
                 dest_ping_data = DSPingData(
-                    status=DSNodeStatus.UNKNOWN,
+                    status=DSObjectStatus.UNKNOWN,
                     req_time_rtt=-1,
                     date=datetime.datetime.now(datetime.timezone.utc),
                 )
             if current_node_statuses.get(node_id) == AnalysisNodeStatus.OFFLINE:
                 dest_ping_data = DSPingData(
-                    status=DSNodeStatus.OFFLINE,
+                    status=DSObjectStatus.OFFLINE,
                     req_time_rtt=-1,
                     date=datetime.datetime.now(datetime.timezone.utc),
                 )
@@ -187,13 +192,17 @@ def get_connection_infos(store: SharedStore) -> list[ConnectionInfo]:
     return list(connections.values())
 
 
-def get_monitor_infos(store: SharedStore, network: NetworkConfig) -> list[MonitorInfo]:
+def get_monitor_infos(store: SharedStore) -> list[MonitorInfo]:
     monitors: list[MonitorInfo] = []
-    for monitor_id, entry in get_monitor_status(store, network).items():
+    for monitor_id, entry in store.get_context("monitor_status", DSMonitorStatus):
         monitors.append(
             MonitorInfo(
                 monitor_id=monitor_id,
-                status=MONITOR_STATUS_MAPPING.get(entry, MonitorStatusEnum.UNKNOWN),
+                name=entry.name,
+                group=entry.group,
+                status=MONITOR_STATUS_MAPPING.get(
+                    entry.status, MonitorStatusEnum.UNKNOWN
+                ),
             )
         )
     return monitors
@@ -224,11 +233,11 @@ def get_monitor_connection_infos(store: SharedStore) -> list[MonitorConnectionIn
     return list(monitors.values())
 
 
-def get_network_info(store: SharedStore, network: NetworkConfig) -> NetworkInfo:
+def get_network_info(store: SharedStore) -> NetworkInfo:
     return NetworkInfo(
         nodes=get_node_infos(store),
         connections=get_connection_infos(store),
-        monitors=get_monitor_infos(store, network),
+        monitors=get_monitor_infos(store),
         monitor_connections=get_monitor_connection_infos(store),
     )
 
@@ -236,10 +245,7 @@ def get_network_info(store: SharedStore, network: NetworkConfig) -> NetworkInfo:
 def generate_api(stores: StoreManager, config: Config) -> MeshMonApi:
     api = MeshMonApi()
     for net_id, store in stores.stores.items():
-        netconf = config.networks.get(net_id)
-        if not netconf:
-            continue
-        net_info = get_network_info(store, netconf)
+        net_info = get_network_info(store)
         api.networks[net_id] = net_info
     return api
 

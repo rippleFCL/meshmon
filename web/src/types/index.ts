@@ -34,6 +34,8 @@ export interface ConnectionInfo {
 
 export interface MonitorInfo {
   monitor_id: string
+  name: string
+  group: string
   status: MonitorStatusEnum
 }
 

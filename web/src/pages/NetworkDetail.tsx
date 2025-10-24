@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { viewStore } from '@/api/viewStore'
@@ -27,7 +27,9 @@ export default function NetworkDetail() {
     const [error, setError] = useState<string | null>(null)
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
     const [expandedMonitors, setExpandedMonitors] = useState<Set<string>>(new Set())
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
     const [useUnifiedLayout, setUseUnifiedLayout] = useState(true)
+    const groupsInitializedRef = useRef(false)
 
     const fetchData = useCallback(async (isInitialLoad = false) => {
         try {
@@ -56,6 +58,30 @@ export default function NetworkDetail() {
         return () => { unsub(); cleanup() }
     }, [fetchData, registerRefreshCallback, networkId])
 
+    // Initialize group expansion once per network and reconcile on refresh without opening new groups
+    useEffect(() => {
+        if (!network) return
+        const currentGroups = new Set(network.monitors.map(m => m.group ?? 'default'))
+        setExpandedGroups((prev) => {
+            if (!groupsInitializedRef.current) {
+                groupsInitializedRef.current = true
+                // First time for this network: start with all non-default groups expanded
+                return new Set(Array.from(currentGroups).filter(g => g !== 'default'))
+            }
+            // Reconcile: keep only groups that still exist; don't auto-open new ones
+            const next = new Set<string>()
+            prev.forEach(g => { if (g !== 'default' && currentGroups.has(g)) next.add(g) })
+            return next
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [network])
+
+    // Reset initialization when switching to a different network
+    useEffect(() => {
+        groupsInitializedRef.current = false
+        // Do not clear expandedGroups here; let the init effect set it appropriately next render
+    }, [networkId])
+
     const toggleNode = (nodeId: string) => {
         const newExpanded = new Set(expandedNodes)
         if (newExpanded.has(nodeId)) {
@@ -80,12 +106,15 @@ export default function NetworkDetail() {
         if (network) {
             setExpandedNodes(new Set(Object.keys(network.nodes)))
             setExpandedMonitors(new Set(network.monitors.map(m => m.monitor_id)))
+            const allGroups = Array.from(new Set(network.monitors.map(m => m.group ?? 'default')))
+            setExpandedGroups(new Set(allGroups.filter(g => g !== 'default')))
         }
     }
 
     const collapseAll = () => {
         setExpandedNodes(new Set())
         setExpandedMonitors(new Set())
+        setExpandedGroups(new Set())
     }
 
     if (loading) {
@@ -330,25 +359,101 @@ export default function NetworkDetail() {
             </div>
 
             {/* Monitor Details */}
-            {network.monitors && network.monitors.length > 0 && (
-                <div className="data-fade">
-                    <h3 className={`text-lg font-medium mb-3 ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>Monitor Details</h3>
-                    <div className="space-y-2">
-                        {network.monitors.map((m) => (
-                            <MonitorDetailCard
-                                key={m.monitor_id}
-                                monitorId={m.monitor_id}
-                                monitorStatus={monitorStatusMap[m.monitor_id]}
-                                inboundInfo={monitorInbound[m.monitor_id] || {}}
-                                inboundAgg={monitorAggs[m.monitor_id]}
-                                isExpanded={expandedMonitors.has(m.monitor_id)}
-                                onToggle={() => toggleMonitor(m.monitor_id)}
-                                useUnifiedLayout={useUnifiedLayout}
-                            />
-                        ))}
+            {network.monitors && network.monitors.length > 0 && (() => {
+                // Group monitors by group
+                const groups: Record<string, typeof network.monitors> = {}
+                for (const m of network.monitors) {
+                    const g = m.group ?? 'default'
+                    if (!groups[g]) groups[g] = []
+                    groups[g].push(m)
+                }
+                const defaultGroup = groups['default'] || []
+                const groupNames = Object.keys(groups).filter(g => g !== 'default').sort()
+                return (
+                    <div className="data-fade">
+                        <h3 className={`text-lg font-medium mb-3 ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>Monitor Details</h3>
+                        <div className="space-y-3">
+                            {defaultGroup.length > 0 && (
+                                <div className="space-y-2">
+                                    {defaultGroup.map((m) => (
+                                        <MonitorDetailCard
+                                            key={m.monitor_id}
+                                            monitorName={m.name || m.monitor_id}
+                                            monitorStatus={monitorStatusMap[m.monitor_id]}
+                                            inboundInfo={monitorInbound[m.monitor_id] || {}}
+                                            inboundAgg={monitorAggs[m.monitor_id]}
+                                            isExpanded={expandedMonitors.has(m.monitor_id)}
+                                            onToggle={() => toggleMonitor(m.monitor_id)}
+                                            useUnifiedLayout={useUnifiedLayout}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                            {groupNames.map((g) => {
+                                const isOpen = expandedGroups.has(g)
+                                const toggleGroup = () => {
+                                    const next = new Set(expandedGroups)
+                                    if (next.has(g)) next.delete(g)
+                                    else next.add(g)
+                                    setExpandedGroups(next)
+                                }
+                                const groupMons = groups[g]
+                                const total = groupMons.length
+                                const online = groupMons.filter(m => monitorStatusMap[m.monitor_id] === 'online').length
+                                const offline = groupMons.filter(m => monitorStatusMap[m.monitor_id] === 'offline').length
+                                const allOnline = online === total && total > 0
+                                const allOffline = offline === total && total > 0
+                                const anyDown = offline > 0 && !allOffline
+                                const statusLightClass = (() => {
+                                    if (allOnline) return isDark ? 'bg-green-900/30 text-green-400' : 'bg-green-100 text-green-700'
+                                    if (allOffline) return isDark ? 'bg-red-900/30 text-red-400' : 'bg-red-100 text-red-700'
+                                    if (anyDown) return isDark ? 'bg-yellow-900/30 text-yellow-400' : 'bg-yellow-100 text-yellow-700'
+                                    return isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'
+                                })()
+                                return (
+                                    <div key={g} className="card p-0 overflow-hidden">
+                                        <button
+                                            onClick={toggleGroup}
+                                            className={`w-full flex items-center justify-between py-2 px-3 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}
+                                            aria-expanded={isOpen}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{isOpen ? '▼' : '▶'}</span>
+                                                <span className={`font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{g}</span>
+                                                <span className={`px-2 py-0.5 text-xs font-medium rounded ${isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-700'}`}>
+                                                    Group
+                                                </span>
+                                                <span className={`ml-2 text-xs rounded-full px-2 py-0.5 ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                                                    {groups[g].length} monitors
+                                                </span>
+                                                <span className={`ml-2 text-xs rounded-full px-2 py-0.5 ${statusLightClass}`}>
+                                                    {online}/{total} online
+                                                </span>
+                                            </div>
+                                        </button>
+                                        {isOpen && (
+                                            <div className="p-2 space-y-2">
+                                                {groups[g].map((m) => (
+                                                    <MonitorDetailCard
+                                                        key={m.monitor_id}
+                                                        monitorName={m.name || m.monitor_id}
+                                                        monitorStatus={monitorStatusMap[m.monitor_id]}
+                                                        inboundInfo={monitorInbound[m.monitor_id] || {}}
+                                                        inboundAgg={monitorAggs[m.monitor_id]}
+                                                        isExpanded={expandedMonitors.has(m.monitor_id)}
+                                                        onToggle={() => toggleMonitor(m.monitor_id)}
+                                                        useUnifiedLayout={useUnifiedLayout}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            })()}
         </div>
     )
 }

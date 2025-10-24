@@ -12,9 +12,9 @@ from .analysis.analysis import AnalysisNodeStatus
 from .config.bus import ConfigBus, ConfigPreprocessor
 from .config.config import Config
 from .distrostore import StoreManager
+from .dstypes import DSMonitorStatus, DSNodeStatus, DSNotifiedStatus, DSObjectStatus
 from .pulsewave.data import StoreNodeStatus
 from .pulsewave.store import SharedStore
-from .update_handlers import NodeStatusEntry
 
 
 class WebhookType(Enum):
@@ -83,7 +83,7 @@ class WebhookManager:
         return self.config.webhooks.get(network_id, [])
 
     def node_status_consistent(self, store: SharedStore) -> bool:
-        node_status_ctx = store.get_context("node_status", NodeStatusEntry)
+        node_status_ctx = store.get_context("node_status", DSNodeStatus)
         node_status_table = store.get_consistency().node_status_table
         node_statuses = {}
         for node_id, ping_data in node_status_ctx:
@@ -92,7 +92,7 @@ class WebhookManager:
             node_status = node_status_table.get(node_id)
             if node_status is None or node_status.status != StoreNodeStatus.ONLINE:
                 continue
-            ctx = store.get_context("node_status", NodeStatusEntry, node_id)
+            ctx = store.get_context("node_status", DSNodeStatus, node_id)
             if ctx is None:
                 return False
             for other_node_id, other_status in ctx:
@@ -104,7 +104,7 @@ class WebhookManager:
         return True
 
     def monitor_status_consistent(self, store: SharedStore) -> bool:
-        monitor_status_ctx = store.get_context("monitor_status", NodeStatusEntry)
+        monitor_status_ctx = store.get_context("monitor_status", DSMonitorStatus)
         node_status_table = store.get_consistency().node_status_table
         monitor_statuses = {}
         for node_id, monitor_data in monitor_status_ctx:
@@ -113,7 +113,7 @@ class WebhookManager:
             node_status = node_status_table.get(node_id)
             if node_status is None or node_status.status != StoreNodeStatus.ONLINE:
                 continue
-            ctx = store.get_context("monitor_status", NodeStatusEntry, node_id)
+            ctx = store.get_context("monitor_status", DSMonitorStatus, node_id)
             if ctx is None:
                 return False
             for other_monitor_id, other_status in ctx:
@@ -127,11 +127,11 @@ class WebhookManager:
     def _notify_for_network(self, network_id: str, webhook: Webhook):
         store = self.store_manager.get_store(network_id)
         notified_node_analysis = store.get_consistency_context(
-            f"discord:{webhook.name}:{webhook.hashed}", NodeStatusEntry, webhook.url
+            f"discord:{webhook.name}:{webhook.hashed}", DSNotifiedStatus, webhook.url
         )
         if notified_node_analysis.is_leader():
             if self.node_status_consistent(store):
-                node_status = store.get_context("node_status", NodeStatusEntry)
+                node_status = store.get_context("node_status", DSNodeStatus)
                 for node_id, status in node_status:
                     current_notified_status = notified_node_analysis.get(
                         f"node-{node_id}"
@@ -139,12 +139,16 @@ class WebhookManager:
                     if status.status == AnalysisNodeStatus.UNKNOWN:
                         continue
                     if current_notified_status is None:
-                        notified_node_analysis.set(f"node-{node_id}", status)
+                        notified_node_analysis.set(
+                            f"node-{node_id}", DSNotifiedStatus(status=status.status)
+                        )
                     elif (
                         current_notified_status is not None
                         and current_notified_status.status != status.status
                     ):
-                        notified_node_analysis.set(f"node-{node_id}", status)
+                        notified_node_analysis.set(
+                            f"node-{node_id}", DSNotifiedStatus(status=status.status)
+                        )
                         self.handle_webhook(
                             network_id,
                             node_id,
@@ -154,20 +158,26 @@ class WebhookManager:
                         )
 
             if self.monitor_status_consistent(store):
-                monitor_status = store.get_context("monitor_status", NodeStatusEntry)
+                monitor_status = store.get_context("monitor_status", DSMonitorStatus)
                 for monitor_id, status in monitor_status:
-                    current_notified_status: NodeStatusEntry | None = (
-                        notified_node_analysis.get(f"monitor-{monitor_id}")
+                    current_notified_status = notified_node_analysis.get(
+                        f"monitor-{monitor_id}"
                     )
                     if status.status == AnalysisNodeStatus.UNKNOWN:
                         continue
                     if current_notified_status is None:
-                        notified_node_analysis.set(f"monitor-{monitor_id}", status)
+                        notified_node_analysis.set(
+                            f"monitor-{monitor_id}",
+                            DSNotifiedStatus(status=status.status),
+                        )
                     elif (
                         current_notified_status is not None
                         and current_notified_status.status != status.status
                     ):
-                        notified_node_analysis.set(f"monitor-{monitor_id}", status)
+                        notified_node_analysis.set(
+                            f"monitor-{monitor_id}",
+                            DSNotifiedStatus(status=status.status),
+                        )
                         self.handle_webhook(
                             network_id,
                             monitor_id,
@@ -224,7 +234,7 @@ class WebhookManager:
         self,
         network_id: str,
         node_id: str,
-        status: AnalysisNodeStatus,
+        status: DSObjectStatus,
         webhook_type: WebhookType,
         webhook: Webhook,
     ):
@@ -235,13 +245,13 @@ class WebhookManager:
         if webhook is not None:
             # Enhanced status mapping with better colors and emojis
             status_info = {
-                AnalysisNodeStatus.ONLINE: {
+                DSObjectStatus.ONLINE: {
                     "color": 0x00FF54,  # Brighter green
                     "emoji": "🟢",
                     "description": f"{name} is now responding to pings",
                     "severity": "✅ Resolved",
                 },
-                AnalysisNodeStatus.OFFLINE: {
+                DSObjectStatus.OFFLINE: {
                     "color": 0xFF4757,  # Modern red
                     "emoji": "🔴",
                     "description": f"{name} is not responding to pings",

@@ -7,7 +7,7 @@ from icmplib import ping
 from structlog import get_logger
 
 from meshmon.config.config import Config, LoadedNetworkMonitor
-from meshmon.dstypes import DSMonitorData, DSNodeStatus
+from meshmon.dstypes import DSMonitorData, DSObjectStatus
 from meshmon.pulsewave.store import SharedStore
 from meshmon.pulsewave.update.events import ConfigWatcher
 
@@ -17,9 +17,9 @@ from ..config.bus import ConfigPreprocessor
 class DirectMonitorConfigPreprocessor(ConfigPreprocessor[LoadedNetworkMonitor]):
     """Preprocessor for a specific HTTP monitor's config"""
 
-    def __init__(self, network_id: str, monitor_name: str):
+    def __init__(self, network_id: str, mon_uid: str):
         self.network_id = network_id
-        self.monitor_name = monitor_name
+        self.monitor_uid = mon_uid
 
     def preprocess(self, config: Config | None) -> LoadedNetworkMonitor | None:
         if config is None:
@@ -29,9 +29,9 @@ class DirectMonitorConfigPreprocessor(ConfigPreprocessor[LoadedNetworkMonitor]):
         if network is None:
             return None
 
-        # Find the monitor by name
+        # Find the monitor by UID
         for monitor in network.monitors:
-            if monitor.name == self.monitor_name:
+            if monitor.get_uid() == self.monitor_uid:
                 return monitor
 
         return None
@@ -40,14 +40,13 @@ class DirectMonitorConfigPreprocessor(ConfigPreprocessor[LoadedNetworkMonitor]):
 class MonitorProto(Protocol):
     def run(self) -> DSMonitorData | None: ...
 
+    def get_initial(self) -> DSMonitorData: ...
+
     @property
-    def ctx_name(self) -> str: ...
+    def uid(self) -> str: ...
 
     @property
     def interval(self) -> int: ...
-
-    @property
-    def retry(self) -> int: ...
 
 
 class HTTPMonitor(MonitorProto):
@@ -78,16 +77,23 @@ class HTTPMonitor(MonitorProto):
         self.config = config
 
     @property
-    def ctx_name(self) -> str:
-        return self.config.name
+    def uid(self) -> str:
+        return self.get_initial().get_uid()
 
     @property
     def interval(self) -> int:
         return self.config.interval
 
-    @property
-    def retry(self) -> int:
-        return self.config.retry
+    def get_initial(self) -> DSMonitorData:
+        return DSMonitorData(
+            status=DSObjectStatus.UNKNOWN,
+            req_time_rtt=-1,
+            date=datetime.datetime.now(datetime.timezone.utc),
+            interval=self.config.interval,
+            retry=self.config.retry,
+            name=self.config.name,
+            group=self.config.group,
+        )
 
     def run(self):
         try:
@@ -112,11 +118,13 @@ class HTTPMonitor(MonitorProto):
                 "Successful response from monitor",
             )
             return DSMonitorData(
-                status=DSNodeStatus.ONLINE,
+                status=DSObjectStatus.ONLINE,
                 req_time_rtt=rtt,
                 date=datetime.datetime.now(datetime.timezone.utc),
                 interval=self.config.interval,
                 retry=self.config.retry,
+                name=self.config.name,
+                group=self.config.group,
             )
 
 
@@ -157,22 +165,27 @@ class PingMonitor(MonitorProto):
         )
         self.config = config
 
+    def get_initial(self) -> DSMonitorData:
+        return DSMonitorData(
+            status=DSObjectStatus.UNKNOWN,
+            req_time_rtt=-1,
+            date=datetime.datetime.now(datetime.timezone.utc),
+            interval=self.config.interval,
+            retry=self.config.retry,
+            name=self.config.name,
+            group=self.config.group,
+        )
+
     @property
-    def ctx_name(self) -> str:
-        return self.config.name
+    def uid(self) -> str:
+        return self.get_initial().get_uid()
 
     @property
     def interval(self) -> int:
         return self.config.interval
 
-    @property
-    def retry(self) -> int:
-        return self.config.retry
-
     def run(self):
         timeout = float(self.config.interval)
-
-        # 1) Prefer ICMP using icmplib (works unprivileged with privileged=False on many platforms)
         try:
             result = ping(
                 address=self.config.host,
@@ -193,11 +206,13 @@ class PingMonitor(MonitorProto):
                     "ICMP ping successful", host=self.config.host, rtt_ms=rtt
                 )
                 return DSMonitorData(
-                    status=DSNodeStatus.ONLINE,
+                    status=DSObjectStatus.ONLINE,
                     req_time_rtt=rtt,
                     date=datetime.datetime.now(datetime.timezone.utc),
                     interval=self.config.interval,
                     retry=self.config.retry,
+                    name=self.config.name,
+                    group=self.config.group,
                 )
             else:
                 self.logger.debug("ICMP ping reported host down", host=self.config.host)
@@ -209,21 +224,30 @@ class PingMonitor(MonitorProto):
 class RebroadcastMonitor(MonitorProto):
     def __init__(
         self,
-        monitor_name: str,
         dest_name: str,
+        dest_group: str,
         store: SharedStore,
         config_watcher: ConfigWatcher[LoadedNetworkMonitor],
     ):
         self.logger = get_logger().bind(
             module="meshmon.monitor",
             component="RebroadcastMonitor",
-            name=monitor_name,
+            name=dest_name,
             net_id=store.network_id,
         )
+        self.dest_group = dest_group
         self.dest_name = dest_name
         self.store = store
         self.config_watcher = config_watcher
         self.config = config_watcher.current_config
+
+    @property
+    def uid(self) -> str:
+        return self.get_initial().get_uid()
+
+    @property
+    def interval(self) -> int:
+        return self.config.interval
 
     def reload(self, config: LoadedNetworkMonitor):
         self.logger.info(
@@ -234,23 +258,30 @@ class RebroadcastMonitor(MonitorProto):
         )
         self.config = config
 
-    @property
-    def ctx_name(self) -> str:
-        return self.dest_name
-
-    @property
-    def interval(self) -> int:
-        return self.config.interval
-
-    @property
-    def retry(self) -> int:
-        return self.config.retry
+    def get_initial(self) -> DSMonitorData:
+        return DSMonitorData(
+            status=DSObjectStatus.UNKNOWN,
+            req_time_rtt=-1,
+            date=datetime.datetime.now(datetime.timezone.utc),
+            interval=self.config.interval,
+            retry=self.config.retry,
+            name=self.dest_name,
+            group=self.dest_group,
+        )
 
     def run(self):
         monitor_ctx = self.store.get_context("monitor_data", DSMonitorData)
-        monitor_data = monitor_ctx.get(self.config.name)
+        monitor_data = monitor_ctx.get(self.config.get_uid())
         if monitor_data is None:
             self.logger.debug("No monitor data to rebroadcast", monitor=self.dest_name)
             return
         self.logger.debug("Rebroadcasting monitor data", monitor=self.dest_name)
-        return monitor_data
+        return DSMonitorData(
+            status=monitor_data.status,
+            req_time_rtt=monitor_data.req_time_rtt,
+            date=datetime.datetime.now(datetime.timezone.utc),
+            interval=self.config.interval,
+            retry=self.config.retry,
+            name=self.dest_name,
+            group=self.dest_group,
+        )

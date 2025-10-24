@@ -467,11 +467,11 @@ def _status_to_value(status) -> float:
         0.5 for UNKNOWN
         0.0 for OFFLINE
     """
-    from meshmon.dstypes import DSNodeStatus
+    from meshmon.dstypes import DSObjectStatus
 
-    if status == DSNodeStatus.ONLINE:
+    if status == DSObjectStatus.ONLINE:
         return 1.0
-    elif status == DSNodeStatus.UNKNOWN:
+    elif status == DSObjectStatus.UNKNOWN:
         return 0.5
     else:  # OFFLINE
         return 0.0

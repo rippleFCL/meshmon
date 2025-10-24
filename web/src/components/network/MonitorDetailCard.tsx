@@ -6,7 +6,7 @@ import ConnectionList, { NodeAdj } from './ConnectionList'
 type Agg = { average_rtt: number; online_connections: number; total_connections: number; status: 'online' | 'offline' | 'degraded' | 'unknown' }
 
 interface Props {
-    monitorId: string
+    monitorName: string
     monitorStatus: 'online' | 'offline' | 'unknown'
     inboundInfo: Record<string, { status: 'online' | 'offline' | 'unknown'; rtt: number }>
     inboundAgg: Agg
@@ -15,7 +15,7 @@ interface Props {
     useUnifiedLayout: boolean
 }
 
-const MonitorDetailCard: React.FC<Props> = ({ monitorId, monitorStatus, inboundInfo, inboundAgg, isExpanded, onToggle, useUnifiedLayout }) => {
+const MonitorDetailCard: React.FC<Props> = ({ monitorName, monitorStatus, inboundInfo, inboundAgg, isExpanded, onToggle, useUnifiedLayout }) => {
     const { isDark } = useTheme()
     const avgRtt = inboundAgg.average_rtt || 0
 
@@ -49,7 +49,7 @@ const MonitorDetailCard: React.FC<Props> = ({ monitorId, monitorStatus, inboundI
                                 <div key={targetNodeId} className={`border-2 rounded p-1.5 ${connectionColor} ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-sm`}>
                                     <div className="flex items-center justify-between mb-0.5">
                                         <h6 className={`text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-gray-900'} truncate pr-1`}>
-                                            {targetNodeId} {connectionType} {monitorId}
+                                            {targetNodeId} {connectionType} {monitorName}
                                         </h6>
                                         <div className={`text-lg ${isDark ? 'text-gray-300' : 'text-gray-700'} flex-shrink-0`}>
                                             {connectionType}
@@ -89,7 +89,7 @@ const MonitorDetailCard: React.FC<Props> = ({ monitorId, monitorStatus, inboundI
             <div className={`flex items-center justify-between cursor-pointer py-1 px-2 rounded-lg transition-colors duration-200 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`} onClick={onToggle}>
                 <div className="flex items-center space-x-3">
                     <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{isExpanded ? '▼' : '▶'}</span>
-                    <h4 className={`text-base font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{monitorId}</h4>
+                    <h4 className={`text-base font-medium ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>{monitorName}</h4>
                     <span className={`px-2 py-1 text-xs font-medium rounded ${isDark ? 'bg-purple-900/30 text-purple-400' : 'bg-purple-100 text-purple-700'}`}>
                         Monitor
                     </span>

@@ -41,6 +41,8 @@ class MonitorConnectionInfo(BaseModel):
 
 class MonitorInfo(BaseModel):
     monitor_id: str
+    name: str
+    group: str
     status: MonitorStatusEnum
 
 

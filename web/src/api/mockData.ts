@@ -123,6 +123,8 @@ export function toMeshMonApi(multi: MultiNetworkAnalysis): MeshMonApi {
     // Monitors
     const monitors = Object.entries(net.monitor_analyses || {}).map(([mid, ma]) => ({
       monitor_id: mid,
+      name: mid,
+      group: 'default',
       status: monStatusToEnum((ma as any).monitor_status),
     }))
 

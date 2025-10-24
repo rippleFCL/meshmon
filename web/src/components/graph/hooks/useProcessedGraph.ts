@@ -55,6 +55,9 @@ export function useProcessedGraph(
     type MonMetric = { status: 'online' | 'offline' | 'unknown'; inTotal: number; inOnline: number }
     const monMetrics: Record<string, MonMetric> = Object.fromEntries(monitorIds.map(id => [id, { status: mapMonStatus(network.monitors.find(m => m.monitor_id === id)?.status || 'unknown'), inTotal: 0, inOnline: 0 }]))
     const monitorInboundMap: Record<string, Record<string, { online: boolean; rtt: number }>> = {}
+    const monitorNameMap: Record<string, string> = Object.fromEntries(
+      network.monitors.map(m => [m.monitor_id, (m as any).name || m.monitor_id])
+    )
     for (const mId of monitorIds) monitorInboundMap[mId] = {}
     for (const mc of network.monitor_connections) {
       if (!monitorInboundMap[mc.monitor_id]) monitorInboundMap[mc.monitor_id] = {}
@@ -99,7 +102,7 @@ export function useProcessedGraph(
         type: 'monitorNode',
         position: { x: 0, y: 0 },
         data: {
-          label: entityId,
+          label: monitorNameMap[entityId] ?? entityId,
           status: m.status,
           avgRtt: 0,
           inboundCount: m.inTotal,

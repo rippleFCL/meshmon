@@ -116,7 +116,7 @@ class StoreManager:
             return
         new_store = SharedStore(config_watcher, grpc_handler, network_id)
         new_store.start()
-        new_store.add_handler(MonitorStatusTableHandler(watcher, self.event_log))
+        new_store.add_handler(MonitorStatusTableHandler(self.event_log))
         new_store.add_handler(NodeStatusTableHandler(self.event_log))
 
         self.stores[network_id] = new_store

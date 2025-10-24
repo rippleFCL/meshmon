@@ -467,7 +467,11 @@ export default function NetworkGraph() {
         // Place focused at center and neighbors around a circle
         const N = neighborSet.size
         // Compute a compact radius based on neighbor node diameters so spacing is tighter
-        const neighborDiams = Array.from(neighborSet).map(id => estimateDiameterFromLabel(id))
+        const neighborDiams = Array.from(neighborSet).map(id => {
+            const n = processedNodes.find(nn => nn.id === id)
+            const label = (n?.data as any)?.label || id
+            return estimateDiameterFromLabel(label)
+        })
         const avgDiam = neighborDiams.length ? (neighborDiams.reduce((a, b) => a + b, 0) / neighborDiams.length) : 120
         const gap = Math.max(22, Math.min(48, avgDiam * 0.22))
         const circumferenceNeeded = Math.max(1, N) * (avgDiam + gap)

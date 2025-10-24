@@ -2,7 +2,7 @@ import datetime
 from enum import Enum
 
 from ..config.config import LoadedNetworkMonitor, NetworkConfig
-from ..dstypes import DSMonitorData, DSNodeStatus, DSPingData
+from ..dstypes import DSMonitorData, DSObjectStatus, DSPingData
 from ..pulsewave.store import SharedStore
 
 
@@ -12,44 +12,37 @@ class AnalysisNodeStatus(Enum):
     UNKNOWN = "unknown"
 
 
-def get_node_ping_status(store: SharedStore) -> dict[str, "AnalysisNodeStatus"]:
+def get_node_ping_status(store: SharedStore) -> dict[str, DSObjectStatus]:
     """Get the status of all nodes in the store."""
-    statuses: dict[str, list[AnalysisNodeStatus]] = {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    statuses: dict[str, DSObjectStatus] = {}
+    node_status_values: dict[DSObjectStatus, int] = {
+        DSObjectStatus.ONLINE: 3,
+        DSObjectStatus.OFFLINE: 2,
+        DSObjectStatus.UNKNOWN: 1,
+    }
     for node in store.config.nodes:
         ping_ctx = store.get_context("ping_data", DSPingData, node)
         if ping_ctx is None:
             continue
         for node_id, ping_data in ping_ctx:
             config = store.config.nodes.get(node_id)
-            status_list = statuses.setdefault(node_id, [])
             if config is None:
-                status_list.append(AnalysisNodeStatus.UNKNOWN)
+                statuses[node_id] = DSObjectStatus.UNKNOWN
                 continue
-            now = datetime.datetime.now(datetime.timezone.utc)
-            if (
-                now - ping_data.date
-                < datetime.timedelta(
-                    seconds=config.heartbeat_interval * (config.heartbeat_retry + 1)
-                )
-                and ping_data.status == DSNodeStatus.ONLINE
+            if node_id not in statuses:
+                statuses[node_id] = DSObjectStatus.UNKNOWN
+            if now - ping_data.date < datetime.timedelta(
+                seconds=config.heartbeat_interval * (config.heartbeat_retry + 1)
             ):
-                status_list.append(AnalysisNodeStatus.ONLINE)
-            elif ping_data.status == DSNodeStatus.OFFLINE:
-                status_list.append(AnalysisNodeStatus.OFFLINE)
+                status = ping_data.status
             else:
-                status_list.append(AnalysisNodeStatus.UNKNOWN)
+                status = DSObjectStatus.OFFLINE
 
-    node_statuses: dict[str, AnalysisNodeStatus] = {}
-    for node_id in store.config.nodes:
-        status_list = statuses.get(node_id, [])
-        if AnalysisNodeStatus.ONLINE in status_list:
-            node_statuses[node_id] = AnalysisNodeStatus.ONLINE
-        elif AnalysisNodeStatus.OFFLINE in status_list:
-            node_statuses[node_id] = AnalysisNodeStatus.OFFLINE
-        else:
-            node_statuses[node_id] = AnalysisNodeStatus.UNKNOWN
-    node_statuses[store.config.current_node.node_id] = AnalysisNodeStatus.ONLINE
-    return node_statuses
+            if node_status_values[status] > node_status_values[statuses[node_id]]:
+                statuses[node_id] = status
+    statuses[store.config.key_mapping.signer.node_id] = DSObjectStatus.ONLINE
+    return statuses
 
 
 def get_monitor_config(config: NetworkConfig):
@@ -80,10 +73,10 @@ def get_monitor_status(
                 < datetime.timedelta(
                     seconds=monitor_data.interval * (monitor_data.retry + 1)
                 )
-                and monitor_data.status == DSNodeStatus.ONLINE
+                and monitor_data.status == DSObjectStatus.ONLINE
             ):
                 node_monitors[monitor_id] = AnalysisNodeStatus.ONLINE
-            elif monitor_data.status == DSNodeStatus.OFFLINE:
+            elif monitor_data.status == DSObjectStatus.OFFLINE:
                 node_monitors[monitor_id] = AnalysisNodeStatus.OFFLINE
             else:
                 node_monitors[monitor_id] = AnalysisNodeStatus.UNKNOWN

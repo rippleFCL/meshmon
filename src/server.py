@@ -35,7 +35,7 @@ from meshmon.distrostore import (
     StoreManager,
 )
 from meshmon.dstypes import (
-    DSNodeStatus,
+    DSObjectStatus,
     DSPingData,
 )
 from meshmon.event_log import EventLog
@@ -188,7 +188,7 @@ class MonBody(BaseModel):
 
 
 class ViewPingData(BaseModel):
-    status: DSNodeStatus
+    status: DSObjectStatus
     response_time_rtt: float
 
     @classmethod

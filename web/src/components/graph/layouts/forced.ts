@@ -4,8 +4,8 @@ import { computeElkPositions } from '../elk'
 
 const forced: LayoutEngine = {
   name: 'forced',
-  async compute(nodes: Node[], edges: Edge[], _opts: LayoutOptions) {
-    return await computeElkPositions(nodes, edges)
+  async compute(nodes: Node[], edges: Edge[], opts: LayoutOptions) {
+    return await computeElkPositions(nodes, edges, opts.spacing)
   }
 }
 

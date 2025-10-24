@@ -4,6 +4,8 @@ export type LayoutMode = 'forced' | 'concentric' | 'dense' | 'pretty'
 
 export interface LayoutOptions {
   isDark: boolean
+  // Overall spacing factor in pixels (baseline ~48). Layouts should scale margins/gaps with this.
+  spacing: number
 }
 
 export interface LayoutEngine {

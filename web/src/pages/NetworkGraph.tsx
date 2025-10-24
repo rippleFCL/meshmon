@@ -90,7 +90,36 @@ export default function NetworkGraph() {
         }
     })
     const [zoom, setZoom] = useState<number>(1)
+    // Layout spacing per-context (forced, concentric, dense, pretty, and focus)
+    type SpacingKey = 'forced' | 'concentric' | 'dense' | 'pretty' | 'focus'
+    const defaultSpacing = 48
+    const [spacings, setSpacings] = useState<Record<SpacingKey, number>>(() => {
+        try {
+            const raw = localStorage.getItem('meshmon.graph.spacings')
+            if (raw) {
+                const parsed = JSON.parse(raw)
+                const clamp = (x: any) => Number.isFinite(Number(x)) ? Math.max(0, Math.min(100, Number(x))) : defaultSpacing
+                return {
+                    forced: clamp(parsed.forced),
+                    concentric: clamp(parsed.concentric),
+                    dense: clamp(parsed.dense),
+                    pretty: clamp(parsed.pretty),
+                    focus: clamp(parsed.focus),
+                }
+            }
+            // Back-compat: seed from legacy single spacing if present
+            const legacy = localStorage.getItem('meshmon.graph.spacing')
+            const seed = legacy ? Math.max(0, Math.min(100, Number(legacy))) : defaultSpacing
+            return { forced: seed, concentric: seed, dense: seed, pretty: seed, focus: seed }
+        } catch {
+            return { forced: defaultSpacing, concentric: defaultSpacing, dense: defaultSpacing, pretty: defaultSpacing, focus: defaultSpacing }
+        }
+    })
+    const [sliderTemp, setSliderTemp] = useState<number | null>(null)
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
+    const spacingKey = useMemo<SpacingKey>(() => (focusedNodeId ? 'focus' : (layoutMode as SpacingKey)), [focusedNodeId, layoutMode])
+    // Group filters (hide monitors by group)
+    const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(() => new Set())
     const reactFlowRef = useRef<ReactFlowInstance | null>(null)
     const forcedPosRef = useRef<Map<string, { x: number; y: number }> | null>(null)
     const handleLayoutPositions = useCallback((pos: Map<string, { x: number; y: number }>) => {
@@ -138,8 +167,60 @@ export default function NetworkGraph() {
     }, [fetchData, registerRefreshCallback])
 
     // Compute graph model
+    // Compute group list and filtered network view
+    const availableGroups: string[] = useMemo(() => {
+        if (!networkData?.networks || !selectedNetwork) return []
+        const net = networkData.networks[selectedNetwork]
+        if (!net) return []
+        const set = new Set((net.monitors || []).map((m: any) => (m.group ?? 'default')))
+        return Array.from(set).sort()
+    }, [networkData, selectedNetwork])
+
+    // Load hidden groups from localStorage on network change
+    useEffect(() => {
+        if (!selectedNetwork) return
+        try {
+            const raw = localStorage.getItem(`meshmon.hiddenGroups.${selectedNetwork}`)
+            const arr = raw ? (JSON.parse(raw) as string[]) : []
+            setHiddenGroups(new Set(arr))
+        } catch { setHiddenGroups(new Set()) }
+    }, [selectedNetwork])
+
+    // Prune hidden groups that no longer exist and persist changes
+    useEffect(() => {
+        if (!selectedNetwork) return
+        setHiddenGroups(prev => {
+            const pruned = new Set<string>()
+            prev.forEach(g => { if (availableGroups.includes(g)) pruned.add(g) })
+            try { localStorage.setItem(`meshmon.hiddenGroups.${selectedNetwork}`, JSON.stringify(Array.from(pruned))) } catch { }
+            return pruned
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [availableGroups.join('|'), selectedNetwork])
+
+    const filteredNetworkData: MeshMonApi | null = useMemo(() => {
+        if (!networkData || !selectedNetwork) return networkData || null
+        const net = networkData.networks[selectedNetwork]
+        if (!net) return networkData
+        const hidden = hiddenGroups
+        if (!hidden || hidden.size === 0) return networkData
+        const allowedMonitors = (net.monitors || []).filter((m: any) => !hidden.has(m.group ?? 'default'))
+        const allowedIds = new Set(allowedMonitors.map((m: any) => m.monitor_id))
+        const filteredMonitorConnections = (net.monitor_connections || []).filter((mc: any) => allowedIds.has(mc.monitor_id))
+        return {
+            networks: {
+                ...networkData.networks,
+                [selectedNetwork]: {
+                    ...net,
+                    monitors: allowedMonitors as any,
+                    monitor_connections: filteredMonitorConnections as any,
+                } as any,
+            },
+        }
+    }, [networkData, selectedNetwork, hiddenGroups])
+
     const { processedNodes, processedEdges, nodeToEdgesMap, nodeToNeighborsMap } = useProcessedGraph(
-        networkData,
+        filteredNetworkData,
         selectedNetwork,
         isDark,
         hideOnlineByDefault,
@@ -149,21 +230,26 @@ export default function NetworkGraph() {
     // Persist user settings
     useEffect(() => {
         try {
-            logPerf('effect:persistSettings', { layoutMode, hideOnlineByDefault, animationMode })
+            if (focusedNodeId) { logPerf('persist:skip-during-focus'); return }
+            logPerf('effect:persistSettings', { layoutMode, hideOnlineByDefault, animationMode, spacings })
             localStorage.setItem('meshmon.layoutMode', layoutMode)
             localStorage.setItem('meshmon.hideOnlineByDefault', String(hideOnlineByDefault))
             localStorage.setItem('meshmon.animationMode', animationMode)
+            localStorage.setItem('meshmon.graph.spacings', JSON.stringify(spacings))
         } catch { }
-    }, [layoutMode, hideOnlineByDefault, animationMode])
+    }, [layoutMode, hideOnlineByDefault, animationMode, spacings, focusedNodeId])
 
     // Pre-compute layout on initial mount/topology/layout change BEFORE rendering
     const [initialLayoutDone, setInitialLayoutDone] = useState(false)
     const topoKey = useMemo(() => ({ n: processedNodes.map(n => n.id).join('|'), e: processedEdges.map(e => e.id).join('|') }), [processedNodes, processedEdges])
     useEffect(() => {
         let cancelled = false
+        // Skip any layout recompute while in focus; keep current graph visible
+        if (focusedNodeId) {
+            logPerf('layout:skip-during-focus')
+            return
+        }
         async function runInitialLayout() {
-            // Skip while focused to avoid fighting focus animation
-            if (focusedNodeId) return
             // Compute using selected layout and set node positions prior to mounting
             const engine = getLayoutEngine(layoutMode as any)
             try {
@@ -171,7 +257,7 @@ export default function NetworkGraph() {
                 // Hide any previous graph while recomputing
                 setNodes([])
                 setEdges([])
-                const maybe = engine.compute(processedNodes, processedEdges, { isDark })
+                const maybe = engine.compute(processedNodes, processedEdges, { isDark, spacing: spacings[layoutMode as SpacingKey] })
                 const pos = (maybe instanceof Promise) ? await maybe : maybe
                 if (cancelled) return
                 // Seed nodes with computed positions and attach hover handlers
@@ -193,12 +279,12 @@ export default function NetworkGraph() {
                 }
             }
         }
-        // Only run when topology/layout changes or when not yet done for current topo
+        // Only run when topology/layout changes
         setInitialLayoutDone(false)
         runInitialLayout()
         return () => { cancelled = true }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [layoutMode, topoKey.n, topoKey.e, isDark, selectedNetwork])
+    }, [layoutMode, topoKey.n, topoKey.e, isDark, spacings, selectedNetwork, focusedNodeId])
 
     // Update nodes when processed node data changes (preserve positions after initial layout)
     // Important: Set nodes independently; edges are handled in a separate effect
@@ -473,13 +559,20 @@ export default function NetworkGraph() {
             return estimateDiameterFromLabel(label)
         })
         const avgDiam = neighborDiams.length ? (neighborDiams.reduce((a, b) => a + b, 0) / neighborDiams.length) : 120
-        const gap = Math.max(22, Math.min(48, avgDiam * 0.22))
+        // Spacing-aware gaps and radius
+        const s = Math.max(0, Math.min(100, spacings['focus']))
+        const gamma = 3.0
+        const t = Math.pow(s / 100, gamma)
+        const spaceScale = 0.5 + t * 1.5 // 0.5x .. 2.0x non-linear
+        const baseGap = Math.max(22, Math.min(48, avgDiam * 0.22))
+        const gap = baseGap * spaceScale
         const circumferenceNeeded = Math.max(1, N) * (avgDiam + gap)
         // Scale radius: base breathing room (10%) plus additional 15% as requested (~26.5% total)
         const rCirc = (circumferenceNeeded / (2 * Math.PI)) * 1.265
-        // Clamp radius so small neighbor counts don't get too tight
-        const minRadius = Math.max(260, avgDiam * 1.75)
-        const radius = Math.max(minRadius, Math.min(520, rCirc))
+        // Clamp radius so small neighbor counts don't get too tight; scale with spacing control
+        const minRadius = Math.max(260, avgDiam * 1.75) * spaceScale
+        const maxRadius = 520 * spaceScale
+        const radius = Math.max(minRadius, Math.min(maxRadius, rCirc))
         // Sort neighbors by current polar angle around the focus to keep relative order
         const centerNode = processedNodes.find(n => n.id === centerId)
         const cx0 = centerNode?.position.x || 0
@@ -592,7 +685,7 @@ export default function NetworkGraph() {
         }
         focusingRef.current = false
         logPerf('cb:focusNode:done', { centerId })
-    }, [processedNodes, processedEdges, nodeToNeighborsMap, setNodes, setEdges, focusedNodeId, animationMode])
+    }, [processedNodes, processedEdges, nodeToNeighborsMap, setNodes, setEdges, focusedNodeId, animationMode, spacings.focus])
 
     // Keep focus edges/nodes consistent if data refreshes or animation mode changes while focused
     useEffect(() => {
@@ -601,7 +694,7 @@ export default function NetworkGraph() {
         // Reapply focus layout and edge states without exiting or refitting viewport; do not animate while in focus
         focusNode(focusedNodeId, { force: true, refit: false, animate: false })
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [processedNodes, processedEdges, animationMode])
+    }, [processedNodes, processedEdges, animationMode, spacings.focus])
 
     // Track zoom to gate default labels progressively (throttled to animation frame)
     const zoomRaf = useRef<number | null>(null)
@@ -726,14 +819,14 @@ export default function NetworkGraph() {
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                         {/* Adjusted height: sidebar layout no longer needs to subtract fixed top header */}
                         <div className="h-[calc(100vh-8rem)] min-h-[500px] relative max-h-[calc(100vh-8rem)]">
-                            {!initialLayoutDone && (
+                            {!initialLayoutDone && !focusedNodeId && (
                                 <div className="absolute inset-0 flex items-center justify-center z-10">
                                     <div className="px-3 py-2 text-sm rounded-md bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600">
                                         Computing {layoutMode} layout…
                                     </div>
                                 </div>
                             )}
-                            {initialLayoutDone && (
+                            {(initialLayoutDone || focusedNodeId) && (
                                 <ReactFlow
                                     onInit={(instance) => { reactFlowRef.current = instance }}
                                     nodes={nodes}
@@ -822,6 +915,46 @@ export default function NetworkGraph() {
                                         <div className="space-y-3 text-xs">
                                             {focusedNodeId && (<FocusBanner focusedNodeId={focusedNodeId} onExit={clearFocus} />)}
                                             <GraphLegend />
+                                            {/* Spacing slider (contextual per layout and focus) */}
+                                            <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">Spacing</span>
+                                                    {(() => {
+                                                        const raw = sliderTemp ?? spacings[spacingKey]
+                                                        const gamma = 3.0
+                                                        const t = Math.pow(Math.max(0, Math.min(100, raw)) / 100, gamma)
+                                                        const mapped = Math.round(16 + t * (400 - 16))
+                                                        return (<span className="text-[11px] text-gray-500 dark:text-gray-400">{mapped} px</span>)
+                                                    })()}
+                                                </div>
+                                                <input
+                                                    aria-label="Graph spacing"
+                                                    type="range"
+                                                    min={0}
+                                                    max={100}
+                                                    step={1}
+                                                    value={sliderTemp ?? spacings[spacingKey]}
+                                                    onChange={(e) => { setSliderTemp(Number(e.target.value)) }}
+                                                    onPointerUp={() => {
+                                                        const key = spacingKey
+                                                        if (sliderTemp !== null) {
+                                                            const v = Math.max(0, Math.min(100, sliderTemp))
+                                                            setSpacings(prev => ({ ...prev, [key]: v }))
+                                                        }
+                                                        setSliderTemp(null)
+                                                    }}
+                                                    onBlur={() => {
+                                                        const key = spacingKey
+                                                        if (sliderTemp !== null) {
+                                                            const v = Math.max(0, Math.min(100, sliderTemp))
+                                                            setSpacings(prev => ({ ...prev, [key]: v }))
+                                                        }
+                                                        setSliderTemp(null)
+                                                    }}
+                                                    className="w-full"
+                                                />
+                                                <div className="text-[11px] text-gray-500 dark:text-gray-400 pt-1">Spacing is saved per layout and focus mode. Changes apply on release.</div>
+                                            </div>
                                             <GraphSettings
                                                 layoutMode={layoutMode}
                                                 setLayoutMode={(v) => { setLayoutMode(v); try { localStorage.setItem('meshmon.layoutMode', v) } catch { } }}
@@ -830,6 +963,55 @@ export default function NetworkGraph() {
                                                 animationMode={animationMode}
                                                 setAnimationMode={(v) => { setAnimationMode(v); try { localStorage.setItem('meshmon.animationMode', v) } catch { } }}
                                             />
+                                            {/* Group Filters */}
+                                            {availableGroups.length > 0 && (
+                                                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                                                    <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Groups</div>
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <button
+                                                            className={`px-2 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}
+                                                            onClick={() => setHiddenGroups(new Set())}
+                                                        >
+                                                            Show all
+                                                        </button>
+                                                        <button
+                                                            className={`px-2 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'}`}
+                                                            onClick={() => setHiddenGroups(new Set(availableGroups))}
+                                                        >
+                                                            Hide all
+                                                        </button>
+                                                    </div>
+                                                    <div className="max-h-40 overflow-auto pr-1 space-y-1">
+                                                        {availableGroups.map((g) => {
+                                                            const hidden = hiddenGroups.has(g)
+                                                            return (
+                                                                <label key={g} className="flex items-center justify-between gap-3 text-[11px]">
+                                                                    <span className={`inline-flex items-center gap-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                        <span className={`px-2 py-0.5 rounded ${isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-700'}`}>Group</span>
+                                                                        <span className="font-medium">{g}</span>
+                                                                    </span>
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={!hidden}
+                                                                            onChange={(e) => {
+                                                                                setHiddenGroups((prev) => {
+                                                                                    const next = new Set(prev)
+                                                                                    if (e.target.checked) next.delete(g)
+                                                                                    else next.add(g)
+                                                                                    try { localStorage.setItem(`meshmon.hiddenGroups.${selectedNetwork}`, JSON.stringify(Array.from(next))) } catch { }
+                                                                                    return next
+                                                                                })
+                                                                            }}
+                                                                        />
+                                                                        <span className={`${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{hidden ? 'Hidden' : 'Shown'}</span>
+                                                                    </span>
+                                                                </label>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </Panel>
                                     <Panel position="bottom-right" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-2">

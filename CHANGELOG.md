@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.7] - 2025-10-24
+### :sparkles: New Features
+- [`a3e4a9b`](https://github.com/rippleFCL/meshmon/commit/a3e4a9bf310bd1e5c2ae2a906e35d0eccb5c48be) - added groups! *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`beddd97`](https://github.com/rippleFCL/meshmon/commit/beddd9777111e2dee0a44f0a415707ff94e184b6) - added layout coustomisation *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :bug: Bug Fixes
+- [`ba92fff`](https://github.com/rippleFCL/meshmon/commit/ba92fff875f9e641818df020bc7ad54476efe492) - hover issues with monitors *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`af3fd1f`](https://github.com/rippleFCL/meshmon/commit/af3fd1f12e58608cb4b3e38d0bbf3e5c9234060b) - name issues in focus mode *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`3da0128`](https://github.com/rippleFCL/meshmon/commit/3da01284748e3357cca069f612f8ee55038788cd) - bump to v4.0.0-beta.7 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta.6] - 2025-10-22
 ### :bug: Bug Fixes
 - [`fd51729`](https://github.com/rippleFCL/meshmon/commit/fd517298d301f54adc9c7500893117369d13ef93) - metadata issues with proxies *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -340,3 +353,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v4.0.0-beta.4]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.3...v4.0.0-beta.4
 [v4.0.0-beta.5]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.4...v4.0.0-beta.5
 [v4.0.0-beta.6]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.5...v4.0.0-beta.6
+[v4.0.0-beta.7]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.6...v4.0.0-beta.7

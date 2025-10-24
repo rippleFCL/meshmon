@@ -19,6 +19,7 @@ This is the top-level shape of `config.yml`. Only `network_id` and `node_config[
 | `network_id`     | The Network id and name                                                | —                                |
 | `node_config[]`  | [Node Configuration](#node-list-node_config)                           | —                                |
 | `monitors[]`     | [Monitor Configuration](#monitors)                                     | `[]`                             |
+| `rebroadcasts[]` | [Rebroadcasting Monitors](#rebroadcasting-monitors-rebroadcasts)       | `[]`                             |
 | `cluster`        | [Cluster Configuration](#cluster)                                      | See [Cluster](#cluster) defaults |
 | `defaults`       | [Defaults Configuration](#defaults)                                    | See [Defaults](#defaults)        |
 | `node_version[]` | [Version Constraints Configuration](#version-constraints-node_version) | `[]`                             |
@@ -29,15 +30,14 @@ Defines all peers and how your node interacts with them.
 
 Section: `node_config[]`
 
-| Field         | Type                                                       | Default                  | What it does                                                                                                        |
-| ------------- | ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `node_id`     | string (lowercase)                                         | —                        | Peer ID. Your local `node_id` (from nodeconf.yml) must appear here or the network is skipped.                       |
-| `url`         | string (optional)                                          | -                        | gRPC URL peers use to dial this node. Prefer `grpc://` or `grpcs://`. If omitted/empty, peers won’t dial this node. |
-| `poll_rate`   | int                                                        | defaults.nodes.poll_rate | Heartbeat interval (seconds) for this peer.                                                                         |
-| `retry`       | int                                                        | defaults.nodes.retry     | Missed-heartbeat tolerance. Effective timeout ≈ `poll_rate * retry`.                                                |
-| `allow`       | list[string]                                               | []                       | Whitelist: only listed nodes will attempt to connect to this peer (evaluated by the dialling node).                 |
-| `block`       | list[string]                                               | []                       | Blacklist: listed nodes will not connect to this peer (evaluated by the dialling node).                             |
-| `rebroadcast` | [Rebroadcast Config](#rebroadcasting-monitors-rebroadcast) | []                       | Rebroadcast selected monitors from another network into this network, optionally prefixing or renaming them.        |
+| Field       | Type               | Default                  | What it does                                                                                                        |
+| ----------- | ------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `node_id`   | string (lowercase) | —                        | Peer ID. Your local `node_id` (from nodeconf.yml) must appear here or the network is skipped.                       |
+| `url`       | string (optional)  | -                        | gRPC URL peers use to dial this node. Prefer `grpc://` or `grpcs://`. If omitted/empty, peers won’t dial this node. |
+| `poll_rate` | int                | defaults.nodes.poll_rate | Heartbeat interval (seconds) for this peer.                                                                         |
+| `retry`     | int                | defaults.nodes.retry     | Missed-heartbeat tolerance. Effective timeout ≈ `poll_rate * retry`.                                                |
+| `allow`     | list[string]       | []                       | Whitelist: only listed nodes will attempt to connect to this peer (evaluated by the dialling node).                 |
+| `block`     | list[string]       | []                       | Blacklist: listed nodes will not connect to this peer (evaluated by the dialling node).                             |
 
 Example (basic):
 ```yaml
@@ -54,52 +54,97 @@ node_config:
       - node
 ```
 
-Example (with optional url and rebroadcast):
+Example (with optional url):
 ```yaml
 node_config:
   - node_id: edge-node
     # No inbound gRPC on this node
     url: null
-    rebroadcast:
-      - src_net: public-net
-        prefix: public-
-        monitors:
-          - name: homepage
-          - name: api
-            dest_name: public-api
 ```
 
-### Rebroadcasting monitors (rebroadcast)
+### Rebroadcasting monitors (rebroadcasts)
 
-Rebroadcast lets a node import selected monitor results from another network and expose them under this network’s namespace. This is useful for aggregating or cross-publishing public checks.
+Rebroadcasts let you import selected monitor data from another network and publish it under this network’s namespace. This is useful for aggregation or cross-publishing public checks.
 
-Section: `node_config[].rebroadcast[]`
+Section: `rebroadcasts[]` (root-level)
 
-| Field        | Type                         | Default | What it does                                                                 |
-| ------------ | ---------------------------- | ------- | ---------------------------------------------------------------------------- |
-| `src_net`    | string                       | —       | The source network ID to pull monitor results from.                          |
-| `prefix`     | string                       | ""      | Prefix applied to rebroadcasted monitor names if `dest_name` isn’t provided. |
-| `monitors[]` | list[RebroadcastMonitorItem] | []      | List of monitors to rebroadcast from `src_net`. See item shape below.        |
+Each entry defines a rule applied to specific nodes via `apply_to`. For each source monitor that matches the filters, a corresponding destination monitor identity is created in this network using optional prefixes and rewrite rules.
 
-`RebroadcastMonitorItem` shape (`monitors[]` entries):
+Fields on `rebroadcasts[]` items:
 
-| Field       | Type              | Default | What it does                                                                          |
-| ----------- | ----------------- | ------- | ------------------------------------------------------------------------------------- |
-| `name`      | string            | —       | Source monitor name on `src_net`.                                                     |
-| `dest_name` | string (optional) | —       | Destination name in this network. If omitted, uses the concatenation `prefix + name`. |
+| Field                | Type                         | Default | What it does                                                                                                                                                   |
+| -------------------- | ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apply_to[]`         | list[string]                 | —       | Node IDs (from `node_config[]`) this rule applies to. Only these nodes will rebroadcast the selected data.                                                     |
+| `src_net`            | string                       | —       | Source network ID to pull monitor results from.                                                                                                                |
+| `monitor_prefix`     | string                       | ""      | Optional prefix applied to destination monitor names before rewrites. If a monitor rewrite matches, it will overwrite the name.                                |
+| `group_prefix`       | string                       | ""      | Optional prefix applied to destination groups before rewrites. If a (group or monitor) rewrite sets a destination group, it will overwrite the prefixed value. |
+| `groups[]`           | list[string]                 | []      | If provided, only source monitors whose `group` is in this list are considered.                                                                                |
+| `monitors[]`         | list[RebroadcastMonitorItem] | []      | Optional explicit allow-list of source monitors to include. If empty, all matching by `groups[]` are used.                                                     |
+| `group_rewrites[]`   | list[GroupRewrite]           | []      | Rewrite a source group to a different destination group.                                                                                                       |
+| `monitor_rewrites[]` | list[MonitorRewrite]         | []      | Rewrite specific monitor names (and optionally groups) to new destination names and/or groups.                                                                 |
 
-Examples:
+`RebroadcastMonitorItem` shape (entries in `monitors[]`):
+
+| Field   | Type              | Default | What it does                                                    |
+| ------- | ----------------- | ------- | --------------------------------------------------------------- |
+| `name`  | string            | —       | Source monitor name on `src_net`.                               |
+| `group` | string (optional) | null    | If set, match only when the source monitor’s group equals this. |
+
+`GroupRewrite` shape (entries in `group_rewrites[]`):
+
+| Field        | Type   | What it does                                 |
+| ------------ | ------ | -------------------------------------------- |
+| `src_group`  | string | When the source monitor group equals this... |
+| `dest_group` | string | ...rewrite the destination group to this.    |
+
+`MonitorRewrite` shape (entries in `monitor_rewrites[]`):
+
+| Field          | Type              | What it does                                                                                   |
+| -------------- | ----------------- | ---------------------------------------------------------------------------------------------- |
+| `src_monitor`  | string            | Match source monitor by name.                                                                  |
+| `dest_monitor` | string            | Destination monitor name to use.                                                               |
+| `src_group`    | string (optional) | If provided, only match when the source group equals this value.                               |
+| `dest_group`   | string (optional) | If provided, also rewrite the destination group; otherwise keep the current destination group. |
+
+Order of operations for destination identity (first-match wins for rewrites):
+
+1) Start with `dest_name = src_monitor.name`, `dest_group = src_monitor.group`.
+2) Apply `monitor_prefix` and `group_prefix` if set.
+3) Apply the first matching `group_rewrite` (matches against the SOURCE group, not the prefixed/destination group).
+4) Apply the first matching `monitor_rewrite` (matches against the SOURCE name and optionally SOURCE group) — this can override both destination name and group.
+
+Notes:
+- If `monitors[]` is non-empty, only listed monitors are considered (optionally narrowed by `group`).
+- If `groups[]` is non-empty, only monitors whose source group is in the list are considered.
+- Monitor identity is the pair `group:name`. Changing group or name creates a new identity in this network.
+- Prefixes are applied first, but any matching rewrite will overwrite the prefixed value for that field.
+
+Example:
 
 ```yaml
-rebroadcast:
-  - src_net: public-net
-    prefix: public-
+rebroadcasts:
+  - apply_to: [aggregator]
+    src_net: public-net
+    # Prefix all rebroadcasted monitors and groups
+    monitor_prefix: public-
+    group_prefix: ext-
+    # Only include these source groups
+    groups: [public, core]
+    # Include only these monitors (optional filter)
     monitors:
       - name: homepage
-      - name: google
       - name: api
-        dest_name: my-api # Won't become `public-my-api`
+        group: public
+    # Rewrite groups and specific monitor names
+    group_rewrites:
+      - src_group: public
+        dest_group: external
+    monitor_rewrites:
+      - src_monitor: api
+        src_group: public
+        dest_monitor: public-api
 ```
+
 
 ## Monitors
 
@@ -107,15 +152,16 @@ Configure external HTTP or ping checks that each node runs locally. Use `interva
 
 Section: `monitors[]`
 
-| Field Name | Type                 | Default Value              | What it does                                 |
-| ---------- | -------------------- | -------------------------- | -------------------------------------------- |
-| `name`     | string               | —                          | Unique monitor name.                         |
-| `type`     | enum: `ping`\|`http` | —                          | Monitor implementation.                      |
-| `host`     | string               | —                          | Target host/URL the monitor checks.          |
-| `interval` | int                  | defaults.monitors.interval | Seconds between checks.                      |
-| `retry`    | int                  | defaults.monitors.retry    | Consecutive failures before marking OFFLINE. |
-| `allow`    | list[string]         | []                         | Only these nodes run the monitor locally.    |
-| `block`    | list[string]         | []                         | These nodes do not run the monitor locally.  |
+| Field Name | Type                 | Default Value              | What it does                                                                                     |
+| ---------- | -------------------- | -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `name`     | string               | —                          | Unique monitor name.                                                                             |
+| `type`     | enum: `ping`\|`http` | —                          | Monitor implementation.                                                                          |
+| `host`     | string               | —                          | Target host/URL the monitor checks.                                                              |
+| `group`    | string               | `"default"`                | Logical group/bucket for the monitor. Part of identity and used by rebroadcast filters/rewrites. |
+| `interval` | int                  | defaults.monitors.interval | Seconds between checks.                                                                          |
+| `retry`    | int                  | defaults.monitors.retry    | Consecutive failures before marking OFFLINE.                                                     |
+| `allow`    | list[string]         | []                         | Only these nodes run the monitor locally.                                                        |
+| `block`    | list[string]         | []                         | These nodes do not run the monitor locally.                                                      |
 
 Example:
 ```yaml
@@ -123,14 +169,12 @@ monitors:
   - name: example.com
     type: http
     host: http://example.com
+    group: public
   - name: cloudflare
     type: ping
     host: 1.1.1.1
+    group: core
 ```
-
-Notes:
-- Ping monitor prefers ICMP (via icmplib) and falls back to TCP connect if ICMP isn’t available. Host parsing supports full URLs (http/https), host:port, or bare host. Default ports: 80 or 443 for https.
-- If RTT exceeds `interval`, the sample is discarded (treated as a failure). Consecutive failures up to `retry` will mark the monitor OFFLINE via the manager’s invalidation.
 
 ## Cluster
 
@@ -213,12 +257,16 @@ node_config:
       - node
   - node_id: aggregator
     url: null
-    rebroadcast:
-      - src_net: public
-        prefix: public-
-        monitors:
-          - name: google
-          - name: github
+
+rebroadcasts:
+  - apply_to: [aggregator]
+    src_net: public
+    monitor_prefix: public-
+    group_prefix: ext-
+    groups: [public]
+    monitors:
+      - name: google
+      - name: github
 
 defaults:
   nodes:

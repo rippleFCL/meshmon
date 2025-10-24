@@ -1,11 +1,8 @@
 # Secure gRPC with NGINX (TLS)
 
-This guide shows how to front MeshMon’s gRPC port with TLS using NGINX. It covers two patterns:
+This guide shows how to front MeshMon’s gRPC port with TLS using NGINX.
 
-- Ingress TLS termination (simple): clients speak TLS to NGINX; NGINX forwards cleartext gRPC to MeshMon.
-- Dual-proxy (end‑to‑end over untrusted networks): add a local egress proxy on the caller and a remote ingress proxy on the callee to carry TLS between sites without changing MeshMon.
-
-> Important
+!!! important "Security Notice"
 > Today MeshMon runs gRPC without TLS (the server adds insecure ports and the client uses an insecure channel). These patterns secure the network path using proxies while MeshMon continues to speak cleartext on localhost. For true in‑process TLS, native support must be added to MeshMon.
 
 ## Ports recap
@@ -13,7 +10,7 @@ This guide shows how to front MeshMon’s gRPC port with TLS using NGINX. It cov
 - MeshMon gRPC server listens on: 0.0.0.0:42069 (IPv4) and [::]:42069 (IPv6)
 - Your NGINX will typically listen on: 443 (TLS) for inbound
 
-## Option A — Ingress TLS termination (single NGINX)
+## Ingress TLS termination
 
 Use this when the caller can speak TLS (not MeshMon’s built‑in client). NGINX terminates TLS and proxies gRPC to MeshMon on localhost.
 

@@ -913,7 +913,13 @@ export default function NetworkGraph() {
                                     )}
                                     <Panel position="top-right" className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3">
                                         <div className="space-y-3 text-xs">
-                                            {focusedNodeId && (<FocusBanner focusedNodeId={focusedNodeId} onExit={clearFocus} />)}
+                                            {focusedNodeId && (
+                                                <FocusBanner
+                                                    focusedNodeId={focusedNodeId}
+                                                    focusedLabel={(nodes.find(n => n.id === focusedNodeId)?.data as any)?.label}
+                                                    onExit={clearFocus}
+                                                />
+                                            )}
                                             <GraphLegend />
                                             {/* Spacing slider (contextual per layout and focus) */}
                                             <div className="pt-2 border-t border-gray-200 dark:border-gray-700">

@@ -1,8 +1,20 @@
-export default function GraphLegend() {
+export default function GraphLegend({ separateGroups, onToggleSeparateGroups }: { separateGroups: boolean, onToggleSeparateGroups: (v: boolean) => void }) {
     return (
         <div>
             <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1.5">Network Legend</div>
             <div className="space-y-1.5">
+                {/* Group layout toggle */}
+                <label className="flex items-center justify-between gap-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-700 dark:text-gray-300 text-[13px]">Separate groups</span>
+                    <span className="inline-flex items-center gap-2 text-[12px] text-gray-600 dark:text-gray-400">
+                        <span>{separateGroups ? 'Separated' : 'Unified'}</span>
+                        <input
+                            type="checkbox"
+                            checked={separateGroups}
+                            onChange={(e) => onToggleSeparateGroups(e.target.checked)}
+                        />
+                    </span>
+                </label>
                 <div className="flex items-center space-x-2">
                     <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></div>
                     <span className="text-gray-600 dark:text-gray-400">Online Node</span>

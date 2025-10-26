@@ -91,6 +91,10 @@ export default function NetworkGraph() {
         }
     })
     const [zoom, setZoom] = useState<number>(1)
+    // Separate groups into clusters toggle
+    const [separateGroups, setSeparateGroups] = useState<boolean>(() => {
+        try { return localStorage.getItem('meshmon.graph.separateGroups') === 'true' } catch { return false }
+    })
     // Layout spacing per-context (forced, concentric, dense, pretty, and focus)
     type SpacingKey = 'forced' | 'concentric' | 'dense' | 'pretty' | 'focus'
     const defaultSpacing = 48
@@ -140,6 +144,58 @@ export default function NetworkGraph() {
     const focusingRef = useRef<boolean>(false)
     const { setNodesRef, animateNodePositions, cancelPositionAnimation } = usePositionAnimator(setNodes)
     useEffect(() => { setNodesRef(nodes) }, [nodes, setNodesRef])
+
+    // Helper: when separateGroups is enabled, offset node positions so each group is a distinct cluster
+    const packGroups = useCallback((pos: Map<string, { x: number; y: number }>, nodesForPos: any[], cellSizeBase: number) => {
+        // Build group -> node ids
+        const groupsMap = new Map<string, string[]>()
+        nodesForPos.forEach(n => {
+            const g = (n.data && (n.data as any).group) || null
+            if (!g) return
+            if (!groupsMap.has(g)) groupsMap.set(g, [])
+            groupsMap.get(g)!.push(n.id)
+        })
+        if (groupsMap.size <= 1) return pos
+        // Compute centroids and radii per group
+        const groupStats: Array<{ g: string, cx: number, cy: number, r: number }> = []
+        groupsMap.forEach((ids, g) => {
+            let sumx = 0, sumy = 0, count = 0
+            ids.forEach(id => {
+                const p = pos.get(id) || { x: 0, y: 0 }
+                sumx += p.x; sumy += p.y; count += 1
+            })
+            const cx = count ? sumx / count : 0
+            const cy = count ? sumy / count : 0
+            let maxR = 0
+            ids.forEach(id => {
+                const p = pos.get(id) || { x: 0, y: 0 }
+                const dx = p.x - cx, dy = p.y - cy
+                const r = Math.hypot(dx, dy)
+                if (r > maxR) maxR = r
+            })
+            groupStats.push({ g, cx, cy, r: maxR })
+        })
+        // Determine grid layout
+        const N = groupStats.length
+        const cols = Math.ceil(Math.sqrt(N))
+        const rows = Math.ceil(N / cols)
+        const margin = Math.max(200, cellSizeBase * 4)
+        const cell = Math.max(...groupStats.map(s => s.r * 2 + margin), margin * 1.5)
+        const newPos = new Map<string, { x: number; y: number }>(pos)
+        groupStats.sort((a, b) => a.g.localeCompare(b.g)).forEach((s, idx) => {
+            const col = idx % cols
+            const row = Math.floor(idx / cols)
+            const ox = (col - (cols - 1) / 2) * cell
+            const oy = (row - (rows - 1) / 2) * cell
+            const ids = groupsMap.get(s.g)!
+            ids.forEach(id => {
+                const p = pos.get(id) || { x: 0, y: 0 }
+                const local = { x: p.x - s.cx, y: p.y - s.cy }
+                newPos.set(id, { x: local.x + ox, y: local.y + oy })
+            })
+        })
+        return newPos
+    }, [])
 
     // Function to handle node hover and update opacity
     // Throttle hover updates to animation frames to avoid excessive re-renders
@@ -234,7 +290,8 @@ export default function NetworkGraph() {
         selectedNetwork,
         isDark,
         hideOnlineByDefault,
-        animationMode
+        animationMode,
+        separateGroups
     )
 
     // Force a layout recompute in the current layout mode (when not focused)
@@ -246,7 +303,10 @@ export default function NetworkGraph() {
             setNodes([])
             setEdges([])
             const maybe = engine.compute(processedNodes, processedEdges, { isDark, spacing: spacings[layoutMode as SpacingKey], advanced })
-            const pos = (maybe instanceof Promise) ? await maybe : maybe
+            let pos = (maybe instanceof Promise) ? await maybe : maybe
+            if (separateGroups) {
+                pos = packGroups(pos, processedNodes, spacings[layoutMode as SpacingKey])
+            }
             const withPos = processedNodes.map(n => ({ ...n, position: pos.get(n.id) ?? n.position, data: { ...n.data, onHover: handleNodeHover, isPanning } } as any))
             setNodes(withPos)
             setEdges(processedEdges)
@@ -273,8 +333,9 @@ export default function NetworkGraph() {
             localStorage.setItem('meshmon.animationMode', animationMode)
             localStorage.setItem('meshmon.graph.spacings', JSON.stringify(spacings))
             localStorage.setItem('meshmon.graph.advanced', JSON.stringify(advanced))
+            localStorage.setItem('meshmon.graph.separateGroups', String(separateGroups))
         } catch { }
-    }, [layoutMode, hideOnlineByDefault, animationMode, spacings, focusedNodeId, advanced])
+    }, [layoutMode, hideOnlineByDefault, animationMode, spacings, focusedNodeId, advanced, separateGroups])
 
     // Pre-compute layout on initial mount/topology/layout change BEFORE rendering
     const [initialLayoutDone, setInitialLayoutDone] = useState(false)
@@ -295,7 +356,10 @@ export default function NetworkGraph() {
                 setNodes([])
                 setEdges([])
                 const maybe = engine.compute(processedNodes, processedEdges, { isDark, spacing: spacings[layoutMode as SpacingKey], advanced })
-                const pos = (maybe instanceof Promise) ? await maybe : maybe
+                let pos = (maybe instanceof Promise) ? await maybe : maybe
+                if (separateGroups) {
+                    pos = packGroups(pos, processedNodes, spacings[layoutMode as SpacingKey])
+                }
                 if (cancelled) return
                 // Seed nodes with computed positions and attach hover handlers
                 const withPos = processedNodes.map(n => ({ ...n, position: pos.get(n.id) ?? n.position, data: { ...n.data, onHover: handleNodeHover, isPanning } } as any))
@@ -419,12 +483,14 @@ export default function NetworkGraph() {
             setEdges(filtered)
         } else {
             // Find connected nodes and edges using precomputed maps
-            const connectedNodeIds = new Set<string>([hoveredNode])
-            const relevantEdgeIds = new Set<string>(nodeToEdgesMap.get(hoveredNode) || [])
+            // Normalize hover id for grouped clones: edges/nodes use exact ids including ::g= suffix
+            const hovered = hoveredNode
+            const connectedNodeIds = new Set<string>([hovered])
+            const relevantEdgeIds = new Set<string>(nodeToEdgesMap.get(hovered) || [])
             // Allow hover labels even in performance mode to expose online connections
             const enableHoverLabels = true
             logPerf('hover:update', { node: hoveredNode, edges: relevantEdgeIds.size })
-            const neighbors = nodeToNeighborsMap.get(hoveredNode)
+            const neighbors = nodeToNeighborsMap.get(hovered)
             if (neighbors) {
                 neighbors.forEach((n: string) => connectedNodeIds.add(n))
             }
@@ -433,7 +499,7 @@ export default function NetworkGraph() {
             if (!largePerfGraph) {
                 setNodes(currentNodes => {
                     const updated = currentNodes.map(node => {
-                        const shouldHighlight = node.id === hoveredNode
+                        const shouldHighlight = node.id === hovered
                         const shouldDim = !connectedNodeIds.has(node.id)
 
                         if (node.data.isHighlighted !== shouldHighlight || node.data.isDimmed !== shouldDim) {
@@ -957,7 +1023,10 @@ export default function NetworkGraph() {
                                                     onExit={clearFocus}
                                                 />
                                             )}
-                                            <GraphLegend />
+                                            <GraphLegend
+                                                separateGroups={separateGroups}
+                                                onToggleSeparateGroups={(v) => setSeparateGroups(v)}
+                                            />
                                             {/* Spacing slider (contextual per layout and focus) */}
                                             <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
                                                 <div className="flex items-center justify-between mb-1.5">

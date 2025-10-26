@@ -10,7 +10,8 @@ export function useProcessedGraph(
   selectedNetwork: string | null,
   isDark: boolean,
   hideOnlineByDefault: boolean,
-  animationMode: 'never' | 'hover' | 'always'
+  animationMode: 'never' | 'hover' | 'always',
+  separateGroups: boolean = false
 ) {
   return useMemo(() => {
     if (!networkData?.networks || !selectedNetwork) {
@@ -55,6 +56,9 @@ export function useProcessedGraph(
     type MonMetric = { status: 'online' | 'offline' | 'unknown'; inTotal: number; inOnline: number }
     const monMetrics: Record<string, MonMetric> = Object.fromEntries(monitorIds.map(id => [id, { status: mapMonStatus(network.monitors.find(m => m.monitor_id === id)?.status || 'unknown'), inTotal: 0, inOnline: 0 }]))
     const monitorInboundMap: Record<string, Record<string, { online: boolean; rtt: number }>> = {}
+    const monitorGroupMap: Record<string, string> = Object.fromEntries(
+      network.monitors.map(m => [m.monitor_id, (m as any).group ?? 'default'])
+    )
     const monitorNameMap: Record<string, string> = Object.fromEntries(
       network.monitors.map(m => [m.monitor_id, (m as any).name || m.monitor_id])
     )
@@ -65,7 +69,7 @@ export function useProcessedGraph(
       if (monMetrics[mc.monitor_id]) { monMetrics[mc.monitor_id].inTotal++; if (mc.status === 'up') monMetrics[mc.monitor_id].inOnline++ }
     }
 
-    const nodeMap = new Map<string, any>()
+  const nodeMap = new Map<string, any>()
 
     const sortedNodes = nodeIds
       .map(nodeId => ({ id: nodeId, type: 'node', metrics: nodeMetrics[nodeId], totalConnections: (nodeMetrics[nodeId].inTotal || 0) + (nodeMetrics[nodeId].outTotal || 0) }))
@@ -282,46 +286,48 @@ export function useProcessedGraph(
       } as any)
     }
 
-    // Node -> monitor edges
-    for (const sourceNodeId of nodeIds) {
-      for (const monitorId of monitorIds) {
-        const inbound = monitorInboundMap[monitorId]?.[sourceNodeId]
-        if (!inbound) continue
-        const isOnline = inbound.online
-        const rtt = inbound.rtt || 0
-        const strength = isOnline ? Math.max(1, 5 - (rtt / 50)) : 0.5
-        const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
-        const strokeWidth = baseStrokeWidth
-        const computedOpacity = isOnline ? 0.7 : 0.6
-        const baseOpacity = isOnline && hideOnlineByDefault ? 0 : computedOpacity
-        const edgeId = `${sourceNodeId}-${monitorId}`
-        const canAnimateMon = true
-        const isAnimatedNowMon = (animationMode === 'always') ? true : false
-        edges.push({
-          id: edgeId,
-          source: sourceNodeId,
-          sourceHandle: 's',
-          target: monitorId,
-          targetHandle: 't',
-          style: {
-            stroke: isOnline ? '#a855f7' : '#ef4444',
-            strokeWidth,
-            ...(isAnimatedNowMon ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray: isOnline ? '0' : '6,3' }),
-            opacity: baseOpacity,
-          },
-          label: isOnline && false ? `${rtt.toFixed(0)}ms` : undefined,
-          data: {
-            isOnline: isOnline,
-            isMonitorEdge: true,
-            canAnimate: canAnimateMon,
-            originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
-            originalOpacity: computedOpacity,
-            baseOpacity,
-          },
-          animated: isAnimatedNowMon,
-          type: 'floating',
-          markerEnd: { type: 3 as any, color: isOnline ? '#a855f7' : '#ef4444', width: 12, height: 12 },
-        } as any)
+    // Node -> monitor edges (unified mode)
+    if (!separateGroups) {
+      for (const sourceNodeId of nodeIds) {
+        for (const monitorId of monitorIds) {
+          const inbound = monitorInboundMap[monitorId]?.[sourceNodeId]
+          if (!inbound) continue
+          const isOnline = inbound.online
+          const rtt = inbound.rtt || 0
+          const strength = isOnline ? Math.max(1, 5 - (rtt / 50)) : 0.5
+          const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+          const strokeWidth = baseStrokeWidth
+          const computedOpacity = isOnline ? 0.7 : 0.6
+          const baseOpacity = isOnline && hideOnlineByDefault ? 0 : computedOpacity
+          const edgeId = `${sourceNodeId}-${monitorId}`
+          const canAnimateMon = true
+          const isAnimatedNowMon = (animationMode === 'always') ? true : false
+          edges.push({
+            id: edgeId,
+            source: sourceNodeId,
+            sourceHandle: 's',
+            target: monitorId,
+            targetHandle: 't',
+            style: {
+              stroke: isOnline ? '#a855f7' : '#ef4444',
+              strokeWidth,
+              ...(isAnimatedNowMon ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray: isOnline ? '0' : '6,3' }),
+              opacity: baseOpacity,
+            },
+            label: isOnline && false ? `${rtt.toFixed(0)}ms` : undefined,
+            data: {
+              isOnline: isOnline,
+              isMonitorEdge: true,
+              canAnimate: canAnimateMon,
+              originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
+              originalOpacity: computedOpacity,
+              baseOpacity,
+            },
+            animated: isAnimatedNowMon,
+            type: 'floating',
+            markerEnd: { type: 3 as any, color: isOnline ? '#a855f7' : '#ef4444', width: 12, height: 12 },
+          } as any)
+        }
       }
     }
 
@@ -339,6 +345,283 @@ export function useProcessedGraph(
       neighborMap.get(edge.target)!.add(edge.source)
     })
 
+    // If separateGroups is requested, rebuild nodes and edges into per-group clusters
+    if (separateGroups) {
+      const groups = Array.from(new Set(Object.values(monitorGroupMap)))
+      const groupedNodes: Node[] = []
+      const groupedEdges: Edge[] = []
+
+      // Precompute node set per group from monitor inbound connections
+      const nodesPerGroup: Record<string, Set<string>> = {}
+      for (const g of groups) nodesPerGroup[g] = new Set<string>()
+      for (const [mid, inbound] of Object.entries(monitorInboundMap)) {
+        const g = monitorGroupMap[mid] || 'default'
+        for (const nid of Object.keys(inbound)) nodesPerGroup[g].add(nid)
+      }
+
+      // Helper to clone node data with a grouped id
+      const cloneNode = (orig: any, group: string): Node => {
+        const cloneId = `${orig.id}::g=${group}`
+        return ({
+          id: cloneId,
+          type: orig.type,
+          position: { x: 0, y: 0 },
+          data: { ...orig.data, group, nodeId: cloneId },
+        } as any)
+      }
+
+      // Build per-group subgraphs
+      for (const g of groups) {
+        const nodeSet = nodesPerGroup[g]
+        if (!nodeSet || nodeSet.size === 0) continue
+        // Add node copies
+        for (const nid of nodeSet) {
+          const baseNode = nodeMap.get(nid)
+          if (baseNode) groupedNodes.push(cloneNode(baseNode, g))
+        }
+        // Add monitor copies for group
+        const groupMonitorIds = monitorIds.filter(mid => monitorGroupMap[mid] === g)
+        for (const mid of groupMonitorIds) {
+          const baseMon = nodeMap.get(mid)
+          if (baseMon) groupedNodes.push(cloneNode(baseMon, g))
+        }
+
+        // Add node-to-node edges within group (use underlying mesh connections, but scoped to grouped ids)
+        for (const [key, rec] of pairMap.entries()) {
+          const [a, b] = key.split('|')
+          if (!nodeSet.has(a) || !nodeSet.has(b)) continue
+          const aOnline = rec.aToB?.online ?? false
+          const bOnline = rec.bToA?.online ?? false
+          const hasAtoB = rec.aToB !== undefined
+          const hasBtoA = rec.bToA !== undefined
+          const bothOnline = hasAtoB && hasBtoA && aOnline && bOnline
+          const bothDown = hasAtoB && hasBtoA && !aOnline && !bOnline
+          const partial = hasAtoB && hasBtoA && ((aOnline && !bOnline) || (!aOnline && bOnline))
+          const anyOnline = aOnline || bOnline
+          const rttA = rec.aToB?.rtt
+          const rttB = rec.bToA?.rtt
+          let strokeColor = '#22c55e'
+          let strokeDasharray = '0'
+          if (hasAtoB && hasBtoA) {
+            if (bothDown) { strokeColor = '#ef4444'; strokeDasharray = '6,3' }
+            else if (partial) { strokeColor = '#eab308'; strokeDasharray = '6,3' }
+            else if (bothOnline) { strokeColor = '#22c55e'; strokeDasharray = '0' }
+          } else if (hasAtoB) {
+            strokeColor = aOnline ? '#22c55e' : '#ef4444'
+            strokeDasharray = aOnline ? '0' : '6,3'
+          } else if (!hasAtoB && hasBtoA) {
+            strokeColor = bOnline ? '#22c55e' : '#ef4444'
+            strokeDasharray = bOnline ? '0' : '6,3'
+          }
+          const rttForStrength = (aOnline ? (rttA ?? 0) : Infinity) < (bOnline ? (rttB ?? 0) : Infinity)
+            ? (aOnline ? (rttA ?? 0) : (bOnline ? (rttB ?? 0) : 0))
+            : (bOnline ? (rttB ?? 0) : (aOnline ? (rttA ?? 0) : 0))
+          const strength = anyOnline ? Math.max(1, 5 - ((rttForStrength as number) / 50)) : 0.5
+          const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+          const strokeWidth = baseStrokeWidth
+          const computedOpacity = anyOnline ? 0.7 : 0.6
+          const baseOpacity = (hasAtoB && hasBtoA) ? (bothOnline && hideOnlineByDefault ? 0 : computedOpacity) : ((anyOnline && hideOnlineByDefault) ? 0 : computedOpacity)
+          let orientedSource = a
+          let orientedTarget = b
+          if (partial) { if (aOnline && !bOnline) { orientedSource = a; orientedTarget = b } else if (bOnline && !aOnline) { orientedSource = b; orientedTarget = a } }
+          else if (hasAtoB && !hasBtoA) { orientedSource = a; orientedTarget = b }
+          else if (!hasAtoB && hasBtoA) { orientedSource = b; orientedTarget = a }
+          const isUnidirectional = (hasAtoB && !hasBtoA) || (!hasAtoB && hasBtoA)
+          const canAnimate = partial || isUnidirectional
+          const isAnimatedNow = (animationMode === 'always') ? !!canAnimate : false
+          groupedEdges.push({
+            id: `${a}::g=${g}-${b}::g=${g}`,
+            source: `${orientedSource}::g=${g}`,
+            sourceHandle: 's',
+            target: `${orientedTarget}::g=${g}`,
+            targetHandle: 't',
+            style: {
+              stroke: strokeColor,
+              strokeWidth,
+              ...(isAnimatedNow ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray }),
+              opacity: baseOpacity,
+            },
+            data: {
+              isOnline: anyOnline,
+              isMonitorEdge: false,
+              canAnimate,
+              originalOpacity: computedOpacity,
+              baseOpacity,
+              originalLabel: undefined,
+              originalLabelStyle: undefined,
+              originalLabelBgStyle: undefined,
+              aToBOnline: aOnline,
+              bToAOnline: bOnline,
+              hasAtoB,
+              hasBtoA,
+            },
+            animated: isAnimatedNow,
+            type: 'floating',
+            markerStart: (() => {
+              const backOnline = (orientedSource === a) ? bOnline : aOnline
+              const exist = (orientedSource === a) ? hasBtoA : hasAtoB
+              return exist ? { type: 3 as any, color: backOnline ? '#22c55e' : '#ef4444', width: 12, height: 12 } : undefined
+            })(),
+            markerEnd: (() => {
+              const fwdOnline = (orientedSource === a) ? aOnline : bOnline
+              const exist = (orientedSource === a) ? hasAtoB : hasBtoA
+              return exist ? { type: 3 as any, color: fwdOnline ? '#22c55e' : '#ef4444', width: 12, height: 12 } : undefined
+            })(),
+          } as any)
+        }
+        // Note: in separated mode we intentionally omit node-to-node edges to keep clusters simple
+        // Add node->monitor edges within group
+        for (const mid of groupMonitorIds) {
+          const inbound = monitorInboundMap[mid] || {}
+          for (const nid of Object.keys(inbound)) {
+            if (!nodeSet.has(nid)) continue
+            const isOnline = inbound[nid]?.online ?? false
+            const rtt = inbound[nid]?.rtt || 0
+            const strength = isOnline ? Math.max(1, 5 - (rtt / 50)) : 0.5
+            const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+            const strokeWidth = baseStrokeWidth
+            const computedOpacity = isOnline ? 0.7 : 0.6
+            const baseOpacity = isOnline && hideOnlineByDefault ? 0 : computedOpacity
+            const canAnimateMon = true
+            const isAnimatedNowMon = (animationMode === 'always') ? true : false
+            groupedEdges.push({
+              id: `${nid}::g=${g}-${mid}::g=${g}`,
+              source: `${nid}::g=${g}`,
+              sourceHandle: 's',
+              target: `${mid}::g=${g}`,
+              targetHandle: 't',
+              style: {
+                stroke: isOnline ? '#a855f7' : '#ef4444',
+                strokeWidth,
+                ...(isAnimatedNowMon ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray: isOnline ? '0' : '6,3' }),
+                opacity: baseOpacity,
+              },
+              data: {
+                isOnline,
+                isMonitorEdge: true,
+                canAnimate: canAnimateMon,
+                originalLabel: isOnline ? `${rtt.toFixed(0)}ms` : undefined,
+                originalLabelStyle: undefined,
+                originalLabelBgStyle: undefined,
+                originalOpacity: computedOpacity,
+                baseOpacity,
+              },
+              animated: isAnimatedNowMon,
+              type: 'floating',
+              markerEnd: { type: 3 as any, color: isOnline ? '#a855f7' : '#ef4444', width: 12, height: 12 },
+            } as any)
+          }
+        }
+      }
+
+      // Add an additional cluster for all nodes (nodes-only view, entire network)
+      {
+        const g = 'all'
+        // Add all node clones
+        for (const nid of nodeIds) {
+          const baseNode = nodeMap.get(nid)
+          if (baseNode) groupedNodes.push(cloneNode(baseNode, g))
+        }
+        // Add node-to-node edges for all node pairs
+        for (const [key, rec] of pairMap.entries()) {
+          const [a, b] = key.split('|')
+          const aOnline = rec.aToB?.online ?? false
+          const bOnline = rec.bToA?.online ?? false
+          const hasAtoB = rec.aToB !== undefined
+          const hasBtoA = rec.bToA !== undefined
+          const bothOnline = hasAtoB && hasBtoA && aOnline && bOnline
+          const bothDown = hasAtoB && hasBtoA && !aOnline && !bOnline
+          const partial = hasAtoB && hasBtoA && ((aOnline && !bOnline) || (!aOnline && bOnline))
+          const anyOnline = aOnline || bOnline
+          const rttA = rec.aToB?.rtt
+          const rttB = rec.bToA?.rtt
+          let strokeColor = '#22c55e'
+          let strokeDasharray = '0'
+          if (hasAtoB && hasBtoA) {
+            if (bothDown) { strokeColor = '#ef4444'; strokeDasharray = '6,3' }
+            else if (partial) { strokeColor = '#eab308'; strokeDasharray = '6,3' }
+            else if (bothOnline) { strokeColor = '#22c55e'; strokeDasharray = '0' }
+          } else if (hasAtoB) {
+            strokeColor = aOnline ? '#22c55e' : '#ef4444'
+            strokeDasharray = aOnline ? '0' : '6,3'
+          } else if (!hasAtoB && hasBtoA) {
+            strokeColor = bOnline ? '#22c55e' : '#ef4444'
+            strokeDasharray = bOnline ? '0' : '6,3'
+          }
+          const rttForStrength = (aOnline ? (rttA ?? 0) : Infinity) < (bOnline ? (rttB ?? 0) : Infinity)
+            ? (aOnline ? (rttA ?? 0) : (bOnline ? (rttB ?? 0) : 0))
+            : (bOnline ? (rttB ?? 0) : (aOnline ? (rttA ?? 0) : 0))
+          const strength = anyOnline ? Math.max(1, 5 - ((rttForStrength as number) / 50)) : 0.5
+          const baseStrokeWidth = Math.max(1.5, Math.min(4, strength))
+          const strokeWidth = baseStrokeWidth
+          const computedOpacity = anyOnline ? 0.7 : 0.6
+          const baseOpacity = (hasAtoB && hasBtoA) ? (bothOnline && hideOnlineByDefault ? 0 : computedOpacity) : ((anyOnline && hideOnlineByDefault) ? 0 : computedOpacity)
+          let orientedSource = a
+          let orientedTarget = b
+          if (partial) { if (aOnline && !bOnline) { orientedSource = a; orientedTarget = b } else if (bOnline && !aOnline) { orientedSource = b; orientedTarget = a } }
+          else if (hasAtoB && !hasBtoA) { orientedSource = a; orientedTarget = b }
+          else if (!hasAtoB && hasBtoA) { orientedSource = b; orientedTarget = a }
+          const isUnidirectional = (hasAtoB && !hasBtoA) || (!hasAtoB && hasBtoA)
+          const canAnimate = partial || isUnidirectional
+          const isAnimatedNow = (animationMode === 'always') ? !!canAnimate : false
+          groupedEdges.push({
+            id: `${a}::g=${g}-${b}::g=${g}`,
+            source: `${orientedSource}::g=${g}`,
+            sourceHandle: 's',
+            target: `${orientedTarget}::g=${g}`,
+            targetHandle: 't',
+            style: {
+              stroke: strokeColor,
+              strokeWidth,
+              ...(isAnimatedNow ? { strokeDasharray: '8 4', animation: 'dashdraw 1s linear infinite' } : { strokeDasharray }),
+              opacity: baseOpacity,
+            },
+            data: {
+              isOnline: anyOnline,
+              isMonitorEdge: false,
+              canAnimate,
+              originalOpacity: computedOpacity,
+              baseOpacity,
+              originalLabel: undefined,
+              originalLabelStyle: undefined,
+              originalLabelBgStyle: undefined,
+              aToBOnline: aOnline,
+              bToAOnline: bOnline,
+              hasAtoB,
+              hasBtoA,
+            },
+            animated: isAnimatedNow,
+            type: 'floating',
+            markerStart: (() => {
+              const backOnline = (orientedSource === a) ? bOnline : aOnline
+              const exist = (orientedSource === a) ? hasBtoA : hasAtoB
+              return exist ? { type: 3 as any, color: backOnline ? '#22c55e' : '#ef4444', width: 12, height: 12 } : undefined
+            })(),
+            markerEnd: (() => {
+              const fwdOnline = (orientedSource === a) ? aOnline : bOnline
+              const exist = (orientedSource === a) ? hasAtoB : hasBtoA
+              return exist ? { type: 3 as any, color: fwdOnline ? '#22c55e' : '#ef4444', width: 12, height: 12 } : undefined
+            })(),
+          } as any)
+        }
+      }
+
+      // Replace unified graph with grouped graph
+      const edgeMap2 = new Map<string, Set<string>>()
+      const neighborMap2 = new Map<string, Set<string>>()
+      groupedEdges.forEach((edge) => {
+        if (!edgeMap2.has(edge.source)) edgeMap2.set(edge.source, new Set())
+        if (!edgeMap2.has(edge.target)) edgeMap2.set(edge.target, new Set())
+        edgeMap2.get(edge.source)!.add(edge.id)
+        edgeMap2.get(edge.target)!.add(edge.id)
+        if (!neighborMap2.has(edge.source)) neighborMap2.set(edge.source, new Set())
+        if (!neighborMap2.has(edge.target)) neighborMap2.set(edge.target, new Set())
+        neighborMap2.get(edge.source)!.add(edge.target)
+        neighborMap2.get(edge.target)!.add(edge.source)
+      })
+      return { processedNodes: groupedNodes, processedEdges: groupedEdges, nodeToEdgesMap: edgeMap2, nodeToNeighborsMap: neighborMap2 }
+    }
+
     return { processedNodes: nodes, processedEdges: edges, nodeToEdgesMap: edgeMap, nodeToNeighborsMap: neighborMap }
-  }, [networkData, selectedNetwork, isDark, hideOnlineByDefault, animationMode])
+  }, [networkData, selectedNetwork, isDark, hideOnlineByDefault, animationMode, separateGroups])
 }

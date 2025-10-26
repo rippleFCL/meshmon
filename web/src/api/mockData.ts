@@ -121,10 +121,13 @@ export function toMeshMonApi(multi: MultiNetworkAnalysis): MeshMonApi {
     }
 
     // Monitors
-    const monitors = Object.entries(net.monitor_analyses || {}).map(([mid, ma]) => ({
+    // Distribute monitors into deterministic groups so the UI can render group sections
+    const GROUPS = ['alpha', 'beta', 'gamma', 'default'] as const
+    const monitorEntries = Object.entries(net.monitor_analyses || {})
+    const monitors = monitorEntries.map(([mid, ma], idx) => ({
       monitor_id: mid,
       name: mid,
-      group: 'default',
+      group: GROUPS[idx % GROUPS.length],
       status: monStatusToEnum((ma as any).monitor_status),
     }))
 

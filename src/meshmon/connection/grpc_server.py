@@ -254,18 +254,15 @@ class MeshMonServicer(MeshMonServiceServicer):
                 client_node_id, network_id
             )
             if connection is None:
-                self.logger.info(
-                    "Creating new connection for peer",
-                    server_node_id=server_node_id,
-                    client_node_id=client_node_id,
+                self.logger.warning(
+                    "Failed to get connection from ConnectionManager",
+                    server_node_id=client_node_id,
                     network_id=network_id,
-                    peer=context.peer(),
                 )
-                connection = self.connection_manager.add_connection(
-                    client_node_id,
-                    server_node_id,
-                    network_id,
+                context.abort(
+                    grpc.StatusCode.UNAUTHENTICATED, "Failed to get connection"
                 )
+                return
             handler = self.update_handlers.get_handler(network_id)
             protocol_handler = PulseWaveProtocol(
                 handler=handler,

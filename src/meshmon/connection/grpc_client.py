@@ -48,11 +48,15 @@ class ClientTargetsPreprocessor(ConfigPreprocessor[list[ClientTarget]]):
             for node in network.node_config:
                 if node.node_id == network.node_id:
                     continue
+                # Outbound dialing requires a target URL
                 if not node.url:
                     continue
-                if network.node_id in node.block or (
-                    node.allow and network.node_id in node.allow
-                ):
+                # Enforce allow/block lists published on the DEST node
+                # - If src (self) is blocked by dest, skip
+                # - If dest has an allow list and src not in it, skip
+                if network.node_id in node.block:
+                    continue
+                if node.allow and network.node_id not in node.allow:
                     continue
                 verifier = network.key_mapping.get_verifier(node.node_id)
                 if verifier is None:
@@ -452,9 +456,13 @@ class GrpcClient:
                 self.peer_node_id, self.network_id
             )
             if connection is None:
-                connection = self.connection_manager.add_connection(
-                    self.peer_node_id, self.self_node_id, self.network_id
+                self.logger.warning(
+                    "Failed to get connection from ConnectionManager",
+                    server_node_id=self.peer_node_id,
+                    network_id=self.network_id,
                 )
+                self.stop_stream()
+                return
             connection.add_raw_connection(self.raw_conn)
 
             self.logger.info(

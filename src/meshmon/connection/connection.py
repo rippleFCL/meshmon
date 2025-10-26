@@ -220,16 +220,41 @@ class Connection:
                 raw_conn.close()
 
 
-class ConnectionManagerConfigPreprocessor(ConfigPreprocessor[set[tuple[str, str]]]):
-    def preprocess(self, config: Config | None) -> set[tuple[str, str]]:
-        connections = set()
+class ConnectionManagerConfigPreprocessor(
+    ConfigPreprocessor[set[tuple[str, str, str]]]
+):
+    def preprocess(self, config: Config | None) -> set[tuple[str, str, str]]:
+        connections: set[tuple[str, str, str]] = set()
         if config is None:
             return connections
-        for network in config.networks.values():
-            for node in network.node_config:
-                if node.node_id == network.node_id:
+        for network_id, network in config.networks.items():
+            # Build an index for peer lookup
+            peers = {n.node_id: n for n in network.node_config}
+            self_id = network.node_id
+            for dest_id, dest in peers.items():
+                if dest_id == self_id:
                     continue
-                connections.add((node.node_id, network.network_id))
+                src = peers.get(self_id)
+                if src is None:
+                    continue
+                # Check if src can dial dest
+                src_can_dial_dest = False
+                if dest.url:
+                    if self_id not in dest.block and (
+                        not dest.allow or self_id in dest.allow
+                    ):
+                        src_can_dial_dest = True
+
+                # Check if dest can dial src (i.e., reverse direction permitted)
+                dest_can_dial_src = False
+                if src.url:
+                    if dest_id not in src.block and (
+                        not src.allow or dest_id in src.allow
+                    ):
+                        dest_can_dial_src = True
+
+                if src_can_dial_dest or dest_can_dial_src:
+                    connections.add((dest_id, network_id, self_id))
         return connections
 
 
@@ -246,6 +271,8 @@ class ConnectionManager:
             module="meshmon.connection.connection", component="ConnectionManager"
         )
         self.lock = threading.RLock()
+        # Initialize connections based on current config
+        self.reload(self.watcher.current_config)
 
     def get_connection(self, node_id: str, network_id: str) -> Connection | None:
         with self.lock:
@@ -279,16 +306,18 @@ class ConnectionManager:
         with self.lock:
             return iter(self.connections.values())
 
-    def reload(self, config: set[tuple[str, str]]) -> None:
+    def reload(self, config: set[tuple[str, str, str]]) -> None:
         self.logger.info(
             "Config reload triggered for ConnectionManager",
             new_connection_count=len(config),
             current_connection_count=len(self.connections),
         )
         with self.lock:
-            to_remove = []
+            # Remove connections no longer in config
+            to_remove: list[tuple[str, str]] = []
+            desired_pairs = {(dest, net) for (dest, net, _src) in config}
             for (node_id, network_id), conn in self.connections.items():
-                if (node_id, network_id) not in config:
+                if (node_id, network_id) not in desired_pairs:
                     to_remove.append((node_id, network_id))
             for node_id, network_id in to_remove:
                 self.logger.info(
@@ -297,3 +326,13 @@ class ConnectionManager:
                     network_id=network_id,
                 )
                 self.remove_connection(node_id, network_id)
+            # Add any new connections
+            for dest_node_id, network_id, src_node_id in config:
+                if (dest_node_id, network_id) not in self.connections:
+                    self.logger.info(
+                        "Adding new connection",
+                        node_id=dest_node_id,
+                        network_id=network_id,
+                        initiator=src_node_id,
+                    )
+                    self.add_connection(dest_node_id, src_node_id, network_id)

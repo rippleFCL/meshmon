@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v4.0.0-beta.8] - 2025-10-26
+### :sparkles: New Features
+- [`19e918b`](https://github.com/rippleFCL/meshmon/commit/19e918bb6885f24f629cc17baa4791fd73d3272b) - advanced layout *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`288c89b`](https://github.com/rippleFCL/meshmon/commit/288c89b2363810452c8209b663595a729403a70f) - git config and local config refresh at diffrent times *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`0a23f99`](https://github.com/rippleFCL/meshmon/commit/0a23f99142f136c645c2581f685a7e64c155b7fe) - split by group, view in network graph *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`e92a91c`](https://github.com/rippleFCL/meshmon/commit/e92a91c5b02ec302338c6f4ba7ef917916f5f37d) - generate pub/pri keys on nodeconf load *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`8b23fab`](https://github.com/rippleFCL/meshmon/commit/8b23fabff22bff15d60ba909e70c7b5015876665) - added groups to the monitor nodes *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :bug: Bug Fixes
+- [`6890b9d`](https://github.com/rippleFCL/meshmon/commit/6890b9d930938dfc2e9aa0184fa449ec9a9befcf) - sidebar dosnt overflow the viewport now *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`5a81f79`](https://github.com/rippleFCL/meshmon/commit/5a81f79999980e47e87bd8ee94852411dc07b0ac) - connection manager prunes unwanted connections *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`d10227b`](https://github.com/rippleFCL/meshmon/commit/d10227b665f009f824fc257221d0a80a0ecce4a0) - groups and name is now displayed in webhook msgs *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+- [`8355a9d`](https://github.com/rippleFCL/meshmon/commit/8355a9d2d26d708bb813332daa434624e0eca5fa) - webhook clear stail notified statuses *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+### :wrench: Chores
+- [`2ff14d1`](https://github.com/rippleFCL/meshmon/commit/2ff14d1301f162ee25d17c67a51f7a289d5fec94) - bump to v4.0.0-beta.8 *(commit by [@rippleFCL](https://github.com/rippleFCL))*
+
+
 ## [v4.0.0-beta.7] - 2025-10-24
 ### :sparkles: New Features
 - [`a3e4a9b`](https://github.com/rippleFCL/meshmon/commit/a3e4a9bf310bd1e5c2ae2a906e35d0eccb5c48be) - added groups! *(commit by [@rippleFCL](https://github.com/rippleFCL))*
@@ -354,3 +372,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v4.0.0-beta.5]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.4...v4.0.0-beta.5
 [v4.0.0-beta.6]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.5...v4.0.0-beta.6
 [v4.0.0-beta.7]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.6...v4.0.0-beta.7
+[v4.0.0-beta.8]: https://github.com/rippleFCL/meshmon/compare/v4.0.0-beta.7...v4.0.0-beta.8

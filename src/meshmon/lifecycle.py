@@ -52,7 +52,7 @@ class LifecycleManager:
 
             except Exception as exc:
                 self.logger.error("Error in config watcher", exc_info=exc)
-            if self._stop_event.wait(60):
+            if self._stop_event.wait(1):
                 break
 
     def start(self):

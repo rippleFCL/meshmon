@@ -1,6 +1,7 @@
 import math
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -97,6 +98,7 @@ class NetworkConfigLoader:
         self._node_cfg: NodeCfg | None = None
         self.latest_mtime = 0
         self.nodecfg_latest_mtime = 0
+        self.last_git_check = 0
 
     def _load_node_config(self) -> NodeCfg | None:
         """
@@ -431,12 +433,38 @@ class NetworkConfigLoader:
         file_mtime = (self.config_dir / self.file_name).stat().st_mtime
         return max(latest_mtime, file_mtime)
 
-    def needs_reload(self):
+    def needs_reload_local(self):
         """
         Check if any Git-based network configurations have updates.
         Returns True if any repos had changes, False otherwise.
         """
         has_changes = False
+        if self._node_cfg:
+            for network in self._node_cfg.networks:
+                # Only check Git-based networks
+                network_path = self.config_dir / "networks" / network.directory
+                if (
+                    network.config_type == ConfigTypes.LOCAL
+                    and self.get_latest_mtime(network_path) > self.latest_mtime
+                ):
+                    self.logger.info(
+                        "Configuration files have been modified, reloading"
+                    )
+                    has_changes = True
+        if self.get_netconf_mtime() > self.nodecfg_latest_mtime:
+            self.logger.info("Node configuration file has been modified, reloading")
+            has_changes = True
+        return has_changes
+
+    def needs_reload_git(self):
+        """
+        Check if any Git-based network configurations have updates.
+        Returns True if any repos had changes, False otherwise.
+        """
+        has_changes = False
+        if time.time() - self.last_git_check < 120:
+            return has_changes  # Only check every 2 minutes
+        self.last_git_check = time.time()
         if self._node_cfg:
             for network in self._node_cfg.networks:
                 # Only check Git-based networks
@@ -470,12 +498,11 @@ class NetworkConfigLoader:
                             "Network repo directory does not exist",
                             network=network.directory,
                         )
-                elif self.get_latest_mtime(network_path) > self.latest_mtime:
-                    self.logger.info(
-                        "Configuration files have been modified, reloading"
-                    )
-                    has_changes = True
-        if self.get_netconf_mtime() > self.nodecfg_latest_mtime:
-            self.logger.info("Node configuration file has been modified, reloading")
-            has_changes = True
         return has_changes
+
+    def needs_reload(self) -> bool:
+        """
+        Check if configuration needs to be reloaded.
+        Returns True if any configs have changed, False otherwise.
+        """
+        return self.needs_reload_git() or self.needs_reload_local()

@@ -29,6 +29,7 @@ import GraphStats from '../components/graph/GraphStats'
 import { useProcessedGraph } from '../components/graph/hooks/useProcessedGraph'
 import { getLayoutEngine } from '../components/graph/layouts'
 import { usePositionAnimator } from '../components/graph/hooks/usePositionAnimator'
+import AdvancedLayoutPanel, { type ForcedAdvancedOptions } from '../components/graph/AdvancedLayoutPanel'
 
 // Toggle for performance/graph mutation logs
 const PERF_LOG = true
@@ -120,6 +121,15 @@ export default function NetworkGraph() {
     const spacingKey = useMemo<SpacingKey>(() => (focusedNodeId ? 'focus' : (layoutMode as SpacingKey)), [focusedNodeId, layoutMode])
     // Group filters (hide monitors by group)
     const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(() => new Set())
+    // Advanced layout options
+    const [advanced, setAdvanced] = useState<{ forced: ForcedAdvancedOptions }>(() => {
+        try {
+            const raw = localStorage.getItem('meshmon.graph.advanced')
+            if (raw) return JSON.parse(raw)
+        } catch { }
+        return { forced: { elkQuality: 'proof', iterations: 1200, minEdgeLength: 120, aspectRatio: 1.2 } }
+    })
+    const defaultAdvanced: { forced: ForcedAdvancedOptions } = { forced: { elkQuality: 'proof', iterations: 1200, minEdgeLength: 120, aspectRatio: 1.2 } }
     const reactFlowRef = useRef<ReactFlowInstance | null>(null)
     const forcedPosRef = useRef<Map<string, { x: number; y: number }> | null>(null)
     const handleLayoutPositions = useCallback((pos: Map<string, { x: number; y: number }>) => {
@@ -227,17 +237,44 @@ export default function NetworkGraph() {
         animationMode
     )
 
+    // Force a layout recompute in the current layout mode (when not focused)
+    const recomputeLayoutNow = useCallback(async () => {
+        if (focusedNodeId) return
+        const engine = getLayoutEngine(layoutMode as any)
+        try {
+            logPerf('layout:manual-recompute:start', { layoutMode })
+            setNodes([])
+            setEdges([])
+            const maybe = engine.compute(processedNodes, processedEdges, { isDark, spacing: spacings[layoutMode as SpacingKey], advanced })
+            const pos = (maybe instanceof Promise) ? await maybe : maybe
+            const withPos = processedNodes.map(n => ({ ...n, position: pos.get(n.id) ?? n.position, data: { ...n.data, onHover: handleNodeHover, isPanning } } as any))
+            setNodes(withPos)
+            setEdges(processedEdges)
+            handleLayoutPositions(pos)
+            setInitialLayoutDone(true)
+            logPerf('layout:manual-recompute:end', { layoutMode })
+        } catch (e) {
+            console.warn('layout manual recompute failed', e)
+        }
+    }, [focusedNodeId, layoutMode, processedNodes, processedEdges, isDark, spacings, advanced, handleNodeHover, isPanning, handleLayoutPositions])
+
+    const resetAdvancedToDefaults = useCallback(() => {
+        setAdvanced(defaultAdvanced)
+        try { localStorage.setItem('meshmon.graph.advanced', JSON.stringify(defaultAdvanced)) } catch { }
+    }, [])
+
     // Persist user settings
     useEffect(() => {
         try {
             if (focusedNodeId) { logPerf('persist:skip-during-focus'); return }
-            logPerf('effect:persistSettings', { layoutMode, hideOnlineByDefault, animationMode, spacings })
+            logPerf('effect:persistSettings', { layoutMode, hideOnlineByDefault, animationMode, spacings, advanced })
             localStorage.setItem('meshmon.layoutMode', layoutMode)
             localStorage.setItem('meshmon.hideOnlineByDefault', String(hideOnlineByDefault))
             localStorage.setItem('meshmon.animationMode', animationMode)
             localStorage.setItem('meshmon.graph.spacings', JSON.stringify(spacings))
+            localStorage.setItem('meshmon.graph.advanced', JSON.stringify(advanced))
         } catch { }
-    }, [layoutMode, hideOnlineByDefault, animationMode, spacings, focusedNodeId])
+    }, [layoutMode, hideOnlineByDefault, animationMode, spacings, focusedNodeId, advanced])
 
     // Pre-compute layout on initial mount/topology/layout change BEFORE rendering
     const [initialLayoutDone, setInitialLayoutDone] = useState(false)
@@ -257,7 +294,7 @@ export default function NetworkGraph() {
                 // Hide any previous graph while recomputing
                 setNodes([])
                 setEdges([])
-                const maybe = engine.compute(processedNodes, processedEdges, { isDark, spacing: spacings[layoutMode as SpacingKey] })
+                const maybe = engine.compute(processedNodes, processedEdges, { isDark, spacing: spacings[layoutMode as SpacingKey], advanced })
                 const pos = (maybe instanceof Promise) ? await maybe : maybe
                 if (cancelled) return
                 // Seed nodes with computed positions and attach hover handlers
@@ -968,6 +1005,14 @@ export default function NetworkGraph() {
                                                 setHideOnlineByDefault={(v) => { setHideOnlineByDefault(v); try { localStorage.setItem('meshmon.hideOnlineByDefault', String(v)) } catch { } }}
                                                 animationMode={animationMode}
                                                 setAnimationMode={(v) => { setAnimationMode(v); try { localStorage.setItem('meshmon.animationMode', v) } catch { } }}
+                                            />
+                                            <AdvancedLayoutPanel
+                                                layoutMode={layoutMode}
+                                                value={advanced}
+                                                onChange={setAdvanced}
+                                                isDark={isDark}
+                                                onRecompute={recomputeLayoutNow}
+                                                onReset={resetAdvancedToDefaults}
                                             />
                                             {/* Group Filters */}
                                             {availableGroups.length > 0 && (

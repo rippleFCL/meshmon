@@ -6,6 +6,9 @@ export interface LayoutOptions {
   isDark: boolean
   // Overall spacing factor in pixels (baseline ~48). Layouts should scale margins/gaps with this.
   spacing: number
+  // Optional advanced options for specific layouts (e.g., forced/ELK)
+  // Layout engines should ignore keys they don't use.
+  advanced?: any
 }
 
 export interface LayoutEngine {

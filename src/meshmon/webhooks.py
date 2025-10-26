@@ -157,6 +157,12 @@ class WebhookManager:
                             webhook,
                         )
 
+                for node_id, status in notified_node_analysis.local_keys():
+                    if node_id.startswith("node-"):
+                        n_id = node_id.removeprefix("node-")
+                        if n_id not in node_status:
+                            notified_node_analysis.delete(node_id)
+
             if self.monitor_status_consistent(store):
                 monitor_status = store.get_context("monitor_status", DSMonitorStatus)
                 for monitor_id, status in monitor_status:
@@ -186,6 +192,11 @@ class WebhookManager:
                             webhook,
                             group_id=status.group,
                         )
+                for monitor_id, status in notified_node_analysis.local_keys():
+                    if monitor_id.startswith("monitor-"):
+                        m_id = monitor_id.removeprefix("monitor-")
+                        if m_id not in monitor_status:
+                            notified_node_analysis.delete(monitor_id)
 
     def webhook_thread(self):
         while True:

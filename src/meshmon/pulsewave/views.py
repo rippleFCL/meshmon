@@ -389,6 +389,27 @@ class ConsistencyContextView[T: BaseModel]:
         updated_paths.append(f"{self.path}.{key}")
         self.update_handler.trigger_update(updated_paths)
 
+    def delete(self, key: str):
+        cons_ctx = self._get_consistency()
+        if cons_ctx.context and key in cons_ctx.context.data:
+            del cons_ctx.context.data[key]
+            updated_paths = [f"{self.path}.{key}"]
+            if key in cons_ctx.context.allowed_keys:
+                cons_ctx.context.allowed_keys.remove(key)
+                updated_paths.extend(
+                    cons_ctx.context.resign(self.key_mapping.signer, self.path)
+                )
+            self.update_handler.trigger_update(updated_paths)
+
+    def local_keys(self) -> list[str]:
+        keys = []
+        cons_ctx = self._get_consistency()
+        if not cons_ctx or not cons_ctx.context:
+            return keys
+        for key in list(cons_ctx.context.data):
+            keys.append(key)
+        return keys
+
     def online_nodes(self) -> list[str]:
         nodes = []
         node_data = self.store.nodes.get(self.key_mapping.signer.node_id)

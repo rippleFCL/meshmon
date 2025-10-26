@@ -39,8 +39,8 @@ export default function Sidebar() {
     }
 
     return (
-        <aside className={`hidden md:flex ${isCollapsed ? 'w-16' : 'w-64'} shrink-0 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r min-h-screen flex-col overflow-hidden`}>
-            <div className="px-3 py-4 border-b dark:border-gray-700 border-gray-200">
+        <aside className={`hidden md:flex ${isCollapsed ? 'w-16' : 'w-64'} shrink-0 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r h-screen sticky top-0 flex-col overflow-hidden`}>
+            <div className="px-3 py-4 border-b dark:border-gray-700 border-gray-200 flex-none">
                 <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
                     <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2'}`}>
                         <Wifi className="h-6 w-6 text-primary-600" />
@@ -67,7 +67,7 @@ export default function Sidebar() {
                 </div>
             </div>
 
-            <nav className="flex-1 overflow-y-auto p-2 space-y-1">
+            <nav className="flex-1 overflow-y-auto p-2 space-y-1 min-h-0">
                 {navigation.map((item) => {
                     const isActive = location.pathname === item.href
                     return (
@@ -97,10 +97,10 @@ export default function Sidebar() {
                                     {item.name === 'Events' && eventsCount > 0 && (
                                         <span
                                             className={`text-[10px] px-1.5 py-0.5 rounded-full ${eventsSeverity === 'error'
-                                                    ? (isDark ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700')
-                                                    : eventsSeverity === 'warning'
-                                                        ? (isDark ? 'bg-yellow-800 text-yellow-200' : 'bg-yellow-100 text-yellow-700')
-                                                        : (isDark ? 'bg-blue-800 text-blue-200' : 'bg-blue-100 text-blue-700')
+                                                ? (isDark ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700')
+                                                : eventsSeverity === 'warning'
+                                                    ? (isDark ? 'bg-yellow-800 text-yellow-200' : 'bg-yellow-100 text-yellow-700')
+                                                    : (isDark ? 'bg-blue-800 text-blue-200' : 'bg-blue-100 text-blue-700')
                                                 }`}
                                         >
                                             {eventsCount}
@@ -113,7 +113,7 @@ export default function Sidebar() {
                 })}
             </nav>
 
-            <div className="p-2 border-t dark:border-gray-700 border-gray-200 space-y-3">
+            <div className="p-2 border-t dark:border-gray-700 border-gray-200 space-y-3 flex-none">
                 <div className={`flex ${isCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-between'}`}>
                     <button
                         onClick={toggleTheme}

@@ -167,7 +167,23 @@ class NetworkConfigLoader:
                             example_data.model_dump(mode="json", exclude_defaults=True),
                             f,
                         )
-
+            global_pubkey_dir = str(
+                self.config_dir / ".public_keys" / network.directory
+            )
+            pubkey_dir = str(
+                self.config_dir / "networks" / network.directory / "pubkeys"
+            )
+            signer = Signer.by_id(
+                network.node_id,
+                str(self.config_dir / ".private_keys" / network.directory),
+            )
+            verifier = signer.get_verifier()
+            if network.config_type == ConfigTypes.LOCAL:
+                verifier.save(
+                    network.node_id, pubkey_dir
+                )  # Save public key if not exists
+            else:
+                verifier.save(network.node_id, global_pubkey_dir)
         networks = [n.directory for n in node_cfg.networks]
         clear_events = []
         for event in self.event_log.events:

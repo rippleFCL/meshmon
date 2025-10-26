@@ -180,10 +180,11 @@ class WebhookManager:
                         )
                         self.handle_webhook(
                             network_id,
-                            monitor_id,
+                            status.name,
                             status.status,
                             WebhookType.MONITOR,
                             webhook,
+                            group_id=status.group,
                         )
 
     def webhook_thread(self):
@@ -237,6 +238,7 @@ class WebhookManager:
         status: DSObjectStatus,
         webhook_type: WebhookType,
         webhook: Webhook,
+        group_id: str | None = None,
     ):
         name = {
             WebhookType.NODE: "Node",
@@ -272,23 +274,26 @@ class WebhookManager:
             # Create more informative title
             title = f"{current_status['emoji']} {name} Status Change - {current_status['severity']}"
 
+            fields = [
+                {
+                    "name": "Network",
+                    "value": network_id,
+                    "inline": True,
+                },
+                {
+                    "name": f"{name} ID",
+                    "value": node_id,
+                    "inline": True,
+                },
+            ]
+            if group_id:
+                fields.append({"name": "Group ID", "value": group_id, "inline": True})
             # Enhanced description with more context
             embed = {
                 "title": title,
                 "description": current_status["description"],
                 "color": current_status["color"],
-                "fields": [
-                    {
-                        "name": "Network",
-                        "value": network_id,
-                        "inline": True,
-                    },
-                    {
-                        "name": f"{name} ID",
-                        "value": node_id,
-                        "inline": True,
-                    },
-                ],
+                "fields": fields,
                 "timestamp": datetime.datetime.now(
                     tz=datetime.timezone.utc
                 ).isoformat(),

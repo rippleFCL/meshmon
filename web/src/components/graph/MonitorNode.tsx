@@ -11,15 +11,20 @@ const MonitorNode = memo(({ data }: { data: any }) => {
     const isDimmed = data.isDimmed
     const nodeOpacity = isDimmed ? 0.1 : isHighlighted ? 1 : 1
     const handleHover = data.onHover
+    const group: string | undefined = data.group
     return (
         <div
             className={`relative flex flex-col items-center justify-center rounded-full border-2 shadow-none overflow-hidden ${isOnline ? (isDark ? 'bg-purple-900/90 border-purple-400 text-white' : 'bg-purple-600 border-purple-500 text-white') : (isDark ? 'bg-red-900/90 border-red-400 text-white' : 'bg-red-600 border-red-500 text-white')}`}
             style={{ width: `${nodeSize}px`, height: `${nodeSize}px`, opacity: nodeOpacity, willChange: 'transform, opacity', transition: 'opacity 220ms ease' }}
             onMouseEnter={() => handleHover && handleHover(data.nodeId || data.label)}
             onMouseLeave={() => handleHover && handleHover(null)}
+            title={group ? `Group: ${group}` : undefined}
         >
             <div className="text-sm font-bold truncate" title={data.label}>{data.label}</div>
             <div className="text-xs opacity-80 mt-0.5">Avg RTT: {Number.isFinite(data.avgRtt) ? `${(data.avgRtt as number).toFixed(1)}ms` : '—'}</div>
+            {group && (
+                <div className="text-[11px] opacity-80 mt-0.5">{group}</div>
+            )}
             <div className="flex justify-center text-xs opacity-80 mt-1">
                 <span title="Nodes monitoring this monitor">←{data.inboundOnlineCount}/{data.inboundCount}</span>
             </div>
@@ -36,7 +41,8 @@ const MonitorNode = memo(({ data }: { data: any }) => {
         a.label === b.label &&
         a.avgRtt === b.avgRtt &&
         a.inboundOnlineCount === b.inboundOnlineCount &&
-        a.inboundCount === b.inboundCount
+        a.inboundCount === b.inboundCount &&
+        a.group === b.group
     )
 })
 

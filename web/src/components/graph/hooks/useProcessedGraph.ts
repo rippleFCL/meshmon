@@ -53,8 +53,10 @@ export function useProcessedGraph(
       }
     }
     const mapMonStatus = (s: 'up' | 'down' | 'unknown') => s === 'up' ? 'online' : s === 'down' ? 'offline' : 'unknown'
-    type MonMetric = { status: 'online' | 'offline' | 'unknown'; inTotal: number; inOnline: number }
-    const monMetrics: Record<string, MonMetric> = Object.fromEntries(monitorIds.map(id => [id, { status: mapMonStatus(network.monitors.find(m => m.monitor_id === id)?.status || 'unknown'), inTotal: 0, inOnline: 0 }]))
+    type MonMetric = { status: 'online' | 'offline' | 'unknown'; inTotal: number; inOnline: number; inSum: number; inCount: number }
+    const monMetrics: Record<string, MonMetric> = Object.fromEntries(
+      monitorIds.map(id => [id, { status: mapMonStatus(network.monitors.find(m => m.monitor_id === id)?.status || 'unknown'), inTotal: 0, inOnline: 0, inSum: 0, inCount: 0 }])
+    )
     const monitorInboundMap: Record<string, Record<string, { online: boolean; rtt: number }>> = {}
     const monitorGroupMap: Record<string, string> = Object.fromEntries(
       network.monitors.map(m => [m.monitor_id, (m as any).group ?? 'default'])
@@ -66,7 +68,16 @@ export function useProcessedGraph(
     for (const mc of network.monitor_connections) {
       if (!monitorInboundMap[mc.monitor_id]) monitorInboundMap[mc.monitor_id] = {}
       monitorInboundMap[mc.monitor_id][mc.node_id] = { online: mc.status === 'up', rtt: mc.rtt || 0 }
-      if (monMetrics[mc.monitor_id]) { monMetrics[mc.monitor_id].inTotal++; if (mc.status === 'up') monMetrics[mc.monitor_id].inOnline++ }
+      if (monMetrics[mc.monitor_id]) {
+        monMetrics[mc.monitor_id].inTotal++
+        if (mc.status === 'up') {
+          monMetrics[mc.monitor_id].inOnline++
+          if (typeof mc.rtt === 'number' && isFinite(mc.rtt) && mc.rtt > 0) {
+            monMetrics[mc.monitor_id].inSum += mc.rtt
+            monMetrics[mc.monitor_id].inCount += 1
+          }
+        }
+      }
     }
 
   const nodeMap = new Map<string, any>()
@@ -110,10 +121,11 @@ export function useProcessedGraph(
           nodeId: entityId,
           label: monitorNameMap[entityId] ?? entityId,
           status: m.status,
-          avgRtt: 0,
+          avgRtt: (m.inCount && m.inCount > 0) ? (m.inSum / m.inCount) : 0,
           inboundCount: m.inTotal,
           inboundOnlineCount: m.inOnline,
           totalConnections,
+          group: (monitorGroupMap[entityId] ?? 'default'),
           onHover: undefined,
           isHighlighted: false,
           isDimmed: false,

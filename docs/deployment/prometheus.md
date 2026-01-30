@@ -200,7 +200,7 @@ meshmon_grpc_bytes_received_total + meshmon_grpc_bytes_sent_total
 
 ```promql
 # P99 packet processing time
-histogram_quantile(0.99, meshmon_grpc_packet_processing_duration_seconds) by (packet_type)
+histogram_quantile(0.99, rate(meshmon_grpc_packet_processing_duration_seconds_bucket[5m])) by (packet_type)
 
 # Average processing time
 rate(meshmon_grpc_packet_processing_duration_seconds_sum[1m]) / rate(meshmon_grpc_packet_processing_duration_seconds_count[1m]) by (packet_type)
@@ -265,7 +265,7 @@ rate(meshmon_grpc_connection_errors_total[5m]) > 0.1
 rate(meshmon_grpc_connection_duration_seconds_sum[5m]) / rate(meshmon_grpc_connection_duration_seconds_count[5m])
 
 # P95 connection duration
-histogram_quantile(0.95, meshmon_grpc_connection_duration_seconds) by (network_id)
+histogram_quantile(0.95, rate(meshmon_grpc_connection_duration_seconds_bucket[5m])) by (network_id)
 ```
 
 **`meshmon_grpc_link_utilization_ratio`** (Gauge)
@@ -304,7 +304,7 @@ sum(meshmon_grpc_queue_depth) by (network_id)
 
 ```promql
 # P99 heartbeat latency
-histogram_quantile(0.99, meshmon_heartbeat_latency_seconds) by (network_id)
+histogram_quantile(0.99, rate(meshmon_heartbeat_latency_seconds_bucket[5m])) by (network_id)
 
 # Average heartbeat latency
 rate(meshmon_heartbeat_latency_seconds_sum[1m]) / rate(meshmon_heartbeat_latency_seconds_count[1m])
@@ -323,14 +323,19 @@ rate(meshmon_heartbeat_latency_seconds_sum[1m]) / rate(meshmon_heartbeat_latency
 rate(meshmon_store_update_size_bytes_sum[5m]) / rate(meshmon_store_update_size_bytes_count[5m])
 
 # P95 update size
-histogram_quantile(0.95, meshmon_store_update_size_bytes) by (direction)
+histogram_quantile(0.95, rate(meshmon_store_update_size_bytes_bucket[5m])) by (direction)
 ```
 
 ### System Metrics
 
 **`meshmon_info`** (Info)
 - MeshMon version and build information
+- Info metrics are Gauge metrics with a value of 1 and metadata in labels
 - Use for: Version tracking and deployment verification
+
+```promql
+# Example: meshmon_info{version="1.0.0", build="abc123"} 1
+```
 
 **`meshmon_networks_active`** (Gauge)
 - Number of active networks being monitored
@@ -475,7 +480,7 @@ Create a Grafana dashboard to visualize MeshMon metrics. Key panels:
 
 6. **Processing Duration** - Histogram visualization
    ```promql
-   histogram_quantile(0.95, meshmon_grpc_packet_processing_duration_seconds)
+   histogram_quantile(0.95, rate(meshmon_grpc_packet_processing_duration_seconds_bucket[5m]))
    ```
 
 7. **Link Utilization** - Gauge or line chart
@@ -542,7 +547,7 @@ groups:
         expr: avg(meshmon_grpc_link_utilization_ratio) by (network_id, direction)
 
       - record: meshmon:heartbeat_latency:p95
-        expr: histogram_quantile(0.95, meshmon_heartbeat_latency_seconds) by (network_id)
+        expr: histogram_quantile(0.95, rate(meshmon_heartbeat_latency_seconds_bucket[5m])) by (network_id)
 ```
 
 ## Next Steps

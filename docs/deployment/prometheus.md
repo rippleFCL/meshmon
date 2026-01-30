@@ -234,10 +234,125 @@ rate(meshmon_grpc_connections_established_total[1m]) by (network_id)
 
 **`meshmon_grpc_connections_closed_total`** (Counter)
 - Total connections closed
+- Labels: `network_id`, `node_id`, `initiator`
+
+```promql
+# Connection closure rate
+rate(meshmon_grpc_connections_closed_total[1m]) by (network_id)
+```
+
+**`meshmon_grpc_connection_errors_total`** (Counter)
+- Total number of connection errors
+- Labels: `network_id`, `node_id`, `error_type`
+- Use for: Detecting connection stability issues
+
+```promql
+# Connection error rate
+rate(meshmon_grpc_connection_errors_total[1m]) by (error_type)
+
+# Alert on high error rate
+rate(meshmon_grpc_connection_errors_total[5m]) > 0.1
+```
+
+**`meshmon_grpc_connection_duration_seconds`** (Histogram)
+- Duration of gRPC connections
 - Labels: `network_id`, `node_id`
+- Buckets: 1s to 24h
+- Use for: Understanding connection stability and lifetime
+
+```promql
+# Average connection duration
+rate(meshmon_grpc_connection_duration_seconds_sum[5m]) / rate(meshmon_grpc_connection_duration_seconds_count[5m])
+
+# P95 connection duration
+histogram_quantile(0.95, meshmon_grpc_connection_duration_seconds) by (network_id)
+```
+
+**`meshmon_grpc_link_utilization_ratio`** (Gauge)
+- Estimated link utilization ratio (0-1 representing 0-100%)
+- Labels: `network_id`, `node_id`, `direction`, `initiator`
+- Use for: Capacity planning and detecting congestion
+
+```promql
+# Links with high utilization
+meshmon_grpc_link_utilization_ratio > 0.8
+
+# Average utilization per network
+avg(meshmon_grpc_link_utilization_ratio) by (network_id)
+```
+
+**`meshmon_grpc_queue_depth`** (Gauge)
+- Current depth of outbound message queue
+- Labels: `network_id`, `node_id`, `direction`, `initiator`
+- Use for: Detecting message backlog and potential congestion
+
+```promql
+# Alert on high queue depth
+meshmon_grpc_queue_depth > 100
+
+# Total queued messages
+sum(meshmon_grpc_queue_depth) by (network_id)
+```
+
+### Heartbeat Metrics
 
 **`meshmon_heartbeat_latency_seconds`** (Histogram)
-- Latency of heartbeat messages
+- Heartbeat round-trip latency
+- Labels: `network_id`, `node_id`
+- Buckets: 1ms to 5s
+- Use for: Fine-grained latency monitoring
+
+```promql
+# P99 heartbeat latency
+histogram_quantile(0.99, meshmon_heartbeat_latency_seconds) by (network_id)
+
+# Average heartbeat latency
+rate(meshmon_heartbeat_latency_seconds_sum[1m]) / rate(meshmon_heartbeat_latency_seconds_count[1m])
+```
+
+### Store Update Metrics
+
+**`meshmon_store_update_size_bytes`** (Histogram)
+- Size of store update payloads in bytes
+- Labels: `network_id`, `direction`
+- Buckets: 100B to 1MB
+- Use for: Bandwidth optimization and capacity planning
+
+```promql
+# Average update size
+rate(meshmon_store_update_size_bytes_sum[5m]) / rate(meshmon_store_update_size_bytes_count[5m])
+
+# P95 update size
+histogram_quantile(0.95, meshmon_store_update_size_bytes) by (direction)
+```
+
+### System Metrics
+
+**`meshmon_info`** (Info)
+- MeshMon version and build information
+- Use for: Version tracking and deployment verification
+
+**`meshmon_networks_active`** (Gauge)
+- Number of active networks being monitored
+- Use for: System capacity monitoring
+
+```promql
+# Total networks
+meshmon_networks_active
+```
+
+**`meshmon_monitors_active`** (Gauge)
+- Number of active monitors
+- Labels: `network_id`
+- Use for: Monitor inventory and capacity planning
+
+```promql
+# Total monitors per network
+meshmon_monitors_active
+
+# Total monitors across all networks
+sum(meshmon_monitors_active)
+```
 
 ## Common Alert Rules
 
@@ -301,6 +416,30 @@ groups:
         annotations:
           summary: "High connection closure rate on {{ $labels.node_id }}"
           description: "{{ $labels.node_id }} has closed {{ $value }} connections in the last 5 minutes"
+
+      # Connection errors
+      - alert: MeshMonConnectionErrors
+        expr: rate(meshmon_grpc_connection_errors_total[5m]) > 0.1
+        for: 2m
+        annotations:
+          summary: "High connection error rate on {{ $labels.node_id }}"
+          description: "{{ $labels.node_id }} is experiencing {{ $value }} connection errors/sec"
+
+      # Link utilization
+      - alert: MeshMonHighLinkUtilization
+        expr: meshmon_grpc_link_utilization_ratio > 0.9
+        for: 5m
+        annotations:
+          summary: "High link utilization on {{ $labels.node_id }}"
+          description: "Link utilization on {{ $labels.node_id }} ({{ $labels.direction }}) is {{ $value | humanizePercentage }}"
+
+      # Queue depth
+      - alert: MeshMonHighQueueDepth
+        expr: meshmon_grpc_queue_depth > 100
+        for: 3m
+        annotations:
+          summary: "High message queue depth on {{ $labels.node_id }}"
+          description: "Queue depth on {{ $labels.node_id }} is {{ $value }} messages"
 ```
 
 ## Grafana Dashboards
@@ -339,6 +478,27 @@ Create a Grafana dashboard to visualize MeshMon metrics. Key panels:
    histogram_quantile(0.95, meshmon_grpc_packet_processing_duration_seconds)
    ```
 
+7. **Link Utilization** - Gauge or line chart
+   ```promql
+   meshmon_grpc_link_utilization_ratio
+   ```
+
+8. **Queue Depth** - Line chart over time
+   ```promql
+   meshmon_grpc_queue_depth
+   ```
+
+9. **Connection Errors** - Rate graph
+   ```promql
+   rate(meshmon_grpc_connection_errors_total[5m]) by (error_type)
+   ```
+
+10. **System Overview** - Stats panel
+    ```promql
+    meshmon_networks_active
+    sum(meshmon_monitors_active)
+    ```
+
 ### Import Pre-built Dashboard
 
 1. Go to Dashboards → Import
@@ -374,6 +534,15 @@ groups:
 
       - record: meshmon:packet_rate:5m
         expr: rate(meshmon_grpc_packets_received_total[5m]) by (network_id, packet_type)
+
+      - record: meshmon:connection_error_rate:5m
+        expr: rate(meshmon_grpc_connection_errors_total[5m]) by (network_id, error_type)
+
+      - record: meshmon:link_utilization:avg
+        expr: avg(meshmon_grpc_link_utilization_ratio) by (network_id, direction)
+
+      - record: meshmon:heartbeat_latency:p95
+        expr: histogram_quantile(0.95, meshmon_heartbeat_latency_seconds) by (network_id)
 ```
 
 ## Next Steps
